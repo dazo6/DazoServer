@@ -1,0 +1,9 @@
+# Project exclude paths
+/build/
+/.idea/
+*.iml
+*.db
+/target/
+/test/
+
+

@@ -8,14 +8,15 @@ import org.apache.http.client.methods.HttpGet;
 import org.apache.http.client.methods.HttpRequestBase;
 
 import java.io.File;
+import java.util.concurrent.Callable;
 
 @Slf4j
-public class DownloadAction implements Runnable {
+public class DownloadAction implements Callable<Boolean> {
 
     private String url;
     private String localPath;
     private HttpClient httpClient;
-    private int retryCount = 5;
+    private int retryCount = 10;
 
     public DownloadAction(HttpClient client, String url, String localPath) {
         this.url = url;
@@ -24,7 +25,7 @@ public class DownloadAction implements Runnable {
     }
 
     @Override
-    public void run() {
+    public Boolean call() {
         HttpRequestBase request = new HttpGet(url);
         request.setHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
                 "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.4896.127 Safari/537.36");
@@ -40,13 +41,30 @@ public class DownloadAction implements Runnable {
                     response = httpClient.execute(request);
                 }
             }
-            FileUtils.copyInputStreamToFile(response.getEntity().getContent(), new File(localPath));
-            log.info("download success " + localPath);
+            if (response.getStatusLine().getStatusCode() == 200) {
+                String remoteFilename =
+                        response.getHeaders("Content-Disposition")[0].getElements()[0].getParameter(0).getValue();
+                String filename =
+                        localPath + remoteFilename.substring(remoteFilename.lastIndexOf('.'));
+                FileUtils.copyInputStreamToFile(response.getEntity().getContent(),
+                        new File(filename));
+                log.info("download success " + filename);
+                return true;
+            } else {
+                retryCount--;
+                if (retryCount > 0) {
+                    return call();
+                } else {
+                    return false;
+                }
+            }
         } catch (Exception e) {
-            log.error("Download error,  " + e.toString());
+            log.error("download error,  " + e.toString());
             retryCount--;
             if (retryCount > 0) {
-                run();
+                return call();
+            } else {
+                return false;
             }
         } finally {
             request.releaseConnection();

@@ -1,6 +1,7 @@
 package com.dazo66.crawler;
 
 import com.geccocrawler.gecco.annotation.*;
+import com.geccocrawler.gecco.request.HttpGetRequest;
 import com.geccocrawler.gecco.spider.HtmlBean;
 import lombok.Data;
 
@@ -11,6 +12,9 @@ import lombok.Data;
         "consolePipeline", "fanboxImagePipeline"})
 @Data
 public class FanboxPost implements HtmlBean {
+
+    @Request
+    private HttpGetRequest request;
 
     @RequestParameter("user")
     private String artistId;

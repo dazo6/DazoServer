@@ -1,5 +1,7 @@
 package com.dazo66.service;
 
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dazo66.entity.CrawlerRequest;
 
 /**
@@ -19,4 +21,8 @@ public interface CrawlerRequestService {
 
     int cleanAll();
 
+    int updateByUrl(CrawlerRequest crawlerRequest);
+
+    Page<CrawlerRequest> getByPage(int page, int pageSize,
+                                   QueryWrapper<CrawlerRequest> queryWrapper);
 }

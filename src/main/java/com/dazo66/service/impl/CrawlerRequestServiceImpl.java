@@ -1,6 +1,7 @@
 package com.dazo66.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dazo66.entity.CrawlerRequest;
 import com.dazo66.mapper.CrawlerRequestMapper;
 import com.dazo66.service.CrawlerRequestService;
@@ -37,6 +38,18 @@ public class CrawlerRequestServiceImpl implements CrawlerRequestService {
     @Override
     public int cleanAll() {
         return crawlerRequestMapper.delete(new QueryWrapper<>());
+    }
+
+    @Override
+    public int updateByUrl(CrawlerRequest crawlerRequest) {
+        return crawlerRequestMapper.update(crawlerRequest,
+                new QueryWrapper<>(new CrawlerRequest().setUrl(crawlerRequest.getUrl())));
+    }
+
+    @Override
+    public Page<CrawlerRequest> getByPage(int page, int pageSize,
+                                          QueryWrapper<CrawlerRequest> queryWrapper) {
+        return crawlerRequestMapper.selectPage(Page.of(page, pageSize), queryWrapper);
     }
 
 }

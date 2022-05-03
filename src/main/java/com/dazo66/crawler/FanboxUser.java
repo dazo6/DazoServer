@@ -1,9 +1,7 @@
 package com.dazo66.crawler;
 
-import com.geccocrawler.gecco.annotation.Gecco;
-import com.geccocrawler.gecco.annotation.Href;
-import com.geccocrawler.gecco.annotation.HtmlField;
-import com.geccocrawler.gecco.annotation.RequestParameter;
+import com.geccocrawler.gecco.annotation.*;
+import com.geccocrawler.gecco.request.HttpGetRequest;
 import com.geccocrawler.gecco.spider.HtmlBean;
 import lombok.Data;
 
@@ -13,6 +11,9 @@ import lombok.Data;
 /**
  * @author Dazo66
  */ public class FanboxUser implements HtmlBean {
+
+    @Request
+    private HttpGetRequest request;
 
     @RequestParameter
     private String user;

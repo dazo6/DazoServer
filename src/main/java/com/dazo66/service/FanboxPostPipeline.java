@@ -2,6 +2,7 @@ package com.dazo66.service;
 
 import com.dazo66.crawler.FanboxNextPageUser;
 import com.dazo66.crawler.FanboxUser;
+import com.dazo66.entity.CrawlerRequest;
 import com.dazo66.entity.FanboxArtist;
 import com.dazo66.util.LocalLock;
 import com.geccocrawler.gecco.pipeline.Pipeline;
@@ -50,5 +51,6 @@ public class FanboxPostPipeline implements Pipeline<FanboxUser> {
 				crawlerRequestService.add(url);
 			}
 		}
+		crawlerRequestService.updateByUrl(new CrawlerRequest().setUrl(bean.getRequest().getUrl()).setIsDone(true));
 	}
 }

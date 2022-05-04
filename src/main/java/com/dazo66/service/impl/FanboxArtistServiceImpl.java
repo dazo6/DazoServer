@@ -6,6 +6,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dazo66.entity.FanboxArtist;
 import com.dazo66.mapper.FanboxArtistMapper;
 import com.dazo66.service.FanboxArtistService;
+import com.dazo66.util.LocalLock;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -13,6 +14,7 @@ import org.springframework.stereotype.Service;
  * @author Dazo66
  */
 @Service
+@LocalLock(lockBeanName = "ioLockObject")
 public class FanboxArtistServiceImpl implements FanboxArtistService {
 
     @Autowired

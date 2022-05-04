@@ -18,7 +18,8 @@ import java.util.Date;
 @Data
 @TableName("t_fanbox_artist")
 @CreateTableSql("CREATE TABLE t_fanbox_artist(id INTEGER PRIMARY KEY, " + "name text, " +
-        "artist_id text, " + "gmt_create text, " + "last_update text, " + "enable BOOLEAN NOT " + "NULL CHECK (enable IN (0, 1))" + ");")
+        "artist_id text UNIQUE, " + "gmt_create text, " + "last_update text, " + "enable BOOLEAN " +
+        "NOT " + "NULL CHECK (enable IN (0, 1))" + ");")
 public class FanboxArtist {
     @TableId(type = IdType.AUTO)
     private Integer id;

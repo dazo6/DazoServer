@@ -58,12 +58,12 @@ public class FanboxScheduler {
                 .run();
     }
 
-    @Scheduled(initialDelay = 3, fixedDelay = 5, timeUnit = TimeUnit.MINUTES)
+    @Scheduled(initialDelay = 1, fixedDelay = 5, timeUnit = TimeUnit.MINUTES)
     public void schedulerDownloadUrl() {
         SpringPipelineFactory springPipelineFactory =
                 SpringContextUtils.getBean(SpringPipelineFactory.class);
         Page<CrawlerRequest> crawlerRequestByPage = crawlerRequestService.getByPage(1, 20,
-                new QueryWrapper<>(new CrawlerRequest().setDone(false)).orderByAsc("random()"));
+                new QueryWrapper<>(new CrawlerRequest().setIsDone(false)).orderByAsc("random()"));
         List<HttpRequest> httpGetRequests =
                 crawlerRequestByPage.getRecords().stream().map(crawlerRequest -> new HttpGetRequest(crawlerRequest.getUrl())).collect(Collectors.toList());
         GeccoEngine.create()

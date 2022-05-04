@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dazo66.entity.CrawlerRequest;
 import com.dazo66.mapper.CrawlerRequestMapper;
 import com.dazo66.service.CrawlerRequestService;
+import com.dazo66.util.LocalLock;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -14,6 +15,7 @@ import java.util.Date;
  * @author Dazo66
  */
 @Service
+@LocalLock(lockBeanName = "ioLockObject")
 public class CrawlerRequestServiceImpl implements CrawlerRequestService {
 
     @Autowired
@@ -31,6 +33,7 @@ public class CrawlerRequestServiceImpl implements CrawlerRequestService {
         CrawlerRequest crawlerRequest = new CrawlerRequest();
         crawlerRequest.setUrl(url);
         crawlerRequest.setGmtCreate(new Date());
+        crawlerRequest.setIsDone(false);
         crawlerRequestMapper.insert(crawlerRequest);
         return crawlerRequest;
     }

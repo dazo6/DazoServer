@@ -45,12 +45,13 @@ public class DownloadAction implements Callable<Boolean> {
                 String remoteFilename =
                         response.getHeaders("Content-Disposition")[0].getElements()[0].getParameter(0).getValue();
                 String filename =
-                        localPath + remoteFilename.substring(remoteFilename.lastIndexOf('.'));
+                        localPath + remoteFilename.substring(remoteFilename.lastIndexOf('.')).replaceAll("jpe$", "jpg");
                 FileUtils.copyInputStreamToFile(response.getEntity().getContent(),
                         new File(filename));
                 log.info("download success " + filename);
                 return true;
             } else {
+                log.error("download error, " + response.getStatusLine().getStatusCode());
                 retryCount--;
                 if (retryCount > 0) {
                     return call();

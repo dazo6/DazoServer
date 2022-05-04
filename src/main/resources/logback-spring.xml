@@ -28,12 +28,6 @@
 
     <!-- 系统错误日志文件 -->
     <appender name="SYSTEM_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
-        <!-- 过滤器，只打印ERROR级别的日志 -->
-        <filter class="ch.qos.logback.classic.filter.LevelFilter">
-            <level>ERROR</level>
-            <onMatch>ACCEPT</onMatch>
-            <onMismatch>DENY</onMismatch>
-        </filter>
         <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
             <!--日志文件输出的文件名-->
             <FileNamePattern>${LOG_HOME}/${PROJECT_NAME}.error.%d{yyyy-MM-dd}.%i.log

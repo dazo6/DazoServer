@@ -48,7 +48,7 @@ public class FanboxImagePipeline implements Pipeline<FanboxPost> {
 	@PostConstruct
 	private void init() {
 		RequestConfig clientConfig =
-				RequestConfig.custom().setConnectTimeout(600000).setConnectionRequestTimeout(60000).setSocketTimeout(60000).build();
+				RequestConfig.custom().setConnectTimeout(60000).setConnectionRequestTimeout(6000).setSocketTimeout(6000).build();
 		PoolingHttpClientConnectionManager syncConnectionManager =
 				new PoolingHttpClientConnectionManager();
 		syncConnectionManager.setMaxTotal(1000);
@@ -84,7 +84,7 @@ public class FanboxImagePipeline implements Pipeline<FanboxPost> {
 			}
 		}
 		if (isDone) {
-			crawlerRequestService.updateByUrl(new CrawlerRequest().setUrl(bean.getRequest().getUrl()).setDone(true));
+			crawlerRequestService.updateByUrl(new CrawlerRequest().setUrl(bean.getRequest().getUrl()).setIsDone(true));
 		}
 	}
 
@@ -94,8 +94,17 @@ public class FanboxImagePipeline implements Pipeline<FanboxPost> {
 	}
 
 	private static String cleanSym(String s) {
-		return s.replace("/", "").replace(":", "").replace("*", "").replace("\\", "").replace("|",
-				"").replace("<", "").replace(">", "").replace("?", "").replace("\"", "");
+		String replace =
+				s.replace("/", "").replace(":", "").replace("*", "").replace("\\", "").replace("|"
+						, "").replace("<", "").replace(">", "").replace("?", "").replace("\"", "");
+		StringBuilder builder = new StringBuilder();
+		for (int i = 0; i < replace.length(); i++) {
+			char c = replace.charAt(i);
+			if (c >= 'A') {
+				builder.append(c);
+			}
+		}
+		return builder.toString();
 	}
 
 	private static int getNumberLen(int num) {

@@ -3,6 +3,7 @@ package com.dazo66.test;
 public class FanboxDownloadTest {
 
     public static void main(String[] args) {
+        System.out.println("jpeg".replaceAll("jpe$", "jpg"));
         /*GeccoEngine.create()
                 //工程的包路径
                 .classpath("com.dazo66")

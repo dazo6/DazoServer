@@ -11,6 +11,7 @@ import com.geccocrawler.gecco.request.HttpGetRequest;
 import com.geccocrawler.gecco.request.HttpRequest;
 import com.geccocrawler.gecco.scheduler.UniqueSpiderScheduler;
 import com.geccocrawler.gecco.spring.SpringPipelineFactory;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.AutoConfigureAfter;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -25,6 +26,7 @@ import java.util.stream.Collectors;
  */
 @Service
 @AutoConfigureAfter(GeccoConfig.class)
+@Slf4j
 public class FanboxScheduler {
 
     @Autowired
@@ -38,6 +40,10 @@ public class FanboxScheduler {
                 SpringContextUtils.getBean(SpringPipelineFactory.class);
         Page<FanboxArtist> artistByPage = fanboxArtistService.getArtistByPage(1,
                 Integer.MAX_VALUE, new QueryWrapper<>(new FanboxArtist().setEnable(true)));
+        if (artistByPage.getRecords().size() == 0) {
+            log.info("作者队列为空，不需要爬取");
+            return;
+        }
         List<HttpRequest> httpGetRequestList =
                 artistByPage.getRecords().stream().map(artist -> new HttpGetRequest("https" +
                         "://kemono.party/fanbox/user/" + artist.getArtistId())).collect(Collectors.toList());
@@ -64,6 +70,10 @@ public class FanboxScheduler {
                 SpringContextUtils.getBean(SpringPipelineFactory.class);
         Page<CrawlerRequest> crawlerRequestByPage = crawlerRequestService.getByPage(1, 20,
                 new QueryWrapper<>(new CrawlerRequest().setIsDone(false)).orderByAsc("random()"));
+        if (crawlerRequestByPage.getRecords().size() == 0) {
+            log.info("爬取队列为空，不需要爬取");
+            return;
+        }
         List<HttpRequest> httpGetRequests =
                 crawlerRequestByPage.getRecords().stream().map(crawlerRequest -> new HttpGetRequest(crawlerRequest.getUrl())).collect(Collectors.toList());
         GeccoEngine.create()

@@ -1,13 +1,10 @@
 package com.dazo66.entity;
 
 import com.baomidou.mybatisplus.annotation.IdType;
-import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
-import com.dazo66.mapper.DateTypeHandler;
 import lombok.Data;
 import lombok.experimental.Accessors;
-import org.apache.ibatis.type.JdbcType;
 
 import java.util.Date;
 
@@ -17,18 +14,14 @@ import java.util.Date;
 @Accessors(chain = true)
 @Data
 @TableName("t_fanbox_artist")
-@CreateTableSql("CREATE TABLE t_fanbox_artist(id INTEGER PRIMARY KEY, " + "name text, " +
-        "artist_id text UNIQUE, " + "gmt_create text, " + "last_update text, " + "enable BOOLEAN " +
-        "NOT " + "NULL CHECK (enable IN (0, 1))" + ");")
+@CreateTableSql("CREATE TABLE `t_fanbox_artist`  (\n" + "  `id` int NOT NULL AUTO_INCREMENT,\n" + "  `name` varchar(256) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL,\n" + "  `artist_id` varchar(256) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL,\n" + "  `gmt_create` timestamp NULL DEFAULT NULL,\n" + "  `last_update` text CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL,\n" + "  `enable` int NOT NULL,\n" + "  PRIMARY KEY (`id`) USING BTREE,\n" + "  UNIQUE INDEX `uk_artist_id`(`artist_id` ASC) USING BTREE\n" + ") ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci ROW_FORMAT = Dynamic;")
 public class FanboxArtist {
     @TableId(type = IdType.AUTO)
     private Integer id;
     private String name;
     private String artistId;
     private boolean enable = true;
-    @TableField(typeHandler = DateTypeHandler.class, jdbcType = JdbcType.VARCHAR)
     private Date gmtCreate;
-    @TableField(typeHandler = DateTypeHandler.class, jdbcType = JdbcType.VARCHAR)
     private Date lastUpdate;
 
 }

@@ -1,13 +1,10 @@
 package com.dazo66.entity;
 
 import com.baomidou.mybatisplus.annotation.IdType;
-import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
-import com.dazo66.mapper.DateTypeHandler;
 import lombok.Data;
 import lombok.experimental.Accessors;
-import org.apache.ibatis.type.JdbcType;
 
 import java.util.Date;
 
@@ -17,14 +14,12 @@ import java.util.Date;
 @Data
 @TableName("t_crawler_request")
 @Accessors(chain = true)
-@CreateTableSql("CREATE TABLE t_crawler_request(id INTEGER PRIMARY KEY, url text UNIQUE, " +
-        "gmt_create " + "text, is_done BOOLEAN NOT NULL CHECK (is_done IN (0, 1)));")
+@CreateTableSql("CREATE TABLE `t_crawler_request`  (\n" + "  `id` int NOT NULL AUTO_INCREMENT,\n" + "  `url` varchar(1024) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL,\n" + "  `gmt_create` timestamp NULL DEFAULT NULL,\n" + "  `is_done` tinyint(1) NOT NULL,\n" + "  PRIMARY KEY (`id`) USING BTREE\n" + ") ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci ROW_FORMAT = Dynamic;\n")
 public class CrawlerRequest {
 
     @TableId(type = IdType.AUTO)
     private Integer id;
     private String url;
-    @TableField(typeHandler = DateTypeHandler.class, jdbcType = JdbcType.VARCHAR)
     private Date gmtCreate;
     private Boolean isDone;
 

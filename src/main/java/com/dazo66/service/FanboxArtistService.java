@@ -14,6 +14,8 @@ public interface FanboxArtistService {
 
     FanboxArtist addArtist(FanboxArtist artist);
 
+    FanboxArtist getArtistId(String artistId);
+
     FanboxArtist disable(String artistId);
 
     FanboxArtist updateByArtistId(FanboxArtist artist);

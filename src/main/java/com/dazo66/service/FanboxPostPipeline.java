@@ -4,7 +4,6 @@ import com.dazo66.crawler.FanboxNextPageUser;
 import com.dazo66.crawler.FanboxUser;
 import com.dazo66.entity.CrawlerRequest;
 import com.dazo66.entity.FanboxArtist;
-import com.dazo66.util.LocalLock;
 import com.geccocrawler.gecco.pipeline.Pipeline;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
@@ -30,7 +29,6 @@ public class FanboxPostPipeline implements Pipeline<FanboxUser> {
 
 	@Override
 	@Transactional(rollbackFor = Exception.class)
-	@LocalLock(lockBeanName = "ioLockObject")
 	public void process(FanboxUser bean) {
 		if (bean instanceof FanboxNextPageUser) {
 			log.info("开始爬取作者：{} 偏移量：{}", bean.getUser(), ((FanboxNextPageUser) bean).getOffset());

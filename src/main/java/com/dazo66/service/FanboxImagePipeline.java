@@ -2,9 +2,9 @@ package com.dazo66.service;
 
 import com.dazo66.crawler.FanboxPost;
 import com.dazo66.entity.CrawlerRequest;
+import com.dazo66.entity.FanboxArtist;
 import com.dazo66.util.DownloadAction;
 import com.dazo66.util.IpUtils;
-import com.dazo66.util.LocalLock;
 import com.geccocrawler.gecco.pipeline.Pipeline;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import lombok.extern.slf4j.Slf4j;
@@ -33,8 +33,7 @@ public class FanboxImagePipeline implements Pipeline<FanboxPost> {
 
 
 	private final ThreadPoolExecutor executors = new ThreadPoolExecutor(10, 10, 0L,
-			TimeUnit.MILLISECONDS, new LinkedBlockingQueue<>(),
-			new ThreadFactoryBuilder().setNameFormat("download-%02d").build());
+			TimeUnit.MILLISECONDS, new LinkedBlockingQueue<>(), new ThreadFactoryBuilder().setNameFormat("download-%02d").build());
 	private CloseableHttpClient httpClient;
 	@Value("${fanbox.save.path}")
 	private String fileSavePath;
@@ -44,6 +43,8 @@ public class FanboxImagePipeline implements Pipeline<FanboxPost> {
 	private Integer proxyPort;
 	@Autowired
 	private CrawlerRequestService crawlerRequestService;
+	@Autowired
+	private FanboxArtistService fanboxArtistService;
 
 	@PostConstruct
 	private void init() {
@@ -63,7 +64,6 @@ public class FanboxImagePipeline implements Pipeline<FanboxPost> {
 	}
 
 	@Override
-	@LocalLock(lockBeanName = "ioLockObject")
 	public void process(FanboxPost bean) {
 		Object[] images = bean.getImages();
 		List<Future<Boolean>> list = new ArrayList<>();
@@ -90,7 +90,8 @@ public class FanboxImagePipeline implements Pipeline<FanboxPost> {
 
 
 	public String getDownloadPath(FanboxPost post, int index) {
-		return fileSavePath + String.format("/%s/%s-%s-%0" + getNumberLen(post.getImages().length) + "d", cleanSym(post.getArtistName()), post.getTime().substring(0, 10), cleanSym(post.getTitle()), index);
+		FanboxArtist artist = fanboxArtistService.getArtistId(post.getArtistId());
+		return fileSavePath + String.format("/%s/%s-%s-%0" + getNumberLen(post.getImages().length) + "d", cleanSym(artist.getName()), post.getTime().substring(0, 10), cleanSym(post.getTitle()), index);
 	}
 
 	private static String cleanSym(String s) {

@@ -36,9 +36,8 @@ public class SqliteConfig {
             if (tableName != null) {
                 String value = tableName.value();
                 Statement statement = sqlSession.getConnection().createStatement();
-                ResultSet resultSet = statement.executeQuery("SELECT count(1) FROM " +
-                        "sqlite_master WHERE type='table' AND name = '" + value + "'");
-                if (resultSet.getInt(1) == 0) {
+                ResultSet resultSet = statement.executeQuery("SHOW TABLES LIKE '" + value + "'");
+                if (!resultSet.next()) {
                     CreateTableSql createTableSqlAnn =
                             (CreateTableSql) c.getDeclaredAnnotation(CreateTableSql.class);
                     String[] values = createTableSqlAnn.value();

@@ -276,6 +276,13 @@ cBoard.controller('dashboardViewCtrl', function ($timeout, $rootScope, $scope, $
         });
     };
 
+    var timer = $interval(function () {
+        $scope.load(true);
+    }, 30000);
+    $scope.$on('$destroy', function () {
+        $interval.cancel(timer);
+    });
+
     var injectFilter = function (widget) {
         var boardFilters = [];
         if (!_.isUndefined($scope.widgetFilters[widget.id])) {

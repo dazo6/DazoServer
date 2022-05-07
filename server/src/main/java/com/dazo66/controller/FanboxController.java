@@ -4,9 +4,10 @@ package com.dazo66.controller;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dazo66.entity.FanboxArtist;
-import com.dazo66.util.ResultEntity;
 import com.dazo66.service.CrawlerRequestService;
 import com.dazo66.service.FanboxArtistService;
+import com.dazo66.util.ResultEntity;
+import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
@@ -34,6 +35,10 @@ public class FanboxController {
     @PostMapping
     public ResultEntity<FanboxArtist> insert(@RequestBody FanboxArtist fanboxArtist) {
         fanboxArtist.setGmtCreate(new Date());
+        if (StringUtils.isEmpty(fanboxArtist.getType())) {
+            fanboxArtist.setType("fanbox");
+        }
+        fanboxArtist.setEnable(true);
         return ResultEntity.successWithData(fanboxArtistService.addArtist(fanboxArtist));
     }
 

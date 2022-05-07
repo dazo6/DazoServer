@@ -45,8 +45,7 @@ public class FanboxScheduler {
             return;
         }
         List<HttpRequest> httpGetRequestList =
-                artistByPage.getRecords().stream().map(artist -> new HttpGetRequest("https" +
-                        "://kemono.party/fanbox/user/" + artist.getArtistId())).collect(Collectors.toList());
+                artistByPage.getRecords().stream().map(artist -> new HttpGetRequest(String.format("https://kemono.party/%s/user/%s", artist.getType(), artist.getArtistId()))).collect(Collectors.toList());
         GeccoEngine.create()
                 //工程的包路径
                 .classpath("com.dazo66")

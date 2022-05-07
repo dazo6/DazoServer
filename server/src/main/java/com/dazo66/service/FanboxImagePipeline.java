@@ -1,10 +1,10 @@
 package com.dazo66.service;
 
+import com.dazo66.crawler.FanboxPost;
 import com.dazo66.entity.CrawlerRequest;
 import com.dazo66.entity.FanboxArtist;
 import com.dazo66.util.DownloadAction;
 import com.dazo66.util.IpUtils;
-import com.dazo66.crawler.FanboxPost;
 import com.geccocrawler.gecco.pipeline.Pipeline;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import lombok.extern.slf4j.Slf4j;
@@ -65,27 +65,32 @@ public class FanboxImagePipeline implements Pipeline<FanboxPost> {
 
 	@Override
 	public void process(FanboxPost bean) {
-		Object[] images = bean.getImages();
-		List<Future<Boolean>> list = new ArrayList<>();
-		for (int i = 0; i < images.length; i++) {
-			Object url = images[i];
-			Future<Boolean> future = executors.submit(new DownloadAction(httpClient,
-					url.toString(), getDownloadPath(bean, i)));
-			list.add(future);
-		}
-		boolean isDone = true;
-		for (Future<Boolean> future : list) {
-			try {
-				if (!future.get()) {
-					isDone = false;
-				}
-			} catch (InterruptedException | ExecutionException e) {
-				log.error("等待图片下载中出错", e);
+		try {
+			Object[] images = bean.getImages();
+			List<Future<Boolean>> list = new ArrayList<>();
+			for (int i = 0; i < images.length; i++) {
+				Object url = images[i];
+				Future<Boolean> future = executors.submit(new DownloadAction(httpClient,
+                        url.toString(), getDownloadPath(bean, i)));
+				list.add(future);
 			}
+			boolean isDone = true;
+			for (Future<Boolean> future : list) {
+				try {
+					if (!future.get()) {
+						isDone = false;
+					}
+				} catch (InterruptedException | ExecutionException e) {
+					log.error("等待图片下载中出错", e);
+				}
+			}
+			if (isDone) {
+				crawlerRequestService.updateByUrl(new CrawlerRequest().setUrl(bean.getRequest().getUrl()).setIsDone(true));
+			}
+		} catch (Exception e) {
+			log.error("下载post中的图片出错: ", e);
 		}
-		if (isDone) {
-			crawlerRequestService.updateByUrl(new CrawlerRequest().setUrl(bean.getRequest().getUrl()).setIsDone(true));
-		}
+
 	}
 
 

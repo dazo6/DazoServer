@@ -101,7 +101,7 @@ public class JdbcDataProvider extends DataProvider implements Aggregatable, Init
         LOG.debug("Execute JdbcDataProvider.getData() Start!");
         String sql = getAsSubQuery(query.get(SQL));
         List<String[]> list = null;
-        LOG.info("SQL String: " + sql);
+        LOG.debug("SQL String: " + sql);
 
         try (Connection con = getConnection();
              Statement ps = con.createStatement();

@@ -10,9 +10,9 @@ import org.cboard.dto.DashboardMenu;
 import org.cboard.services.AuthenticationService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Repository;
 
-import javax.annotation.Nullable;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -40,7 +40,7 @@ public class MenuRoleService {
         } else {
             final List<Long> menuIdList = menuDao.getMenuIdByUserRole(userid);
             List<DashboardMenu> list = (List<DashboardMenu>) proceedingJoinPoint.proceed();
-            return new ArrayList<DashboardMenu>(Collections2.filter(list, new Predicate<DashboardMenu>() {
+            return new ArrayList<>(Collections2.filter(list, new Predicate<DashboardMenu>() {
                 @Override
                 public boolean apply(@Nullable DashboardMenu dashboardMenu) {
                     return menuIdList.contains(dashboardMenu.getMenuId());

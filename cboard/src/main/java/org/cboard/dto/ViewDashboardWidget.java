@@ -1,11 +1,11 @@
 package org.cboard.dto;
 
 import com.alibaba.fastjson.JSONObject;
-import org.cboard.pojo.DashboardWidget;
 import com.google.common.base.Function;
+import org.cboard.pojo.DashboardWidget;
 import org.cboard.services.role.RolePermission;
+import org.springframework.lang.Nullable;
 
-import javax.annotation.Nullable;
 import java.util.Map;
 
 /**

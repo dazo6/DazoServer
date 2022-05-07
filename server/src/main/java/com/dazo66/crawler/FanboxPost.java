@@ -8,7 +8,7 @@ import lombok.Data;
 /**
  * @author Dazo66
  */
-@Gecco(matchUrl = "https://kemono.party/fanbox/user/{user}/post/{post}", pipelines = {
+@Gecco(matchUrl = "https://kemono.party/{type}/user/{user}/post/{post}", pipelines = {
         "consolePipeline", "fanboxImagePipeline"})
 @Data
 public class FanboxPost implements HtmlBean {
@@ -16,6 +16,8 @@ public class FanboxPost implements HtmlBean {
     @Request
     private HttpGetRequest request;
 
+    @RequestParameter
+    private String type;
     @RequestParameter("user")
     private String artistId;
     @RequestParameter("post")

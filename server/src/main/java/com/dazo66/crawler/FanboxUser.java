@@ -5,7 +5,7 @@ import com.geccocrawler.gecco.request.HttpGetRequest;
 import com.geccocrawler.gecco.spider.HtmlBean;
 import lombok.Data;
 
-@Gecco(matchUrl = "https://kemono.party/fanbox/user/{user}", pipelines = {"consolePipeline",
+@Gecco(matchUrl = "https://kemono.party/{type}/user/{user}", pipelines = {"consolePipeline",
         "fanboxPostPipeline"})
 @Data
 /**
@@ -17,6 +17,9 @@ import lombok.Data;
 
     @RequestParameter
     private String user;
+
+    @RequestParameter
+    private String type;
 
     @Href
     @HtmlField(cssPath = "#paginator-top>menu>li:last-child>a")

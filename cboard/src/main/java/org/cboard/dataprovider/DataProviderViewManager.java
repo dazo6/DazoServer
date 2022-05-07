@@ -24,20 +24,24 @@ import java.util.*;
  */
 public class DataProviderViewManager {
 
-    private static Logger LOG = LoggerFactory.getLogger(DataProviderViewManager.class);
+    private static Logger log = LoggerFactory.getLogger(DataProviderViewManager.class);
 
     private static VelocityEngine velocityEngine;
 
     static {
         Properties props = new Properties();
-        String fileDir = DataProviderViewManager.class.getResource("/template/config").getPath();
+        String fileDir = "/template/config";
         try {
             fileDir = URLDecoder.decode(fileDir, "UTF-8");
         } catch (UnsupportedEncodingException e) {
-            LOG.error("", e);
+            log.error("", e);
         }
-        props.setProperty(RuntimeConstants.RUNTIME_LOG_LOGSYSTEM_CLASS, "org.apache.velocity.runtime.log.Log4JLogChute");
-        props.setProperty(velocityEngine.FILE_RESOURCE_LOADER_PATH, fileDir);
+        props.setProperty(RuntimeConstants.RUNTIME_LOG_LOGSYSTEM_CLASS, "org.apache.velocity" +
+                ".runtime.log.Log4JLogChute");
+        props.setProperty(RuntimeConstants.FILE_RESOURCE_LOADER_PATH, fileDir);
+        props.setProperty("resource.loader", "file");
+        props.setProperty("file.resource.loader.class", "org.cboard.util.ClasspathResourceLoader");
+        log.info(fileDir);
         props.setProperty(Velocity.OUTPUT_ENCODING, "UTF-8");
         props.setProperty(Velocity.INPUT_ENCODING, "UTF-8");
         props.setProperty("runtime.log.logsystem.log4j.logger", "velocity");
@@ -101,7 +105,7 @@ public class DataProviderViewManager {
                 }
             }
         } catch (Exception e) {
-            LOG.error("", e);
+            log.error("", e);
         }
         return params;
     }
@@ -112,7 +116,7 @@ public class DataProviderViewManager {
             VelocityContext context = new VelocityContext();
             context.put("params", params);
             StringBuilderWriter stringBuilderWriter = new StringBuilderWriter();
-            velocityEngine.mergeTemplate("query.vm", "utf-8", context, stringBuilderWriter);
+            velocityEngine.mergeTemplate("/template/config/query.vm", "utf-8", context, stringBuilderWriter);
             return stringBuilderWriter.toString();
         }
         return null;
@@ -141,7 +145,7 @@ public class DataProviderViewManager {
                 params.add(param);
             }
         } catch (Exception e) {
-            LOG.error("", e);
+            log.error("", e);
         }
         return params;
     }
@@ -152,7 +156,7 @@ public class DataProviderViewManager {
             VelocityContext context = new VelocityContext();
             context.put("params", params);
             StringBuilderWriter stringBuilderWriter = new StringBuilderWriter();
-            velocityEngine.mergeTemplate("datasource.vm", "utf-8", context, stringBuilderWriter);
+            velocityEngine.mergeTemplate("/template/config/datasource.vm", "utf-8", context, stringBuilderWriter);
             return stringBuilderWriter.toString();
         }
         return null;

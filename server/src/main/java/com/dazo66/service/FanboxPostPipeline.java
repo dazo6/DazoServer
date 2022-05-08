@@ -51,7 +51,7 @@ public class FanboxPostPipeline implements Pipeline<FanboxUser> {
 				crawlerRequestService.add(url);
 			}
 		}
-		if (hasUpdate) {
+		if (hasUpdate && !StringUtils.isEmpty(nextPage)) {
 			crawlerRequestService.updateByUrl(new CrawlerRequest().setUrl(nextPage).setIsDone(false));
 		}
 		crawlerRequestService.updateByUrl(new CrawlerRequest().setUrl(bean.getRequest().getUrl()).setIsDone(true));

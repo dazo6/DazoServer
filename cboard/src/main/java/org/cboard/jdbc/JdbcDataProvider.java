@@ -320,7 +320,7 @@ public class JdbcDataProvider extends DataProvider implements Aggregatable, Init
     public AggregateResult queryAggData(AggConfig config) throws Exception {
         String exec = sqlHelper.assembleAggDataSql(config);
         List<String[]> list = new LinkedList<>();
-        LOG.info(exec);
+        LOG.debug(exec);
         try (
                 Connection connection = getConnection();
                 Statement stat = connection.createStatement();
@@ -332,13 +332,10 @@ public class JdbcDataProvider extends DataProvider implements Aggregatable, Init
                 String[] row = new String[columnCount];
                 for (int j = 0; j < columnCount; j++) {
                     int columType = metaData.getColumnType(j + 1);
-                    switch (columType) {
-                    case Types.DATE:
+                    if (columType == Types.DATE) {
                         row[j] = rs.getDate(j + 1).toString();
-                        break;
-                    default:
+                    } else {
                         row[j] = rs.getString(j + 1);
-                        break;
                     }
                 }
                 list.add(row);

@@ -1,9 +1,9 @@
 package com.dazo66.service;
 
-import com.dazo66.entity.CrawlerRequest;
-import com.dazo66.entity.FanboxArtist;
 import com.dazo66.crawler.FanboxNextPageUser;
 import com.dazo66.crawler.FanboxUser;
+import com.dazo66.entity.CrawlerRequest;
+import com.dazo66.entity.FanboxArtist;
 import com.geccocrawler.gecco.pipeline.Pipeline;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
@@ -42,12 +42,17 @@ public class FanboxPostPipeline implements Pipeline<FanboxUser> {
 			}
 		}
 		Object[] posts = bean.getPosts();
+		boolean hasUpdate = false;
 		for (Object post : posts) {
 			String url = post.toString();
 			if (crawlerRequestService.check(url)) {
+				hasUpdate = true;
 				fanboxArtistService.updateByArtistId(new FanboxArtist().setArtistId(bean.getUser()).setLastUpdate(new Date()));
 				crawlerRequestService.add(url);
 			}
+		}
+		if (hasUpdate) {
+			crawlerRequestService.updateByUrl(new CrawlerRequest().setUrl(nextPage).setIsDone(false));
 		}
 		crawlerRequestService.updateByUrl(new CrawlerRequest().setUrl(bean.getRequest().getUrl()).setIsDone(true));
 	}

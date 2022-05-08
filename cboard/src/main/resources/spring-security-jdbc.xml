@@ -16,20 +16,26 @@
     <security:http pattern="/lib/**" security="none"/>
     <security:http pattern="/org/**" security="none"/>
     <security:http pattern="/plugins/**" security="none"/>
-    <security:http pattern="/starter/**" security="none"/>
+    <security:http pattern="/rander*" security="none"/>
     <security:http pattern="/api/**" security="none"/>
-
+    <security:http pattern="/starter*" security="none"/>
+    <security:http pattern="/admin/**" security="none"/>
+    <security:http pattern="/commons/**" security="none"/>
+    <security:http pattern="/dashboard/**" security="none"/>
+    <security:http pattern="/homepage/**" security="none"/>
+    <security:http pattern="/update/**" security="none"/>
+    <security:http pattern="/cboard*" security="none"/>
     <security:http auto-config="true">
         <security:intercept-url pattern="/login**" access="permitAll"/>
 
         <security:intercept-url pattern="/**" access="!anonymous"/>
-        <security:form-login login-page="/login" username-parameter="username" password-parameter="password"
+        <security:form-login login-page="/login" username-parameter="username"
+                             password-parameter="password"
                              default-target-url="/starter.html" always-use-default-target="true"/>
         <security:logout logout-url="/j_spring_cas_security_logout"/>
         <security:remember-me remember-me-parameter="remember_me"/>
         <security:csrf disabled="true"/>
     </security:http>
-
     <security:authentication-manager alias="authenticationManager">
         <security:authentication-provider ref="shareAuthenticationProviderDecorator"/>
     </security:authentication-manager>

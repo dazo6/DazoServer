@@ -9,7 +9,7 @@ import org.springframework.stereotype.Repository;
 @Repository
 public interface HomepageDao {
     
-    int saveHomepage(@Param("0") Long boardId, @Param("0") String userId);
+    int saveHomepage(@Param("0") Long boardId, @Param("1") String userId);
     
     int resetHomepage(@Param("0") String userId);
     

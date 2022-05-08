@@ -34,19 +34,27 @@ public class FanboxScheduler {
     @Autowired
     private CrawlerRequestService crawlerRequestService;
 
-    @Scheduled(initialDelay = 0, fixedDelay = 6, timeUnit = TimeUnit.HOURS)
+    @Scheduled(initialDelay = 0, fixedDelay = 1, timeUnit = TimeUnit.HOURS)
     public void schedulerSearchNeedPost() {
+        // 阻塞方式运行
+        GeccoEngine geccoEngine = buildArtistGecco();
+        if (geccoEngine != null) {
+            geccoEngine.run();
+        }
+    }
+
+    public GeccoEngine buildArtistGecco() {
         SpringPipelineFactory springPipelineFactory =
                 SpringContextUtils.getBean(SpringPipelineFactory.class);
         Page<FanboxArtist> artistByPage = fanboxArtistService.getArtistByPage(1,
                 Integer.MAX_VALUE, new QueryWrapper<>(new FanboxArtist().setEnable(true)));
         if (artistByPage.getRecords().size() == 0) {
             log.info("作者队列为空，不需要爬取");
-            return;
+            return null;
         }
         List<HttpRequest> httpGetRequestList =
                 artistByPage.getRecords().stream().map(artist -> new HttpGetRequest(String.format("https://kemono.party/%s/user/%s", artist.getType(), artist.getArtistId()))).collect(Collectors.toList());
-        GeccoEngine.create()
+        return GeccoEngine.create()
                 //工程的包路径
                 .classpath("com.dazo66")
                 //开始抓取的页面地址
@@ -58,24 +66,30 @@ public class FanboxScheduler {
                 //循环抓取
                 .loop(false)
                 //使用pc端userAgent
-                .mobile(false)
-                //阻塞方式运行
-                .run();
+                .mobile(false);
     }
 
     @Scheduled(initialDelay = 1, fixedDelay = 5, timeUnit = TimeUnit.MINUTES)
     public void schedulerDownloadUrl() {
+        // 阻塞方式运行
+        GeccoEngine geccoEngine = buildImageGecco();
+        if (geccoEngine != null) {
+            geccoEngine.run();
+        }
+    }
+
+    public GeccoEngine buildImageGecco() {
         SpringPipelineFactory springPipelineFactory =
                 SpringContextUtils.getBean(SpringPipelineFactory.class);
         Page<CrawlerRequest> crawlerRequestByPage = crawlerRequestService.getByPage(1, 20,
                 new QueryWrapper<>(new CrawlerRequest().setIsDone(false)).orderByAsc("rand()"));
         if (crawlerRequestByPage.getRecords().size() == 0) {
             log.info("爬取队列为空，不需要爬取");
-            return;
+            return null;
         }
         List<HttpRequest> httpGetRequests =
                 crawlerRequestByPage.getRecords().stream().map(crawlerRequest -> new HttpGetRequest(crawlerRequest.getUrl())).collect(Collectors.toList());
-        GeccoEngine.create()
+        return GeccoEngine.create()
                 //工程的包路径
                 .classpath("com.dazo66")
                 //开始抓取的页面地址
@@ -87,9 +101,7 @@ public class FanboxScheduler {
                 //循环抓取
                 .loop(false)
                 //使用pc端userAgent
-                .mobile(false)
-                //阻塞方式运行
-                .run();
+                .mobile(false);
     }
 
 

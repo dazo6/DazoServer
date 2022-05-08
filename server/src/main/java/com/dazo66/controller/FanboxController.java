@@ -6,7 +6,9 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dazo66.entity.FanboxArtist;
 import com.dazo66.service.CrawlerRequestService;
 import com.dazo66.service.FanboxArtistService;
+import com.dazo66.service.FanboxScheduler;
 import com.dazo66.util.ResultEntity;
+import com.geccocrawler.gecco.GeccoEngine;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
@@ -24,6 +26,8 @@ public class FanboxController {
     private FanboxArtistService fanboxArtistService;
     @Autowired
     private CrawlerRequestService crawlerRequestService;
+    @Autowired
+    private FanboxScheduler fanboxScheduler;
 
     @GetMapping
     public ResultEntity<Page<FanboxArtist>> getFanboxArtist(@RequestParam(required = false,
@@ -39,7 +43,12 @@ public class FanboxController {
             fanboxArtist.setType("fanbox");
         }
         fanboxArtist.setEnable(true);
-        return ResultEntity.successWithData(fanboxArtistService.addArtist(fanboxArtist));
+        fanboxArtistService.addArtist(fanboxArtist);
+        GeccoEngine geccoEngine = fanboxScheduler.buildArtistGecco();
+        if (geccoEngine != null) {
+            geccoEngine.start();
+        }
+        return ResultEntity.successWithData(fanboxArtist);
     }
 
     @PostMapping("status")

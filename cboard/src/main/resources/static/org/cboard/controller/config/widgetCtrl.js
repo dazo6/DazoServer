@@ -164,6 +164,7 @@ cBoard.controller('widgetCtrl', function ($scope, $state, $stateParams, $http, $
         ];
 
         $scope.value_aggregate_types = [
+            {name: 'pass', value: 'pass'},
             {name: 'sum', value: 'sum'},
             {name: 'count', value: 'count'},
             {name: 'avg', value: 'avg'},

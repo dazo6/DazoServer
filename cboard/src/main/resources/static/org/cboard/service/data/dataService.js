@@ -522,7 +522,11 @@ cBoard.service('dataService', function ($http, $q, updateService) {
                 // if (_.isUndefined(newData[newGroup][dSeries.name][dSeries.aggType][jk])) {
                 //     newData[newGroup][dSeries.name][dSeries.aggType][jk] = [];
                 // }
-                newData[newGroup][dSeries.name][dSeries.aggType][jk] = parseFloat(aggData.data[i][dSeries.index]);
+                if (typeof (aggData.data[i][dSeries.index]) != 'string') {
+                    newData[newGroup][dSeries.name][dSeries.aggType][jk] = parseFloat(aggData.data[i][dSeries.index]);
+                } else {
+                    newData[newGroup][dSeries.name][dSeries.aggType][jk] = aggData.data[i][dSeries.index];
+                }
             });
         }
         //sort dimension

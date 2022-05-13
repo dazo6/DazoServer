@@ -43,7 +43,7 @@ public class SqlSyntaxHelper {
 
     public String getAggStr(ValueConfig vConfig) {
         String aggExp = vConfig.getColumn();
-        switch (vConfig.getAggType()) {
+        switch (vConfig.getAggType() == null ? "" : vConfig.getAggType()) {
             case "sum":
                 return "SUM(" + aggExp + ")";
             case "avg":
@@ -54,6 +54,8 @@ public class SqlSyntaxHelper {
                 return "MIN(" + aggExp + ")";
             case "distinct":
                 return "COUNT(DISTINCT " + aggExp + ")";
+            case "pass":
+                return aggExp;
             default:
                 return "COUNT(" + aggExp + ")";
         }

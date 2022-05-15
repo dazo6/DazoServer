@@ -9,7 +9,7 @@ import lombok.EqualsAndHashCode;
  * @author Dazo66
  */
 @EqualsAndHashCode(callSuper = true)
-@Gecco(matchUrl = "https://kemono.party/fanbox/user/{user}?o={offset}", pipelines = {
+@Gecco(matchUrl = "https://kemono.party/{type}/user/{artistId}?o={offset}", pipelines = {
         "consolePipeline", "fanboxPostPipeline"})
 @Data
 public class FanboxNextPageUser extends FanboxUser {

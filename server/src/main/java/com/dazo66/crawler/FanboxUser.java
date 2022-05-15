@@ -5,7 +5,7 @@ import com.geccocrawler.gecco.request.HttpGetRequest;
 import com.geccocrawler.gecco.spider.HtmlBean;
 import lombok.Data;
 
-@Gecco(matchUrl = "https://kemono.party/{type}/user/{user}", pipelines = {"consolePipeline",
+@Gecco(matchUrl = "https://kemono.party/{type}/user/{artistId}", pipelines = {"consolePipeline",
         "fanboxPostPipeline"})
 @Data
 /**
@@ -16,7 +16,7 @@ import lombok.Data;
     private HttpGetRequest request;
 
     @RequestParameter
-    private String user;
+    private String artistId;
 
     @RequestParameter
     private String type;

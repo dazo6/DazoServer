@@ -13,6 +13,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.Collections;
 import java.util.Date;
 
 /**
@@ -33,7 +34,7 @@ public class FanboxController {
     public ResultEntity<Page<FanboxArtist>> getFanboxArtist(@RequestParam(required = false,
             defaultValue = "1") int page, @RequestParam(required = false, defaultValue = "100") int pageSize) {
         return ResultEntity.successWithData(fanboxArtistService.getArtistByPage(page, pageSize,
-                new QueryWrapper<>()));
+                new QueryWrapper<FanboxArtist>().orderByDesc("last_update")));
     }
 
     @PostMapping
@@ -44,7 +45,8 @@ public class FanboxController {
         }
         fanboxArtist.setEnable(true);
         fanboxArtistService.addArtist(fanboxArtist);
-        GeccoEngine geccoEngine = fanboxScheduler.buildArtistGecco();
+        GeccoEngine geccoEngine =
+                fanboxScheduler.buildArtistGecco(Collections.singletonList(fanboxArtist));
         if (geccoEngine != null) {
             geccoEngine.start();
         }

@@ -1,7 +1,6 @@
 package com.dazo66.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
-import com.baomidou.mybatisplus.core.metadata.OrderItem;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dazo66.entity.FanboxArtist;
 import com.dazo66.mapper.FanboxArtistMapper;
@@ -22,7 +21,6 @@ public class FanboxArtistServiceImpl implements FanboxArtistService {
     public Page<FanboxArtist> getArtistByPage(int page, int pageSize,
                                               QueryWrapper<FanboxArtist> queryWrapper) {
         Page<FanboxArtist> fanboxArtistPage = Page.of(page, pageSize);
-        fanboxArtistPage.addOrder(OrderItem.desc("last_update"));
         return fanboxArtistMapper.selectPage(fanboxArtistPage, queryWrapper);
     }
 
@@ -40,7 +38,8 @@ public class FanboxArtistServiceImpl implements FanboxArtistService {
     @Override
     public FanboxArtist disable(String artistId) {
         FanboxArtist fanboxArtist = new FanboxArtist().setArtistId(artistId).setEnable(false);
-        fanboxArtistMapper.updateById(fanboxArtist);
+        fanboxArtistMapper.update(fanboxArtist, new QueryWrapper<FanboxArtist>().eq("artist_id",
+                artistId));
         return fanboxArtist;
     }
 
@@ -49,8 +48,7 @@ public class FanboxArtistServiceImpl implements FanboxArtistService {
         if (artist.getArtistId() == null) {
             throw new RuntimeException("artist id must not null in update");
         }
-        fanboxArtistMapper.update(artist,
-                new QueryWrapper<>(new FanboxArtist().setArtistId(artist.getArtistId())));
+        fanboxArtistMapper.update(artist, new QueryWrapper<FanboxArtist>().eq("artist_id", artist.getArtistId()));
         return null;
     }
 }

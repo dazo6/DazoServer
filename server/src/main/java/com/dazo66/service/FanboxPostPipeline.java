@@ -31,9 +31,10 @@ public class FanboxPostPipeline implements Pipeline<FanboxUser> {
 	@Transactional(rollbackFor = Exception.class)
 	public void process(FanboxUser bean) {
 		if (bean instanceof FanboxNextPageUser) {
-			log.info("开始爬取作者：{} 偏移量：{}", bean.getUser(), ((FanboxNextPageUser) bean).getOffset());
+			log.info("开始爬取作者：{} 偏移量：{}", bean.getArtistId(),
+					((FanboxNextPageUser) bean).getOffset());
 		} else {
-			log.info("开始爬取作者：{} 偏移量：{}", bean.getUser(), 0);
+			log.info("开始爬取作者：{} 偏移量：{}", bean.getArtistId(), 0);
 		}
 		String nextPage = bean.getNextPage();
 		if (!StringUtils.isEmpty(nextPage)) {
@@ -47,7 +48,7 @@ public class FanboxPostPipeline implements Pipeline<FanboxUser> {
 			String url = post.toString();
 			if (crawlerRequestService.check(url)) {
 				hasUpdate = true;
-				fanboxArtistService.updateByArtistId(new FanboxArtist().setArtistId(bean.getUser()).setLastUpdate(new Date()));
+				fanboxArtistService.updateByArtistId(new FanboxArtist().setArtistId(bean.getArtistId()).setLastUpdate(new Date()));
 				crawlerRequestService.add(url);
 			}
 		}

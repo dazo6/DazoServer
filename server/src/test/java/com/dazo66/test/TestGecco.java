@@ -11,7 +11,7 @@ public class TestGecco {
                 //工程的包路径
                 .classpath("com.dazo66")
                 //开始抓取的页面地址
-                .start("https://kemono.party/fantia/user/9550").pipelineFactory(name -> {
+                .start("https://kemono.party/gumroad/user/6336712228921/post/KrEnkx").pipelineFactory(name -> {
             if (name.equals("consolePipeline")) {
                 return new ConsolePipeline();
             }

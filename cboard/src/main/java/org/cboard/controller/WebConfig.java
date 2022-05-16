@@ -33,12 +33,12 @@ public class WebConfig extends WebMvcConfigurerAdapter {
 
 
 
-    @Override
+/*    @Override
     public void addResourceHandlers(ResourceHandlerRegistry registry) {
         super.addResourceHandlers(registry);
 
         registry.addResourceHandler("/**").addResourceLocations("/").addResourceLocations("classpath:/static/")
                 .setCacheControl(CacheControl.maxAge(maxAge, TimeUnit.SECONDS));
 
-    }
+    }*/
 }

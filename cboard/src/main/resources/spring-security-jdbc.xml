@@ -8,6 +8,7 @@
     http://www.springframework.org/schema/security/spring-security-5.6.xsd http://www.springframework.org/schema/context https://www.springframework.org/schema/context/spring-context.xsd">
     <context:annotation-config/>
     <security:http pattern="/bootstrap/**" security="none"/>
+    <security:http pattern="/js/**" security="none"/>
     <security:http pattern="/css/**" security="none"/>
     <security:http pattern="/dist/**" security="none"/>
     <security:http pattern="/fonts/**" security="none"/>
@@ -25,6 +26,8 @@
     <security:http pattern="/homepage/**" security="none"/>
     <security:http pattern="/update/**" security="none"/>
     <security:http pattern="/cboard*" security="none"/>
+    <security:http pattern="/vCboard*" security="none"/>
+
     <security:http auto-config="true">
         <security:intercept-url pattern="/login**" access="permitAll"/>
 

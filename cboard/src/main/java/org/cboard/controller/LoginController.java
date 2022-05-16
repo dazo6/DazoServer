@@ -13,6 +13,10 @@ public class LoginController {
     public String loginPage() {
         return "starter";
     }
+    @RequestMapping(value = "/vCboard", method = RequestMethod.GET)
+    public String loginVuePage() {
+        return "vStarter";
+    }
 
     private String getPrincipal(){
         String userName = null;

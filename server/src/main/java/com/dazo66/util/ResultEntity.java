@@ -41,8 +41,8 @@ public class ResultEntity<T> {
 
     @Override
     public String toString() {
-        return "ResultEntity{" + "result='" + result + '\'' + ", message='" + message + '\'' + "," +
-                " data=" + data + '}';
+        return "ResultEntity{" + "result='" + result + '\'' + ", message='" + message + '\'' + ","
+                + " data=" + data + '}';
     }
 
     private static final String SUCCESS = "SUCCESS";

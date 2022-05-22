@@ -32,7 +32,7 @@ public class FanboxPostPipeline implements Pipeline<FanboxUser> {
 	public void process(FanboxUser bean) {
 		if (bean instanceof FanboxNextPageUser) {
 			log.info("开始爬取作者：{} 偏移量：{}", bean.getArtistId(),
-					((FanboxNextPageUser) bean).getOffset());
+                    ((FanboxNextPageUser) bean).getOffset());
 		} else {
 			log.info("开始爬取作者：{} 偏移量：{}", bean.getArtistId(), 0);
 		}

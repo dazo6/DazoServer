@@ -42,8 +42,7 @@ public class ClassScanUtils {
                         String fileName = f.getAbsolutePath();
                         if (fileName.endsWith(".class")) {
                             String noSuffixFileName =
-                                    fileName.substring(8 + fileName.lastIndexOf("classes"),
-                                            fileName.indexOf(".class"));
+                                    fileName.substring(8 + fileName.lastIndexOf("classes"), fileName.indexOf(".class"));
                             String filePackage = noSuffixFileName.replaceAll("\\\\", ".");
                             Class clazz = Class.forName(filePackage);
                             if (null != clazz.getAnnotation(apiClass)) {

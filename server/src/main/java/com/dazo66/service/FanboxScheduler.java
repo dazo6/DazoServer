@@ -66,8 +66,7 @@ public class FanboxScheduler {
             return null;
         }
         List<HttpRequest> httpGetRequestList =
-                artists.stream().map(artist -> new HttpGetRequest(String.format("https://kemono" +
-                        ".party/%s/user/%s", artist.getType(), artist.getArtistId()))).collect(Collectors.toList());
+                artists.stream().map(artist -> new HttpGetRequest(String.format("https://kemono" + ".party/%s/user/%s", artist.getType(), artist.getArtistId()))).collect(Collectors.toList());
         SpringPipelineFactory springPipelineFactory =
                 SpringContextUtils.getBean(SpringPipelineFactory.class);
         return GeccoEngine.create()
@@ -129,7 +128,7 @@ public class FanboxScheduler {
                 JSON.parseArray(IOUtils.toString(getFavoriteResponse.getEntity().getContent())).stream().map(o -> new FanboxArtist().setArtistId(((JSONObject) o).getString("id")).setType(((JSONObject) o).getString("service")).setName(((JSONObject) o).getString("name"))).collect(Collectors.toSet());
         getFavoriteResponse.getEntity().getContent().close();
         Page<FanboxArtist> artistByPage = fanboxArtistService.getArtistByPage(1,
-                Integer.MAX_VALUE, new QueryWrapper<>(new FanboxArtist().setEnable(true)));
+                Integer.MAX_VALUE, new QueryWrapper<>(new FanboxArtist()));
         Set<String> set =
                 artistByPage.getRecords().stream().map(artist -> artist.getArtistId()).collect(Collectors.toSet());
         ids.removeIf(artist -> set.contains(artist.getArtistId()));

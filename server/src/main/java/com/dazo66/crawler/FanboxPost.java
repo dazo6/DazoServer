@@ -32,6 +32,11 @@ public class FanboxPost implements HtmlBean {
     @Href
     @HtmlField(cssPath = ".fileThumb")
     private Object[] images;
+    @Href
+    @HtmlField(cssPath = ".post__attachment-link")
+    private Object[] downloads;
+    @HtmlField(cssPath = ".post__attachment-link")
+    private Object[] downloadsName;
     private static final long serialVersionUID = -7127412585200687225L;
 
 

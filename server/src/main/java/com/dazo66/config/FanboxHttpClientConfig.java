@@ -44,9 +44,8 @@ public class FanboxHttpClientConfig {
             httpClientBuilder.setProxy(new HttpHost(proxyIp, proxyPort));
         }
         BasicHeader cookieHeader = new BasicHeader("cookie", cookie);
-        BasicHeader agentHeader = new BasicHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; " +
-                "Win64; x64) " + "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.4896.127 " +
-                "Safari/537.36");
+        BasicHeader agentHeader = new BasicHeader("User-Agent",
+                "Mozilla/5.0 (Windows NT 10.0; " + "Win64; x64) " + "AppleWebKit/537.36 (KHTML, " + "like Gecko) Chrome/100.0.4896.127 " + "Safari/537.36");
         return httpClientBuilder.setDefaultHeaders(Lists.newArrayList(cookieHeader, agentHeader)).setDefaultRequestConfig(clientConfig).setRedirectStrategy(new DefaultRedirectStrategy()).setConnectionManager(syncConnectionManager).build();
     }
 

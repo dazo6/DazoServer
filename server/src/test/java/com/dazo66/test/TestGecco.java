@@ -1,17 +1,52 @@
 package com.dazo66.test;
 
 import com.dazo66.service.ConsolePipeline;
+import com.dazo66.util.ImageUtils;
 import com.geccocrawler.gecco.GeccoEngine;
 import com.geccocrawler.gecco.scheduler.UniqueSpiderScheduler;
+import org.junit.jupiter.api.Test;
+
+import javax.imageio.ImageIO;
+import java.awt.image.BufferedImage;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.IOException;
 
 public class TestGecco {
 
-    public static void main(String[] args) {
+    @Test
+    public void thumbnailator() throws IOException {
+        File file = new File("F:\\DazoServer\\test\\img");
+        File[] testImgs = file.listFiles();
+        for (int i = 0; i < testImgs.length; i++) {
+            for (int j = 0; j < 4; j++) {
+                double q = 1d - 0.1 * j;
+                File file1 = new File(testImgs[i].getParent() + "/" + i + "-" + q + ".jpg");
+                ImageUtils.zipImageFile(ImageIO.read(new FileInputStream(testImgs[i])), file1, q);
+            }
+        }
+    }
+
+    @Test
+    public void testNeed() throws IOException {
+        File file = new File("F:\\DazoServer\\test\\img");
+        File[] testImgs = file.listFiles();
+        for (int i = 0; i < testImgs.length; i++) {
+            File testImg = testImgs[i];
+            BufferedImage image = ImageIO.read(new FileInputStream(testImg));
+            System.out.println(testImg.getName() + " : " + ImageUtils.needCompression(image,
+                    ((int) testImg.length())));
+        }
+    }
+
+    @Test
+    public void test() {
         GeccoEngine.create()
+                // post__attachment-link
                 //工程的包路径
                 .classpath("com.dazo66")
                 //开始抓取的页面地址
-                .start("https://kemono.party/gumroad/user/6336712228921/post/KrEnkx").pipelineFactory(name -> {
+                .start("https://kemono.party/fanbox/user/8349743/post/2124509").pipelineFactory(name -> {
             if (name.equals("consolePipeline")) {
                 return new ConsolePipeline();
             }

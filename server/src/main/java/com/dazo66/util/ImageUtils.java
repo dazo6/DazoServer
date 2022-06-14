@@ -16,8 +16,8 @@ public class ImageUtils {
         Thumbnails.of(image).scale(1d).outputFormat("jpg").outputQuality(quality).toFile(desFile);
     }
 
-    public static boolean needCompression(BufferedImage image, int byteLen) {
-        return byteLen > 2000 * 1000 || byteLen > image.getWidth() * image.getHeight() / 2;
+    public static boolean needCompression(BufferedImage image, long byteLen) {
+        return byteLen > 2000 * 1000 || byteLen > (long) image.getWidth() * image.getHeight() / 2;
     }
 
 }

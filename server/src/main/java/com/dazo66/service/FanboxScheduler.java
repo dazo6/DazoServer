@@ -75,7 +75,7 @@ public class FanboxScheduler {
                 //开始抓取的页面地址
                 .start(httpGetRequestList).pipelineFactory(springPipelineFactory).scheduler(new UniqueSpiderScheduler())
                 //开启几个爬虫线程
-                .thread(5)
+                .thread(2)
                 //单个爬虫每次抓取完一个请求后的间隔时间
                 .interval(2000)
                 //循环抓取
@@ -110,7 +110,7 @@ public class FanboxScheduler {
                 //开始抓取的页面地址
                 .start(httpGetRequests).pipelineFactory(springPipelineFactory).scheduler(new UniqueSpiderScheduler())
                 //开启几个爬虫线程
-                .thread(10)
+                .thread(2)
                 //单个爬虫每次抓取完一个请求后的间隔时间
                 .interval(2000)
                 //循环抓取

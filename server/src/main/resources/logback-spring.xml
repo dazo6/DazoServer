@@ -16,7 +16,7 @@
               value="${NO_PRE_LOG_PATTERN:-%m%n${LOG_EXCEPTION_CONVERSION_WORD:-%wEx}}"/>
 
     <property name="APP_NAME" value="DazoServer"/>
-    <property name="LOG_PATH" value="${user.home}/logs"/>
+    <property name="LOG_PATH" value="logs"/>
     <property name="LOG_FILE" value="${LOG_PATH}/application.log"/>
     <property name="INTERFACE_LOG_FILE" value="${LOG_PATH}/interface.log"/>
     <property name="ESTEST_LOG_FILE" value="${LOG_PATH}/param_list.log"/>

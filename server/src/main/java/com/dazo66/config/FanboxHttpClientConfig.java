@@ -14,6 +14,9 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
+import java.net.InetSocketAddress;
+import java.net.Proxy;
+
 /**
  * @author Dazo66
  */
@@ -31,7 +34,7 @@ public class FanboxHttpClientConfig {
     @Bean("fanboxHttpClient")
     public CloseableHttpClient init() {
         RequestConfig clientConfig =
-                RequestConfig.custom().setConnectTimeout(60000).setConnectionRequestTimeout(6000).setSocketTimeout(6000).build();
+                RequestConfig.custom().setConnectTimeout(60000).setConnectionRequestTimeout(60000).setSocketTimeout(60000).build();
 
         PoolingHttpClientConnectionManager syncConnectionManager =
                 new PoolingHttpClientConnectionManager();
@@ -48,5 +51,14 @@ public class FanboxHttpClientConfig {
                 "Mozilla/5.0 (Windows NT 10.0; " + "Win64; x64) " + "AppleWebKit/537.36 (KHTML, " + "like Gecko) Chrome/100.0.4896.127 " + "Safari/537.36");
         return httpClientBuilder.setDefaultHeaders(Lists.newArrayList(cookieHeader, agentHeader)).setDefaultRequestConfig(clientConfig).setRedirectStrategy(new DefaultRedirectStrategy()).setConnectionManager(syncConnectionManager).build();
     }
+
+    @Bean
+    public Proxy getProxy() {
+        Proxy proxy1 = new Proxy(Proxy.Type.SOCKS, new InetSocketAddress(proxyIp, proxyPort));
+        proxy = proxy1;
+        return proxy1;
+    }
+
+    public static Proxy proxy = Proxy.NO_PROXY;
 
 }

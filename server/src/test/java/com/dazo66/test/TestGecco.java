@@ -4,6 +4,7 @@ import com.dazo66.service.ConsolePipeline;
 import com.dazo66.util.ImageUtils;
 import com.geccocrawler.gecco.GeccoEngine;
 import com.geccocrawler.gecco.scheduler.UniqueSpiderScheduler;
+import net.coobird.thumbnailator.util.ThumbnailatorUtils;
 import org.junit.jupiter.api.Test;
 
 import javax.imageio.ImageIO;
@@ -41,6 +42,7 @@ public class TestGecco {
 
     @Test
     public void test() {
+        System.out.println(ThumbnailatorUtils.getSupportedOutputFormats());
         GeccoEngine.create()
                 // post__attachment-link
                 //工程的包路径

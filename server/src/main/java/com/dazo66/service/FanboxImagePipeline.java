@@ -25,7 +25,7 @@ import java.util.concurrent.*;
 public class FanboxImagePipeline implements Pipeline<FanboxPost> {
 
 
-    private final ThreadPoolExecutor executors = new ThreadPoolExecutor(10, 10, 0L,
+    private final ThreadPoolExecutor executors = new ThreadPoolExecutor(3, 3, 0L,
             TimeUnit.MILLISECONDS, new LinkedBlockingQueue<>(),
             new ThreadFactoryBuilder().setNameFormat("download-%02d").build());
     @Autowired
@@ -103,7 +103,7 @@ public class FanboxImagePipeline implements Pipeline<FanboxPost> {
         StringBuilder builder = new StringBuilder();
         for (int i = 0; i < replace.length(); i++) {
             char c = replace.charAt(i);
-            if (c >= 'A' || (c >= '0' && c <= '9')) {
+            if (c >= 'A' || (c >= '0' && c <= '9') || c == '-') {
                 builder.append(c);
             }
         }

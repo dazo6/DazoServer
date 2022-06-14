@@ -1,18 +1,18 @@
 package com.dazo66.util;
 
+import com.dazo66.config.FanboxHttpClientConfig;
 import lombok.extern.slf4j.Slf4j;
 import net.coobird.thumbnailator.util.ThumbnailatorUtils;
-import org.apache.commons.io.FileUtils;
-import org.apache.commons.io.IOUtils;
 import org.apache.http.HeaderElement;
-import org.apache.http.client.HttpClient;
+import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.client.methods.HttpGet;
 import org.apache.http.client.methods.HttpRequestBase;
+import org.apache.http.impl.client.CloseableHttpClient;
 
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
-import java.io.ByteArrayInputStream;
 import java.io.File;
+import java.io.IOException;
 import java.util.concurrent.Callable;
 
 @Slf4j
@@ -20,10 +20,10 @@ public class DownloadAction implements Callable<Boolean> {
 
     private String url;
     private String localPath;
-    private HttpClient httpClient;
+    private CloseableHttpClient httpClient;
     private int retryCount = 10;
 
-    public DownloadAction(HttpClient client, String url, String localPath) {
+    public DownloadAction(CloseableHttpClient client, String url, String localPath) {
         this.url = url;
         this.localPath = localPath;
         this.httpClient = client;
@@ -32,13 +32,14 @@ public class DownloadAction implements Callable<Boolean> {
     @Override
     public Boolean call() {
         HttpRequestBase request = new HttpGet(url);
+        CloseableHttpResponse response = null;
         File file = null;
         try {
-            org.apache.http.HttpResponse response = httpClient.execute(request);
+            response = httpClient.execute(request);
             while (response.getStatusLine().getStatusCode() == 302) {
                 HeaderElement[] locations = response.getFirstHeader("Location").getElements();
                 if (locations != null && locations.length != 0) {
-                    request.releaseConnection();
+                    response.close();
                     request = new HttpGet(locations[0].toString());
                     response = httpClient.execute(request);
                 }
@@ -51,27 +52,29 @@ public class DownloadAction implements Callable<Boolean> {
                                 "jpe$", "jpg");
                 String filename = localPath + suffix;
                 file = new File(filename);
-                if ((".psd".equalsIgnoreCase(suffix)) || (file.exists() && file.isFile())) {
-                    log.info("ignore " + filename);
-                    return true;
-                }
-                if (ThumbnailatorUtils.getSupportedOutputFormats().contains(suffix.substring(1))) {
-                    byte[] bytes = IOUtils.toByteArray(response.getEntity().getContent());
-                    BufferedImage image = ImageIO.read(new ByteArrayInputStream(bytes));
+                String fileType = suffix.substring(1);
+                if (ThumbnailatorUtils.getSupportedOutputFormats().contains(fileType) && !"gif".equalsIgnoreCase(fileType)) {
+                    file = new File(localPath + ".jpg");
+                    final long contentLength = Long.parseLong(response.getFirstHeader("content" +
+                            "-length").getValue());
+                    BufferedImage image = ImageIO.read(response.getEntity().getContent());
                     double quality = 1d;
-                    if (ImageUtils.needCompression(image, bytes.length)) {
+                    if (ImageUtils.needCompression(image, contentLength)) {
                         quality = 0.9d;
                     }
                     ImageUtils.zipImageFile(image, new File(localPath), quality);
-                    log.info("download and compression success name: {}.jpg, quality: {}",
-                            localPath, quality);
+                    log.info("download and compression success name: {}.{}, quality: {}",
+                            localPath, fileType, quality);
                 } else {
+                    response.close();
+                    new MultiThreadHttpDownloader(url, file.getAbsolutePath(), 5, 5000,
+                            FanboxHttpClientConfig.proxy).get();
                     log.info("download success " + filename);
-                    FileUtils.copyInputStreamToFile(response.getEntity().getContent(), file);
                 }
                 return true;
             } else {
                 log.error("download error, " + response.getStatusLine().getStatusCode());
+                response.close();
                 retryCount--;
                 if (retryCount > 0) {
                     return call();
@@ -80,10 +83,15 @@ public class DownloadAction implements Callable<Boolean> {
                 }
             }
         } catch (Exception e) {
+            try {
+                Thread.sleep(1000L);
+            } catch (InterruptedException interruptedException) {
+                interruptedException.printStackTrace();
+            }
             if (file != null && file.exists()) {
                 file.delete();
             }
-            log.error("download error,  " + e.toString());
+            log.error("download error ", e);
             retryCount--;
             if (retryCount > 0) {
                 return call();
@@ -91,7 +99,13 @@ public class DownloadAction implements Callable<Boolean> {
                 return false;
             }
         } finally {
-            request.releaseConnection();
+            if (response != null) {
+                try {
+                    response.close();
+                } catch (IOException e) {
+                    // ignore
+                }
+            }
         }
     }
 

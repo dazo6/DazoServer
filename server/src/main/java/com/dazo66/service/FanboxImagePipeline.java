@@ -7,12 +7,15 @@ import com.dazo66.util.DownloadAction;
 import com.geccocrawler.gecco.pipeline.Pipeline;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.http.impl.client.CloseableHttpClient;
+import org.apache.tools.ant.util.DateUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.List;
 import java.util.concurrent.*;
 
@@ -86,7 +89,11 @@ public class FanboxImagePipeline implements Pipeline<FanboxPost> {
 
     public String getDownloadPath(FanboxPost post, int index) {
         FanboxArtist artist = fanboxArtistService.getArtistId(post.getArtistId());
-        return fileSavePath + String.format("/%s/%s-%s-%0" + getNumberLen(post.getImages().length) + "d", cleanSym(artist.getName()), post.getTime().substring(0, 10), cleanSym(post.getTitle()), index);
+        String time = post.getTime();
+        if (StringUtils.isEmpty(time)) {
+            time = DateUtils.format(new Date(), "yyyy-MM-dd");
+        }
+        return fileSavePath + String.format("/%s/%s-%s-%0" + getNumberLen(post.getImages().length) + "d", cleanSym(artist.getName()), time.substring(0, 10), cleanSym(post.getTitle()), index);
     }
 
     public String getDownloadPath(FanboxPost post, String name) {

@@ -82,7 +82,7 @@ public class DownloadAction implements Callable<Boolean> {
                     return false;
                 }
             }
-        } catch (Exception e) {
+        } catch (Throwable e) {
             try {
                 Thread.sleep(1000L);
             } catch (InterruptedException interruptedException) {

@@ -90,16 +90,25 @@ public class FanboxImagePipeline implements Pipeline<FanboxPost> {
     public String getDownloadPath(FanboxPost post, int index) {
         FanboxArtist artist = fanboxArtistService.getArtistId(post.getArtistId());
         String time = post.getTime();
-        if (StringUtils.isEmpty(time)) {
+        if (StringUtils.isEmpty(time) && time.length() < 10) {
             time = DateUtils.format(new Date(), "yyyy-MM-dd");
+        } else {
+            time = time.substring(0, 10);
         }
-        return fileSavePath + String.format("/%s/%s-%s-%0" + getNumberLen(post.getImages().length) + "d", cleanSym(artist.getName()), time.substring(0, 10), cleanSym(post.getTitle()), index);
+        return fileSavePath + String.format("/%s/%s-%s-%0" + getNumberLen(post.getImages().length) + "d", cleanSym(artist.getName()), time, cleanSym(post.getTitle()), index);
     }
 
     public String getDownloadPath(FanboxPost post, String name) {
+
         FanboxArtist artist = fanboxArtistService.getArtistId(post.getArtistId());
-        return fileSavePath + String.format("/%s/%s-%s-%s", cleanSym(artist.getName()),
-                post.getTime().substring(0, 10), cleanSym(post.getTitle()), cleanSym(name));
+        String time = post.getTime();
+        if (StringUtils.isEmpty(time) && time.length() < 10) {
+            time = DateUtils.format(new Date(), "yyyy-MM-dd");
+        } else {
+            time = time.substring(0, 10);
+        }
+        return fileSavePath + String.format("/%s/%s-%s-%s", cleanSym(artist.getName()), time,
+                cleanSym(post.getTitle()), cleanSym(name));
     }
 
     private static String cleanSym(String s) {

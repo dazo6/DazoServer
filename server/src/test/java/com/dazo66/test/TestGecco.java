@@ -6,6 +6,7 @@ import com.geccocrawler.gecco.GeccoEngine;
 import com.geccocrawler.gecco.scheduler.UniqueSpiderScheduler;
 import net.coobird.thumbnailator.util.ThumbnailatorUtils;
 import org.junit.jupiter.api.Test;
+import org.springframework.util.AntPathMatcher;
 
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
@@ -64,6 +65,12 @@ public class TestGecco {
                 .mobile(false)
                 //阻塞方式运行
                 .run();
+    }
+
+    @Test
+    public void antPathTest() {
+        AntPathMatcher antPathMatcher = new AntPathMatcher();
+        System.out.println(antPathMatcher.match("/**/get*", "/dashboard/getCategoryList"));
     }
 
 }

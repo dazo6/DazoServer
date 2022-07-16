@@ -91,7 +91,7 @@ public class DownloadAction implements Callable<Boolean> {
             if (file != null && file.exists()) {
                 file.delete();
             }
-            log.error("download error ", e);
+            log.error("download error {}", url, e);
             retryCount--;
             if (retryCount > 0) {
                 return call();

@@ -1,6 +1,5 @@
 package com.dazo66.util;
 
-import com.dazo66.config.FanboxHttpClientConfig;
 import lombok.extern.slf4j.Slf4j;
 import net.coobird.thumbnailator.util.ThumbnailatorUtils;
 import org.apache.http.HeaderElement;
@@ -32,6 +31,7 @@ public class DownloadAction implements Callable<Boolean> {
     @Override
     public Boolean call() {
         HttpRequestBase request = new HttpGet(url);
+        request.setHeader("referer", "https://kemono.party/");
         CloseableHttpResponse response = null;
         File file = null;
         try {
@@ -67,13 +67,14 @@ public class DownloadAction implements Callable<Boolean> {
                             localPath, fileType, quality);
                 } else {
                     response.close();
-                    new MultiThreadHttpDownloader(url, file.getAbsolutePath(), 5, 5000,
-                            FanboxHttpClientConfig.proxy).get();
+                    new MultiThreadHttpDownloader(httpClient, url, file.getAbsolutePath(), 5,
+                            5000).get();
                     log.info("download success " + filename);
                 }
                 return true;
             } else {
-                log.error("download error, " + response.getStatusLine().getStatusCode());
+                log.error("download error, " + response.getStatusLine().getStatusCode() + " url: "
+                        + url);
                 response.close();
                 retryCount--;
                 if (retryCount > 0) {

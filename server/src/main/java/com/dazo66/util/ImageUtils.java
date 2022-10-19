@@ -1,6 +1,7 @@
 package com.dazo66.util;
 
 import net.coobird.thumbnailator.Thumbnails;
+import org.apache.commons.lang3.StringUtils;
 
 import java.awt.image.BufferedImage;
 import java.io.File;
@@ -10,6 +11,10 @@ public class ImageUtils {
 
     public static void zipImageFile(BufferedImage image, File desFile, double quality) throws IOException {
         File parentFile = desFile.getParentFile();
+        if (parentFile == null) {
+            parentFile =
+                    new File(StringUtils.substringBeforeLast(desFile.getAbsolutePath().replace('\\', '/'), "/"));
+        }
         if (!parentFile.exists()) {
             parentFile.mkdirs();
         }

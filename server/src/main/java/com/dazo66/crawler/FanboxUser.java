@@ -22,11 +22,11 @@ import lombok.Data;
     private String type;
 
     @Href
-    @HtmlField(cssPath = "#paginator-top>menu>li:last-child>a")
+    @HtmlField(cssPath = "#paginator-bottom>menu>a.next")
     private String nextPage;
 
     @Href
-    @HtmlField(cssPath = ".post-card__link > .fancy-link")
+    @HtmlField(cssPath = "div.card-list__items>article>a")
     private Object[] posts;
 
 }

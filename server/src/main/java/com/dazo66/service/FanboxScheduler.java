@@ -84,7 +84,7 @@ public class FanboxScheduler {
                 .mobile(false);
     }
 
-    @Scheduled(initialDelay = 1, fixedDelay = 5, timeUnit = TimeUnit.MINUTES)
+    @Scheduled(initialDelay = 0, fixedDelay = 5, timeUnit = TimeUnit.MINUTES)
     public void schedulerDownloadUrl() {
         // 阻塞方式运行
         GeccoEngine geccoEngine = buildImageGecco();

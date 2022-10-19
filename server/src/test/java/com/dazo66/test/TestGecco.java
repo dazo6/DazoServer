@@ -49,7 +49,7 @@ public class TestGecco {
                 //工程的包路径
                 .classpath("com.dazo66")
                 //开始抓取的页面地址
-                .start("https://kemono.party/gumroad/user/2023024895565/post/CWRNp").pipelineFactory(name -> {
+                .start("https://kemono.party/fanbox/user/79281725").pipelineFactory(name -> {
             if (name.equals("consolePipeline")) {
                 return new ConsolePipeline();
             }

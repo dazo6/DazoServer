@@ -17,6 +17,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.scheduling.annotation.Scheduled;
 
 import java.io.IOException;
@@ -44,6 +45,7 @@ public class FanboxHttpClientConfig {
     private String kemonoPassword;
 
     @Autowired
+    @Lazy
     private CloseableHttpClient fanboxHttpClient;
 
     @Bean("fanboxHttpClient")
@@ -71,6 +73,7 @@ public class FanboxHttpClientConfig {
             log.info("更新cookie失败");
         } else {
             BasicHeader cookieHeader = new BasicHeader("cookie", cookie);
+            log.info("获得cookie {}", cookie);
             headers.add(cookieHeader);
         }
         BasicHeader agentHeader = new BasicHeader("User-Agent",

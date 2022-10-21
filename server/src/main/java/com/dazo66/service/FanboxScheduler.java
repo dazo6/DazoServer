@@ -7,6 +7,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dazo66.config.GeccoConfig;
 import com.dazo66.entity.CrawlerRequest;
 import com.dazo66.entity.FanboxArtist;
+import com.dazo66.util.KemonoHelper;
 import com.dazo66.util.SpringContextUtils;
 import com.geccocrawler.gecco.GeccoEngine;
 import com.geccocrawler.gecco.request.HttpGetRequest;
@@ -19,7 +20,10 @@ import org.apache.commons.io.IOUtils;
 import org.apache.http.HttpResponse;
 import org.apache.http.client.methods.HttpGet;
 import org.apache.http.impl.client.CloseableHttpClient;
+import org.apache.solr.common.StringUtils;
+import org.jsoup.helper.StringUtil;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.AutoConfigureAfter;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -120,7 +124,7 @@ public class FanboxScheduler {
     }
 
     @SneakyThrows
-    @Scheduled(initialDelay = 0, fixedDelay = 10, timeUnit = TimeUnit.MINUTES)
+    @Scheduled(initialDelay = 1, fixedDelay = 10, timeUnit = TimeUnit.MINUTES)
     public void autoSubKemono() {
         HttpGet getFavoriteRequest = new HttpGet("https://kemono.party/api/favorites?type=artist");
         HttpResponse getFavoriteResponse = fanboxHttpClient.execute(getFavoriteRequest);
@@ -130,7 +134,7 @@ public class FanboxScheduler {
         Page<FanboxArtist> artistByPage = fanboxArtistService.getArtistByPage(1,
                 Integer.MAX_VALUE, new QueryWrapper<>(new FanboxArtist()));
         Set<String> set =
-                artistByPage.getRecords().stream().map(artist -> artist.getArtistId()).collect(Collectors.toSet());
+                artistByPage.getRecords().stream().map(FanboxArtist::getArtistId).collect(Collectors.toSet());
         ids.removeIf(artist -> set.contains(artist.getArtistId()));
         if (!ids.isEmpty()) {
             log.info("不在库里的作者有：{}", ids);

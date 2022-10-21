@@ -1,5 +1,6 @@
 package com.dazo66.config;
 
+import com.zaxxer.hikari.HikariDataSource;
 import org.apache.commons.dbcp2.BasicDataSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.jdbc.DataSourceProperties;
@@ -21,8 +22,8 @@ public class DatasourceConfiguration {
     @Bean
     @Primary
     public DataSource getDatasource() {
-        final BasicDataSource basicDataSource = new BasicDataSource();
-        basicDataSource.setUrl(dataSourceProperties.getUrl());
+        final HikariDataSource basicDataSource = new HikariDataSource();
+        basicDataSource.setJdbcUrl(dataSourceProperties.getUrl());
         basicDataSource.setDriverClassName(dataSourceProperties.getDriverClassName());
         basicDataSource.setUsername(dataSourceProperties.getUsername());
         basicDataSource.setPassword(dataSourceProperties.getPassword());

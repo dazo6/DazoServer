@@ -30,7 +30,7 @@ public class TestLogin {
         HttpPost httpPost = new HttpPost(new URI("https://kemono.party/account/login"));
         List<NameValuePair> form = new ArrayList<>();
         form.add(new BasicNameValuePair("username", "dazo66"));
-        form.add(new BasicNameValuePair("password", "sun2520."));
+        form.add(new BasicNameValuePair("password", "123456"));
         UrlEncodedFormEntity entity = new UrlEncodedFormEntity(form, Consts.UTF_8);
         httpPost.setEntity(entity);
         CloseableHttpResponse execute = client.execute(httpPost);

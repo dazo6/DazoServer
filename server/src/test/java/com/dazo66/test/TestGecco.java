@@ -42,7 +42,7 @@ public class TestGecco {
     }
 
     @Test
-    public void test() {
+    public void testUser() {
         System.out.println(ThumbnailatorUtils.getSupportedOutputFormats());
         GeccoEngine.create()
                 // post__attachment-link
@@ -55,6 +55,32 @@ public class TestGecco {
             }
             return null;
         }).scheduler(new UniqueSpiderScheduler())
+                //开启几个爬虫线程
+                .thread(5)
+                //单个爬虫每次抓取完一个请求后的间隔时间
+                .interval(2000)
+                //循环抓取
+                .loop(false)
+                //使用pc端userAgent
+                .mobile(false)
+                //阻塞方式运行
+                .run();
+    }
+
+    @Test
+    public void testFav() {
+        System.out.println(ThumbnailatorUtils.getSupportedOutputFormats());
+        GeccoEngine.create()
+                // post__attachment-link
+                //工程的包路径
+                .classpath("com.dazo66")
+                //开始抓取的页面地址
+                .start("https://kemono.party/favorites").pipelineFactory(name -> {
+                    if (name.equals("consolePipeline")) {
+                        return new ConsolePipeline();
+                    }
+                    return null;
+                }).scheduler(new UniqueSpiderScheduler())
                 //开启几个爬虫线程
                 .thread(5)
                 //单个爬虫每次抓取完一个请求后的间隔时间

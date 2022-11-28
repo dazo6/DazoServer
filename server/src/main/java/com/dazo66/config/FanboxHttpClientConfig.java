@@ -3,6 +3,7 @@ package com.dazo66.config;
 import com.dazo66.util.CloseableHttpClientWrapper;
 import com.dazo66.util.IpUtils;
 import com.dazo66.util.KemonoHelper;
+import com.dazo66.util.SpringContextUtils;
 import com.google.common.collect.Lists;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.http.HttpHost;
@@ -43,10 +44,6 @@ public class FanboxHttpClientConfig {
 
     @Value("${kemono.password}")
     private String kemonoPassword;
-
-    @Autowired
-    @Lazy
-    private CloseableHttpClient fanboxHttpClient;
 
     @Bean("fanboxHttpClient")
     public CloseableHttpClient warpperClient() {
@@ -90,16 +87,15 @@ public class FanboxHttpClientConfig {
     @Scheduled(initialDelay = 24, fixedDelay = 24, timeUnit = TimeUnit.HOURS)
     public void updateCookie() {
         log.info("更新 kemono cookie 开始");
-
-            synchronized (fanboxHttpClient) {
-                CloseableHttpClientWrapper wrapper = (CloseableHttpClientWrapper) this.fanboxHttpClient;
-                try {
-                    wrapper.getClient().close();
-                } catch (IOException e) {
-                    // ignore
-                }
-                wrapper.setClient(createHttpclient());
+        CloseableHttpClientWrapper httpClient = SpringContextUtils.getBean("fanboxHttpClient");
+        synchronized (httpClient) {
+            try {
+                httpClient.getClient().close();
+            } catch (IOException e) {
+                // ignore
             }
+            httpClient.setClient(createHttpclient());
+        }
 
     }
 

@@ -25,6 +25,7 @@ import org.jsoup.helper.StringUtil;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.AutoConfigureAfter;
+import org.springframework.context.annotation.DependsOn;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
@@ -123,28 +124,25 @@ public class FanboxScheduler {
                 .mobile(false);
     }
 
-    @SneakyThrows
-    @Scheduled(initialDelay = 1, fixedDelay = 10, timeUnit = TimeUnit.MINUTES)
+    @Scheduled(initialDelay = 1, fixedDelay = 20, timeUnit = TimeUnit.MINUTES)
     public void autoSubKemono() {
-        HttpGet getFavoriteRequest = new HttpGet("https://kemono.party/api/favorites?type=artist");
-        HttpResponse getFavoriteResponse = fanboxHttpClient.execute(getFavoriteRequest);
-        Set<FanboxArtist> ids =
-                JSON.parseArray(IOUtils.toString(getFavoriteResponse.getEntity().getContent())).stream().map(o -> new FanboxArtist().setArtistId(((JSONObject) o).getString("id")).setType(((JSONObject) o).getString("service")).setName(((JSONObject) o).getString("name"))).collect(Collectors.toSet());
-        getFavoriteResponse.getEntity().getContent().close();
-        Page<FanboxArtist> artistByPage = fanboxArtistService.getArtistByPage(1,
-                Integer.MAX_VALUE, new QueryWrapper<>(new FanboxArtist()));
-        Set<String> set =
-                artistByPage.getRecords().stream().map(FanboxArtist::getArtistId).collect(Collectors.toSet());
-        ids.removeIf(artist -> set.contains(artist.getArtistId()));
-        if (!ids.isEmpty()) {
-            log.info("不在库里的作者有：{}", ids);
-            ids.forEach(artist -> {
-                artist.setGmtCreate(new Date());
-                artist.setEnable(true);
-                fanboxArtistService.addArtist(artist);
-            });
-        }
+        SpringPipelineFactory springPipelineFactory =
+                SpringContextUtils.getBean(SpringPipelineFactory.class);
+        GeccoEngine.create()
+                // post__attachment-link
+                //工程的包路径
+                .classpath("com.dazo66")
+                //开始抓取的页面地址
+                .start("https://kemono.party/favorites").pipelineFactory(springPipelineFactory)
+                //开启几个爬虫线程
+                .thread(2)
+                //单个爬虫每次抓取完一个请求后的间隔时间
+                .interval(2000)
+                //循环抓取
+                .loop(false)
+                //使用pc端userAgent
+                .mobile(false)
+                //阻塞方式运行
+                .run();
     }
-
-
 }

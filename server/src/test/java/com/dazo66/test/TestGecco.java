@@ -2,10 +2,13 @@ package com.dazo66.test;
 
 import com.dazo66.service.ConsolePipeline;
 import com.dazo66.util.ImageUtils;
+import com.dazo66.util.SpringContextUtils;
 import com.geccocrawler.gecco.GeccoEngine;
 import com.geccocrawler.gecco.scheduler.UniqueSpiderScheduler;
+import com.geccocrawler.gecco.spring.SpringPipelineFactory;
 import net.coobird.thumbnailator.util.ThumbnailatorUtils;
 import org.junit.jupiter.api.Test;
+import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.util.AntPathMatcher;
 
 import javax.imageio.ImageIO;
@@ -14,6 +17,7 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 
+@SpringBootTest
 public class TestGecco {
 
     @Test
@@ -70,17 +74,15 @@ public class TestGecco {
     @Test
     public void testFav() {
         System.out.println(ThumbnailatorUtils.getSupportedOutputFormats());
+        UniqueSpiderScheduler scheduler = new UniqueSpiderScheduler();
+        SpringPipelineFactory springPipelineFactory =
+                SpringContextUtils.getBean(SpringPipelineFactory.class);
         GeccoEngine.create()
                 // post__attachment-link
                 //工程的包路径
                 .classpath("com.dazo66")
                 //开始抓取的页面地址
-                .start("https://kemono.party/favorites").pipelineFactory(name -> {
-                    if (name.equals("consolePipeline")) {
-                        return new ConsolePipeline();
-                    }
-                    return null;
-                }).scheduler(new UniqueSpiderScheduler())
+                .start("https://kemono.party/favorites").pipelineFactory(springPipelineFactory).scheduler(scheduler)
                 //开启几个爬虫线程
                 .thread(5)
                 //单个爬虫每次抓取完一个请求后的间隔时间

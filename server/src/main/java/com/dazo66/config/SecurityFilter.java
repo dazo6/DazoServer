@@ -5,7 +5,11 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.util.AntPathMatcher;
 
-import javax.servlet.*;
+import javax.servlet.Filter;
+import javax.servlet.FilterChain;
+import javax.servlet.ServletException;
+import javax.servlet.ServletRequest;
+import javax.servlet.ServletResponse;
 import javax.servlet.http.HttpServletRequest;
 import java.io.IOException;
 import java.util.List;
@@ -29,8 +33,7 @@ public class SecurityFilter implements Filter {
         } else if (isAddrInWhiteList(whiteAddr, ".", httpServletRequest.getRemoteAddr())) {
             filterChain.doFilter(servletRequest, servletResponse);
         } else {
-            log.error("非白名单用户不许配置：{}, {}", httpServletRequest.getRequestURI(),
-                    httpServletRequest.getRemoteAddr());
+            log.error("非白名单用户不许配置：{}, {}", httpServletRequest.getRequestURI(), httpServletRequest.getRemoteAddr());
             throw new RuntimeException("权限不足");
         }
     }

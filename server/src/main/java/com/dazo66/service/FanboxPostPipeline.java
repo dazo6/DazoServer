@@ -21,40 +21,40 @@ import java.util.Date;
 @Slf4j
 public class FanboxPostPipeline implements Pipeline<FanboxUser> {
 
-	@Autowired
-	private CrawlerRequestService crawlerRequestService;
+    @Autowired
+    private CrawlerRequestService crawlerRequestService;
 
-	@Autowired
-	private FanboxArtistService fanboxArtistService;
+    @Autowired
+    private FanboxArtistService fanboxArtistService;
 
-	@Override
-	@Transactional(rollbackFor = Exception.class)
-	public void process(FanboxUser bean) {
-		if (bean instanceof FanboxNextPageUser) {
-			log.info("开始爬取作者：{} 偏移量：{}", bean.getArtistId(),
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void process(FanboxUser bean) {
+        if (bean instanceof FanboxNextPageUser) {
+            log.info("开始爬取作者：{} 偏移量：{}", bean.getArtistId(),
                     ((FanboxNextPageUser) bean).getOffset());
-		} else {
-			log.info("开始爬取作者：{} 偏移量：{}", bean.getArtistId(), 0);
-		}
-		String nextPage = bean.getNextPage();
-		if (!StringUtils.isEmpty(nextPage)) {
-			if (crawlerRequestService.check(nextPage)) {
-				crawlerRequestService.add(nextPage);
-			}
-		}
-		Object[] posts = bean.getPosts();
-		boolean hasUpdate = false;
-		for (Object post : posts) {
-			String url = post.toString();
-			if (crawlerRequestService.check(url)) {
-				hasUpdate = true;
-				fanboxArtistService.updateByArtistId(new FanboxArtist().setArtistId(bean.getArtistId()).setLastUpdate(new Date()));
-				crawlerRequestService.add(url);
-			}
-		}
-		if (hasUpdate && !StringUtils.isEmpty(nextPage)) {
-			crawlerRequestService.updateByUrl(new CrawlerRequest().setUrl(nextPage).setIsDone(false));
-		}
-		crawlerRequestService.updateByUrl(new CrawlerRequest().setUrl(bean.getRequest().getUrl()).setIsDone(true));
-	}
+        } else {
+            log.info("开始爬取作者：{} 偏移量：{}", bean.getArtistId(), 0);
+        }
+        String nextPage = bean.getNextPage();
+        if (!StringUtils.isEmpty(nextPage)) {
+            if (crawlerRequestService.check(nextPage)) {
+                crawlerRequestService.add(nextPage);
+            }
+        }
+        Object[] posts = bean.getPosts();
+        boolean hasUpdate = false;
+        for (Object post : posts) {
+            String url = post.toString();
+            if (crawlerRequestService.check(url)) {
+                hasUpdate = true;
+                fanboxArtistService.updateByArtistId(new FanboxArtist().setArtistId(bean.getArtistId()).setLastUpdate(new Date()));
+                crawlerRequestService.add(url);
+            }
+        }
+        if (hasUpdate && !StringUtils.isEmpty(nextPage)) {
+            crawlerRequestService.updateByUrl(new CrawlerRequest().setUrl(nextPage).setIsDone(false));
+        }
+        crawlerRequestService.updateByUrl(new CrawlerRequest().setUrl(bean.getRequest().getUrl()).setIsDone(true));
+    }
 }

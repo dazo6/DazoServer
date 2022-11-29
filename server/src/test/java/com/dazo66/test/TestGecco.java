@@ -75,8 +75,7 @@ public class TestGecco {
     public void testFav() {
         System.out.println(ThumbnailatorUtils.getSupportedOutputFormats());
         UniqueSpiderScheduler scheduler = new UniqueSpiderScheduler();
-        SpringPipelineFactory springPipelineFactory =
-                SpringContextUtils.getBean(SpringPipelineFactory.class);
+        SpringPipelineFactory springPipelineFactory = SpringContextUtils.getBean(SpringPipelineFactory.class);
         GeccoEngine.create()
                 // post__attachment-link
                 //工程的包路径

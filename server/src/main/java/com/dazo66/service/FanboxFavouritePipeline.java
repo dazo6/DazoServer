@@ -10,6 +10,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.util.AntPathMatcher;
+
+import java.util.Map;
 
 @Service
 @Slf4j
@@ -25,11 +28,12 @@ public class FanboxFavouritePipeline implements Pipeline<SpiderBean> {
             DeriveSchedulerContext.into(new HttpGetRequest(fanboxFavourite.getNextPage()));
         }
         for (int i = 0; i < fanboxFavourite.getArtistUrls().size(); i++) {
+            AntPathMatcher matcher = new AntPathMatcher();
             String url = fanboxFavourite.getArtistUrls().get(i);
-            String[] split = url.split("/");
-            if (split.length == 6) {
-                String type = split[3];
-                String artistId = split[5];
+            Map<String, String> uriTemplateVariables = matcher.extractUriTemplateVariables("https://kemono.party/{type}/user/{id}", url);
+            if (uriTemplateVariables.size() == 2 && uriTemplateVariables.containsKey("type") && uriTemplateVariables.containsKey("id")) {
+                String type = uriTemplateVariables.get("type");
+                String artistId = uriTemplateVariables.get("id");
                 String artistName = fanboxFavourite.getArtistNames().get(i);
                 if (fanboxArtistService.getArtistId(artistId) == null) {
                     FanboxArtist fanboxArtist = new FanboxArtist();

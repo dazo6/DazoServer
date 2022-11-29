@@ -3,7 +3,10 @@ package com.dazo66.crawler;
 
 import com.dazo66.util.SpringContextUtils;
 import com.geccocrawler.gecco.annotation.Downloader;
-import com.geccocrawler.gecco.downloader.*;
+import com.geccocrawler.gecco.downloader.AbstractDownloader;
+import com.geccocrawler.gecco.downloader.DownloadException;
+import com.geccocrawler.gecco.downloader.DownloadServerException;
+import com.geccocrawler.gecco.downloader.UserAgent;
 import com.geccocrawler.gecco.downloader.proxy.Proxys;
 import com.geccocrawler.gecco.downloader.proxy.ProxysContext;
 import com.geccocrawler.gecco.request.HttpPostRequest;
@@ -40,10 +43,14 @@ import org.apache.http.protocol.HttpContext;
 import org.apache.http.ssl.SSLContexts;
 import org.apache.http.ssl.TrustStrategy;
 import org.apache.http.util.CharArrayBuffer;
-import org.jsoup.helper.StringUtil;
 
 import javax.net.ssl.SSLContext;
-import java.io.*;
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.Reader;
+import java.io.UnsupportedEncodingException;
 import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
 import java.util.ArrayList;
@@ -59,6 +66,8 @@ public class MyHttpDownloader extends AbstractDownloader {
 
     private HttpClientContext cookieContext;
 
+    private boolean isSpringHttpClient = false;
+
     public MyHttpDownloader() {
 
         cookieContext = HttpClientContext.create();
@@ -66,6 +75,7 @@ public class MyHttpDownloader extends AbstractDownloader {
         CloseableHttpClient fanboxHttpClient = SpringContextUtils.getBean("fanboxHttpClient");
         if (fanboxHttpClient != null) {
             httpClient = fanboxHttpClient;
+            isSpringHttpClient = true;
         } else {
             Registry<ConnectionSocketFactory> socketFactoryRegistry = null;
             try {
@@ -213,10 +223,12 @@ public class MyHttpDownloader extends AbstractDownloader {
 
     @Override
     public void shutdown() {
-        try {
-            httpClient.close();
-        } catch (IOException e) {
-            httpClient = null;
+        if (!isSpringHttpClient) {
+            try {
+                httpClient.close();
+            } catch (IOException e) {
+                httpClient = null;
+            }
         }
     }
 

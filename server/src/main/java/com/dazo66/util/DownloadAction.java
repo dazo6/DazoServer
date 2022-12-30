@@ -47,8 +47,7 @@ public class DownloadAction implements Callable<Boolean> {
             if (response.getStatusLine().getStatusCode() == 200) {
                 String remoteFilename =
                         response.getHeaders("Content-Disposition")[0].getElements()[0].getParameter(0).getValue();
-                String suffix =
-                        remoteFilename.substring(remoteFilename.lastIndexOf('.')).replaceAll(
+                String suffix = remoteFilename.substring(remoteFilename.lastIndexOf('.')).replaceAll(
                                 "jpe$", "jpg");
                 String filename = localPath + suffix;
                 file = new File(filename);

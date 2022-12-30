@@ -49,7 +49,7 @@ public class BaseController {
         }
 
         if (user != null && !isNegtiveMatch && isPositveMatch) {
-            LOG.info(log);
+            LOG.debug(log);
         }
     }
 }

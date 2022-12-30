@@ -1,6 +1,7 @@
 package com.dazo66.util;
 
 import com.google.common.collect.Lists;
+import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.http.HeaderElement;
 import org.apache.http.NameValuePair;
@@ -32,6 +33,7 @@ import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * @author Dazo66
@@ -44,12 +46,16 @@ public class MultiThreadHttpDownloader {
     private final Object waiting = new Object();
     private final AtomicInteger downloadedBytes = new AtomicInteger(0);
     private final AtomicInteger aliveThreads = new AtomicInteger(0);
+
+    private final AtomicInteger failThreads = new AtomicInteger(0);
     private final int MIN_SIZE = 2 << 20;
     private final CloseableHttpClient httpClient;
     private boolean multiThreaded = true;
     private int fileSize = 0;
-    private int THREAD_NUM = 5;
+    private int THREAD_NUM = 8;
     private int TIME_OUT = 5000;
+
+    private AtomicReference<Throwable> throwableAtomicReference;
 
     public MultiThreadHttpDownloader(CloseableHttpClient httpClient, String url,
                                      String localPath) throws MalformedURLException {
@@ -66,7 +72,7 @@ public class MultiThreadHttpDownloader {
     }
 
     //开始下载文件
-    public void get() throws IOException {
+    public void get() throws Throwable {
         long startTime = System.currentTimeMillis();
 
         boolean resumable = supportResumeDownload();
@@ -109,9 +115,9 @@ public class MultiThreadHttpDownloader {
 
     //检测目标文件是否支持断点续传，以决定是否开启多线程下载文件的不同部分
     public boolean supportResumeDownload() throws IOException {
-
-        int resCode;
-        while (true) {
+        Integer resCode = null;
+        Exception e1 = null;
+        for (int i = 0; i < 10; i++) {
             try {
                 HttpGet httpGet = new HttpGet(url.toURI());
                 httpGet.setHeader("Range", "bytes=0-");
@@ -123,8 +129,12 @@ public class MultiThreadHttpDownloader {
                 execute.close();
                 break;
             } catch (Exception e) {
+                e1 = e;
                 log.info(localFile + " Retry to connect due to connection problem.");
             }
+        }
+        if (resCode == null) {
+            throw new RuntimeException(e1);
         }
         if (resCode == 206) {
             log.info(localFile + " * Support resume download");
@@ -168,13 +178,26 @@ public class MultiThreadHttpDownloader {
     }
 
     //对临时文件进行合并或重命名
-    public void cleanTempFile() throws IOException {
+    public void cleanTempFile() throws Throwable {
         if (multiThreaded) {
-            merge();
+            if (failThreads.get() == 0) {
+                merge();
+            } else {
+                if (throwableAtomicReference.get() != null) {
+                    throw throwableAtomicReference.get();
+                }
+            }
             log.info(localFile + " * Temp file merged.");
         } else {
-            Files.move(Paths.get(localFile.getAbsolutePath() + ".0.tmp"),
-                    Paths.get(localFile.getAbsolutePath()), StandardCopyOption.REPLACE_EXISTING);
+            if (failThreads.get() == 0) {
+                Files.move(Paths.get(localFile.getAbsolutePath() + ".0.tmp"),
+                        Paths.get(localFile.getAbsolutePath()), StandardCopyOption.REPLACE_EXISTING);
+            } else {
+                Files.delete(Paths.get(localFile.getAbsolutePath() + ".0.tmp"));
+                if (throwableAtomicReference.get() != null) {
+                    throw throwableAtomicReference.get();
+                }
+            }
         }
     }
 
@@ -197,7 +220,15 @@ public class MultiThreadHttpDownloader {
         }
     }
 
-    public static void main(String[] args) throws IOException {
+    @SneakyThrows
+    public void cleanTempFileMultiThread() {
+            for (int i = 0; i < THREAD_NUM; i++) {
+                String tmpFile = localFile.getAbsolutePath() + "." + i + ".tmp";
+                Files.delete(Paths.get(tmpFile));
+            }
+    }
+
+    public static void main(String[] args) throws Throwable {
         RequestConfig clientConfig =
                 RequestConfig.custom().setRedirectsEnabled(true).setConnectTimeout(60000).setConnectionRequestTimeout(60000).setSocketTimeout(60000).build();
 
@@ -207,27 +238,12 @@ public class MultiThreadHttpDownloader {
         syncConnectionManager.setMaxTotal(1000);
         syncConnectionManager.setDefaultMaxPerRoute(50);
         HttpClientBuilder httpClientBuilder = HttpClientBuilder.create();
-        BasicHeader cookieHeader = new BasicHeader("cookie", "__ddg1_=0WN6S68y0aTt7FFGTn6Q; " +
-                "_pk_id.1.5bc1=7dc5e3d6da8a845b.1651927189.; __ddg2_=crAhJBbdcp9KgcAo; _pk_ses.1" +
-                ".5bc1=1");
         BasicHeader agentHeader = new BasicHeader("User-Agent",
                 "Mozilla/5.0 (Windows NT 10.0; " + "Win64; x64) " + "AppleWebKit/537.36 (KHTML, " + "like Gecko) Chrome/100.0.4896.127 " + "Safari/537.36");
         CloseableHttpClient httpClient =
-                httpClientBuilder.setDefaultHeaders(Lists.newArrayList(cookieHeader, agentHeader)).setDefaultRequestConfig(clientConfig).setRedirectStrategy(new DefaultRedirectStrategy()).setConnectionManager(syncConnectionManager).build();
-        String url = "https://kemono" +
-                ".party/data/ca/81" +
-                "/ca8154c8361b213c8fee0496fcc1354df1dc83535b7cedf9ac498c4ddbcaaf28" +
-                ".jpg?f=2f6fc619-1203-4cca-9a04-697f9a0d5672.jpg";
-        List<NameValuePair> pairList = new ArrayList<>();
-        pairList.add(new BasicNameValuePair("download", url));
-        pairList.add(new BasicNameValuePair("cookie", "1"));
-        pairList.add(new BasicNameValuePair("send_image", "0"));
-        pairList.add(new BasicNameValuePair("res", "1092x1080"));
-        pairList.add(new BasicNameValuePair("res", "1092x1080"));
-        pairList.add(new BasicNameValuePair("url", "https://kemono.party/fanbox/user/9639655/post" +
-                "/4571679"));
-        httpClient.execute(new HttpGet("https://kemono.party/onomek?" + EntityUtils.toString(new UrlEncodedFormEntity(pairList))));
-        new MultiThreadHttpDownloader(httpClient, url, "D:/ls-lR.txt", 5, 5000).get();
+                httpClientBuilder.setDefaultHeaders(Lists.newArrayList(agentHeader)).setDefaultRequestConfig(clientConfig).setRedirectStrategy(new DefaultRedirectStrategy()).setConnectionManager(syncConnectionManager).build();
+
+        new MultiThreadHttpDownloader(httpClient, "http://127.0.0.1:8080", "D:/ls-lR.jpg", 5, 5000).get();
     }
 
     //一个下载线程负责下载文件的某一部分，如果失败则自动重试，直到下载完成
@@ -242,16 +258,18 @@ public class MultiThreadHttpDownloader {
             this.start = start;
             this.end = end;
             aliveThreads.incrementAndGet();
+            failThreads.incrementAndGet();
         }
 
         //保证文件的该部分数据下载完成
         @Override
         public void run() {
-            boolean success = false;
-            while (true) {
+            boolean success;
+            for (int i = 0; i < 10; i++) {
                 success = download();
                 if (success) {
                     log.info(localFile + " * Downloaded part " + (id + 1));
+                    failThreads.decrementAndGet();
                     break;
                 } else {
                     log.info(localFile + " Retry to download part " + (id + 1));
@@ -307,12 +325,15 @@ public class MultiThreadHttpDownloader {
                 }
             } catch (SocketTimeoutException e) {
                 log.info(localFile + " Part " + (id + 1) + " Reading timeout.");
+                throwableAtomicReference.set(e);
                 return false;
             } catch (IOException e) {
                 log.info(localFile + " Part " + (id + 1) + " encountered error.");
+                throwableAtomicReference.set(e);
                 return false;
             } catch (URISyntaxException e) {
                 log.info(localFile + " Part " + (id + 1) + " to uri error.");
+                throwableAtomicReference.set(e);
                 return false;
             }
 

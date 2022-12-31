@@ -28,6 +28,7 @@ import java.net.SocketTimeoutException;
 import java.net.URISyntaxException;
 import java.net.URL;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
@@ -55,7 +56,7 @@ public class MultiThreadHttpDownloader {
     private int THREAD_NUM = 8;
     private int TIME_OUT = 5000;
 
-    private AtomicReference<Throwable> throwableAtomicReference;
+    private AtomicReference<Throwable> throwableAtomicReference = new AtomicReference<>();
 
     public MultiThreadHttpDownloader(CloseableHttpClient httpClient, String url,
                                      String localPath) throws MalformedURLException {
@@ -81,7 +82,6 @@ public class MultiThreadHttpDownloader {
         }
         if (!multiThreaded) {
             new DownloadThread(0, 0, fileSize - 1).start();
-            ;
         } else {
             int[] endPoint = new int[THREAD_NUM + 1];
             int block = fileSize / THREAD_NUM;
@@ -183,6 +183,7 @@ public class MultiThreadHttpDownloader {
             if (failThreads.get() == 0) {
                 merge();
             } else {
+                cleanTempFileMultiThread();
                 if (throwableAtomicReference.get() != null) {
                     throw throwableAtomicReference.get();
                 }
@@ -193,7 +194,10 @@ public class MultiThreadHttpDownloader {
                 Files.move(Paths.get(localFile.getAbsolutePath() + ".0.tmp"),
                         Paths.get(localFile.getAbsolutePath()), StandardCopyOption.REPLACE_EXISTING);
             } else {
-                Files.delete(Paths.get(localFile.getAbsolutePath() + ".0.tmp"));
+                Path path = Paths.get(localFile.getAbsolutePath() + ".0.tmp");
+                if (Files.exists(path)) {
+                    Files.delete(path);
+                }
                 if (throwableAtomicReference.get() != null) {
                     throw throwableAtomicReference.get();
                 }
@@ -224,7 +228,11 @@ public class MultiThreadHttpDownloader {
     public void cleanTempFileMultiThread() {
             for (int i = 0; i < THREAD_NUM; i++) {
                 String tmpFile = localFile.getAbsolutePath() + "." + i + ".tmp";
-                Files.delete(Paths.get(tmpFile));
+
+                Path path = Paths.get(tmpFile);
+                if (Files.exists(path)) {
+                    Files.delete(path);
+                }
             }
     }
 
@@ -280,7 +288,7 @@ public class MultiThreadHttpDownloader {
 
         //下载文件指定范围的部分
         public boolean download() {
-            CloseableHttpResponse execute;
+            CloseableHttpResponse execute = null;
             try {
                 HttpGet httpGet = new HttpGet(url.toURI());
                 httpGet.setHeader("referer", "https://kemono.party/");
@@ -305,7 +313,14 @@ public class MultiThreadHttpDownloader {
                     return false;
                 }
                 if (out == null) {
-                    out = new FileOutputStream(localFile.getAbsolutePath() + "." + id + ".tmp");
+                    File file = new File(localFile.getAbsolutePath() + "." + id + ".tmp");
+                    if (file.exists()) {
+                        file.delete();
+                    } else {
+                        file.getParentFile().mkdir();
+                        file.createNewFile();
+                    }
+                    out = Files.newOutputStream(file.toPath());
                 }
                 try (InputStream in = execute.getEntity().getContent()) {
                     byte[] buffer = new byte[1024];
@@ -335,6 +350,14 @@ public class MultiThreadHttpDownloader {
                 log.info(localFile + " Part " + (id + 1) + " to uri error.");
                 throwableAtomicReference.set(e);
                 return false;
+            } finally {
+                if (execute != null) {
+                    try {
+                        execute.close();
+                    } catch (IOException e) {
+                        // ignore
+                    }
+                }
             }
 
             return true;

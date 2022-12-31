@@ -66,7 +66,7 @@ public class DownloadAction implements Callable<Boolean> {
                             localPath, fileType, quality);
                 } else {
                     response.close();
-                    new MultiThreadHttpDownloader(httpClient, url, file.getAbsolutePath(), 5,
+                    new MultiThreadHttpDownloader(httpClient, url, file.getAbsolutePath(), 8,
                             5000).get();
                     log.info("download success " + filename);
                 }

@@ -5,6 +5,7 @@ import lombok.Setter;
 import org.apache.http.HttpHost;
 import org.apache.http.HttpRequest;
 import org.apache.http.client.ClientProtocolException;
+import org.apache.http.client.ResponseHandler;
 import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.conn.ClientConnectionManager;
 import org.apache.http.impl.client.CloseableHttpClient;
@@ -40,6 +41,11 @@ public class CloseableHttpClientWrapper extends CloseableHttpClient {
     @Override
     public HttpParams getParams() {
         return client.getParams();
+    }
+
+    @Override
+    public <T> T execute(HttpHost target, HttpRequest request, ResponseHandler<? extends T> responseHandler, HttpContext context) throws IOException, ClientProtocolException {
+        return client.execute(target, request, responseHandler, context);
     }
 
     @Override

@@ -14,7 +14,7 @@ import lombok.Data;
  * @author Dazo66
  */
 @Gecco(matchUrl = "https://kemono.party/{type}/user/{user}/post/{post}", pipelines = {
-        "consolePipeline", "fanboxImagePipeline"})
+        "consolePipeline", "fanboxImagePipeline"}, downloader = "myHttpDownloader")
 @Data
 public class FanboxPost implements HtmlBean {
 

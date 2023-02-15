@@ -74,6 +74,7 @@ public class MyHttpDownloader extends AbstractDownloader {
         cookieContext.setCookieStore(new BasicCookieStore());
         CloseableHttpClient fanboxHttpClient = SpringContextUtils.getBean("fanboxHttpClient");
         if (fanboxHttpClient != null) {
+            log.info("gecco use spring http client!");
             httpClient = fanboxHttpClient;
             isSpringHttpClient = true;
         } else {

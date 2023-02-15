@@ -10,7 +10,7 @@ import lombok.EqualsAndHashCode;
  */
 @EqualsAndHashCode(callSuper = true)
 @Gecco(matchUrl = "https://kemono.party/{type}/user/{artistId}?o={offset}", pipelines = {
-        "consolePipeline", "fanboxPostPipeline"})
+        "consolePipeline", "fanboxPostPipeline"}, downloader = "myHttpDownloader")
 @Data
 public class FanboxNextPageUser extends FanboxUser {
     @RequestParameter

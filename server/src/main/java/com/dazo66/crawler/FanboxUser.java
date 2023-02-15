@@ -10,7 +10,7 @@ import com.geccocrawler.gecco.spider.HtmlBean;
 import lombok.Data;
 
 @Gecco(matchUrl = "https://kemono.party/{type}/user/{artistId}", pipelines = {"consolePipeline",
-        "fanboxPostPipeline"})
+        "fanboxPostPipeline"}, downloader = "myHttpDownloader")
 @Data
 /**
  * @author Dazo66

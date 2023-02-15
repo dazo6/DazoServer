@@ -38,6 +38,29 @@ public class FanboxScheduler {
     @Autowired
     private CloseableHttpClient fanboxHttpClient;
 
+    @Scheduled(initialDelay = 0, fixedDelay = 20, timeUnit = TimeUnit.MINUTES)
+    public void autoSubKemono() {
+        log.info("开始自动订阅作者！");
+        SpringPipelineFactory springPipelineFactory =
+                SpringContextUtils.getBean(SpringPipelineFactory.class);
+        GeccoEngine.create()
+                // post__attachment-link
+                //工程的包路径
+                .classpath("com.dazo66")
+                //开始抓取的页面地址
+                .start("https://kemono.party/favorites").pipelineFactory(springPipelineFactory)
+                //开启几个爬虫线程
+                .thread(2)
+                //单个爬虫每次抓取完一个请求后的间隔时间
+                .interval(2000)
+                //循环抓取
+                .loop(false)
+                //使用pc端userAgent
+                .mobile(false)
+                //阻塞方式运行
+                .run();
+    }
+
     @Scheduled(initialDelay = 0, fixedDelay = 10, timeUnit = TimeUnit.MINUTES)
     public void schedulerSearchNeedPost() {
         // 阻塞方式运行
@@ -111,25 +134,5 @@ public class FanboxScheduler {
                 .mobile(false);
     }
 
-    @Scheduled(initialDelay = 1, fixedDelay = 20, timeUnit = TimeUnit.MINUTES)
-    public void autoSubKemono() {
-        SpringPipelineFactory springPipelineFactory =
-                SpringContextUtils.getBean(SpringPipelineFactory.class);
-        GeccoEngine.create()
-                // post__attachment-link
-                //工程的包路径
-                .classpath("com.dazo66")
-                //开始抓取的页面地址
-                .start("https://kemono.party/favorites").pipelineFactory(springPipelineFactory)
-                //开启几个爬虫线程
-                .thread(2)
-                //单个爬虫每次抓取完一个请求后的间隔时间
-                .interval(2000)
-                //循环抓取
-                .loop(false)
-                //使用pc端userAgent
-                .mobile(false)
-                //阻塞方式运行
-                .run();
-    }
+
 }

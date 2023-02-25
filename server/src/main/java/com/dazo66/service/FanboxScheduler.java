@@ -1,11 +1,13 @@
 package com.dazo66.service;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dazo66.config.GeccoConfig;
 import com.dazo66.entity.CrawlerRequest;
 import com.dazo66.entity.FanboxArtist;
 import com.dazo66.util.SpringContextUtils;
+import com.dazo66.util.StringUtil;
 import com.geccocrawler.gecco.GeccoEngine;
 import com.geccocrawler.gecco.request.HttpGetRequest;
 import com.geccocrawler.gecco.request.HttpRequest;
@@ -14,11 +16,15 @@ import com.geccocrawler.gecco.spring.SpringPipelineFactory;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.AutoConfigureAfter;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
+import java.io.File;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
@@ -37,6 +43,9 @@ public class FanboxScheduler {
 
     @Autowired
     private CloseableHttpClient fanboxHttpClient;
+
+    @Value("${fanbox.save.path}")
+    private String fileSavePath;
 
     @Scheduled(initialDelay = 0, fixedDelay = 20, timeUnit = TimeUnit.MINUTES)
     public void autoSubKemono() {
@@ -59,6 +68,22 @@ public class FanboxScheduler {
                 .mobile(false)
                 //阻塞方式运行
                 .run();
+    }
+
+    @Scheduled(initialDelay = 0, fixedDelay = 20, timeUnit = TimeUnit.MINUTES)
+    public void autoUnsubArtist() {
+        File[] files = new File(fileSavePath).listFiles();
+        Set<String> artistSet = Arrays.stream(files).map(File::getName).collect(Collectors.toSet());
+        LambdaQueryWrapper<FanboxArtist> query = new LambdaQueryWrapper<FanboxArtist>().isNotNull(FanboxArtist::getLastUpdate).eq(FanboxArtist::getEnable, true);
+        Page<FanboxArtist> unableArtist = fanboxArtistService.getArtistByPage(1, 20000, query);
+        for (FanboxArtist record : unableArtist.getRecords()) {
+            if (!artistSet.contains(StringUtil.cleanSym(record.getName()))) {
+                record.setEnable(false);
+                //fanboxArtistService.updateByArtistId(record);
+                log.info("unable artist: {}", record);
+            }
+        }
+
     }
 
     @Scheduled(initialDelay = 0, fixedDelay = 10, timeUnit = TimeUnit.MINUTES)
@@ -106,6 +131,7 @@ public class FanboxScheduler {
         if (geccoEngine != null) {
             geccoEngine.run();
         }
+
     }
 
     public GeccoEngine buildImageGecco() {

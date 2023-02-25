@@ -48,7 +48,6 @@ public class FanboxPostPipeline implements Pipeline<FanboxUser> {
             String url = post.toString();
             if (crawlerRequestService.check(url)) {
                 hasUpdate = true;
-                fanboxArtistService.updateByArtistId(new FanboxArtist().setArtistId(bean.getArtistId()).setLastUpdate(new Date()));
                 crawlerRequestService.add(url);
             }
         }

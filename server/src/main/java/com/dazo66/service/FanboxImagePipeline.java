@@ -4,6 +4,7 @@ import com.dazo66.crawler.FanboxPost;
 import com.dazo66.entity.CrawlerRequest;
 import com.dazo66.entity.FanboxArtist;
 import com.dazo66.util.DownloadAction;
+import com.dazo66.util.StringUtil;
 import com.geccocrawler.gecco.pipeline.Pipeline;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import lombok.extern.slf4j.Slf4j;
@@ -13,6 +14,7 @@ import org.apache.tools.ant.util.DateUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.Date;
@@ -46,6 +48,7 @@ public class FanboxImagePipeline implements Pipeline<FanboxPost> {
     private FanboxArtistService fanboxArtistService;
 
     @Override
+    @Transactional
     public void process(FanboxPost bean) {
         try {
             Object[] images = bean.getImages();
@@ -83,6 +86,7 @@ public class FanboxImagePipeline implements Pipeline<FanboxPost> {
             }
             if (isDone) {
                 crawlerRequestService.updateByUrl(new CrawlerRequest().setUrl(bean.getRequest().getUrl()).setIsDone(true));
+                fanboxArtistService.updateByArtistId(new FanboxArtist().setArtistId(bean.getArtistId()).setLastUpdate(new Date()));
             }
         } catch (Exception e) {
             log.error("下载post中的图片出错: ", e);
@@ -99,7 +103,7 @@ public class FanboxImagePipeline implements Pipeline<FanboxPost> {
         } else {
             time = time.substring(0, 10);
         }
-        return fileSavePath + String.format("/%s/%s-%s-%0" + getNumberLen(post.getImages().length) + "d", cleanSym(artist.getName()), time, cleanSym(post.getTitle()), index);
+        return fileSavePath + String.format("/%s/%s-%s-%0" + getNumberLen(post.getImages().length) + "d", StringUtil.cleanSym(artist.getName()), time, StringUtil.cleanSym(post.getTitle()), index);
     }
 
     public String getDownloadPath(FanboxPost post, String name) {
@@ -111,24 +115,11 @@ public class FanboxImagePipeline implements Pipeline<FanboxPost> {
         } else {
             time = time.substring(0, 10);
         }
-        return fileSavePath + String.format("/%s/%s-%s-%s", cleanSym(artist.getName()), time,
-                cleanSym(post.getTitle()), cleanSym(name));
+        return fileSavePath + String.format("/%s/%s-%s-%s", StringUtil.cleanSym(artist.getName()), time,
+                StringUtil.cleanSym(post.getTitle()), StringUtil.cleanSym(name));
     }
 
-    private static String cleanSym(String s) {
-        String replace =
-                s.replace("/", "").replace(":", "").replace("*", "").replace("\\", "").replace(
-                        "|", "").replace("<", "").replace(">", "").replace("?", "").replace("\"",
-                        "");
-        StringBuilder builder = new StringBuilder();
-        for (int i = 0; i < replace.length(); i++) {
-            char c = replace.charAt(i);
-            if (c >= 'A' || (c >= '0' && c <= '9') || c == '-') {
-                builder.append(c);
-            }
-        }
-        return builder.toString();
-    }
+
 
     private static int getNumberLen(int num) {
         int count = 0;

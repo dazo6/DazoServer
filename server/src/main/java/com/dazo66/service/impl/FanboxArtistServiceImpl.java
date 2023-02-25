@@ -1,10 +1,12 @@
 package com.dazo66.service.impl;
 
+import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dazo66.entity.FanboxArtist;
 import com.dazo66.mapper.FanboxArtistMapper;
 import com.dazo66.service.FanboxArtistService;
+import org.apache.poi.ss.formula.functions.T;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -19,7 +21,7 @@ public class FanboxArtistServiceImpl implements FanboxArtistService {
 
     @Override
     public Page<FanboxArtist> getArtistByPage(int page, int pageSize,
-                                              QueryWrapper<FanboxArtist> queryWrapper) {
+                                              Wrapper<FanboxArtist> queryWrapper) {
         Page<FanboxArtist> fanboxArtistPage = Page.of(page, pageSize);
         return fanboxArtistMapper.selectPage(fanboxArtistPage, queryWrapper);
     }
@@ -49,6 +51,6 @@ public class FanboxArtistServiceImpl implements FanboxArtistService {
             throw new RuntimeException("artist id must not null in update");
         }
         fanboxArtistMapper.update(artist, new QueryWrapper<FanboxArtist>().eq("artist_id", artist.getArtistId()));
-        return null;
+        return artist;
     }
 }

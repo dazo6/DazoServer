@@ -2,6 +2,8 @@ package com.dazo66.util;
 
 import lombok.extern.slf4j.Slf4j;
 import net.coobird.thumbnailator.util.ThumbnailatorUtils;
+import org.apache.commons.lang.exception.ExceptionUtils;
+import org.apache.http.Header;
 import org.apache.http.HeaderElement;
 import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.client.methods.HttpGet;
@@ -45,8 +47,13 @@ public class DownloadAction implements Callable<Boolean> {
                 }
             }
             if (response.getStatusLine().getStatusCode() == 200) {
-                String remoteFilename =
-                        response.getHeaders("Content-Disposition")[0].getElements()[0].getParameter(0).getValue();
+                Header[] headers = response.getHeaders("content-type");
+                String remoteFilename;
+                if (headers.length == 0 || headers[0].getElements().length == 0 || headers[0].getElements()[0].getParameters().length == 0) {
+                    remoteFilename = url.substring(url.lastIndexOf("/") - 1);
+                } else {
+                    remoteFilename = headers[0].getElements()[0].getParameter(0).getValue();
+                }
                 String suffix = remoteFilename.substring(remoteFilename.lastIndexOf('.')).replaceAll(
                                 "jpe$", "jpg");
                 String filename = localPath + suffix;
@@ -91,7 +98,7 @@ public class DownloadAction implements Callable<Boolean> {
             if (file != null && file.exists()) {
                 file.delete();
             }
-            log.error("download error {}", url, e);
+            log.error("download error {}, {}", url, ExceptionUtils.getFullStackTrace(e));
             retryCount--;
             if (retryCount > 0) {
                 return call();

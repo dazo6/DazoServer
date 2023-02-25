@@ -12,6 +12,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.util.AntPathMatcher;
 
+import java.util.Date;
 import java.util.Map;
 
 @Service
@@ -41,6 +42,7 @@ public class FanboxFavouritePipeline implements Pipeline<SpiderBean> {
                     fanboxArtist.setEnable(true);
                     fanboxArtist.setName(artistName);
                     fanboxArtist.setType(type);
+                    fanboxArtist.setGmtCreate(new Date());
                     fanboxArtistService.addArtist(fanboxArtist);
                     log.info("自动订阅作者成功: {},", fanboxArtist);
                 }

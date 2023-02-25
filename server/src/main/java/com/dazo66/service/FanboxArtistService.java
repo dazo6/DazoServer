@@ -1,5 +1,7 @@
 package com.dazo66.service;
 
+import com.baomidou.mybatisplus.core.conditions.Wrapper;
+import com.baomidou.mybatisplus.core.conditions.query.Query;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dazo66.entity.FanboxArtist;
@@ -10,7 +12,7 @@ import com.dazo66.entity.FanboxArtist;
 public interface FanboxArtistService {
 
     Page<FanboxArtist> getArtistByPage(int page, int pageSize,
-                                       QueryWrapper<FanboxArtist> queryWrapper);
+                                       Wrapper<FanboxArtist> queryWrapper);
 
     FanboxArtist addArtist(FanboxArtist artist);
 

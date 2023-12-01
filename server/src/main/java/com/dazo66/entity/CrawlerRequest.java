@@ -22,5 +22,4 @@ public class CrawlerRequest {
     private String url;
     private Date gmtCreate;
     private Boolean isDone;
-
 }

@@ -1,4 +1,4 @@
-package com.dazo66.crawler;
+package com.dazo66.crawler.kemono;
 
 
 import com.geccocrawler.gecco.annotation.Gecco;
@@ -12,10 +12,10 @@ import lombok.EqualsAndHashCode;
 import java.util.List;
 
 @EqualsAndHashCode
-@Gecco(matchUrl = "https://kemono.party/favorites", pipelines = {
-        "consolePipeline", "fanboxFavouritePipeline"}, downloader = "myHttpDownloader")
+@Gecco(matchUrl = "https://kemono.su/favorites", pipelines = {
+        "consolePipeline", "kemonoFavouritePipeline"}, downloader = "myHttpDownloader")
 @Data
-public class FanboxFavourite implements HtmlBean {
+public class KemonoFavourite implements HtmlBean {
 
     @Href
     @HtmlField(cssPath = "#page > div.card-list.card-list--phone > div.card-list__items > a")

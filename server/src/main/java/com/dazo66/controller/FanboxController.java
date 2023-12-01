@@ -3,10 +3,10 @@ package com.dazo66.controller;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import com.dazo66.entity.FanboxArtist;
+import com.dazo66.entity.KemonoArtist;
 import com.dazo66.service.CrawlerRequestService;
-import com.dazo66.service.FanboxArtistService;
-import com.dazo66.service.FanboxScheduler;
+import com.dazo66.service.KemonoArtistService;
+import com.dazo66.crawler.kemono.pipeline.KemonoScheduler;
 import com.dazo66.util.ResultEntity;
 import com.geccocrawler.gecco.GeccoEngine;
 import org.apache.commons.lang3.StringUtils;
@@ -29,43 +29,43 @@ import java.util.Date;
 public class FanboxController {
 
     @Autowired
-    private FanboxArtistService fanboxArtistService;
+    private KemonoArtistService kemonoArtistService;
     @Autowired
     private CrawlerRequestService crawlerRequestService;
     @Autowired
-    private FanboxScheduler fanboxScheduler;
+    private KemonoScheduler kemonoScheduler;
 
     @GetMapping
-    public ResultEntity<Page<FanboxArtist>> getFanboxArtist(@RequestParam(required = false,
+    public ResultEntity<Page<KemonoArtist>> getFanboxArtist(@RequestParam(required = false,
             defaultValue = "1") int page, @RequestParam(required = false, defaultValue = "100") int pageSize) {
-        return ResultEntity.successWithData(fanboxArtistService.getArtistByPage(page, pageSize,
-                new QueryWrapper<FanboxArtist>().orderByDesc("last_update")));
+        return ResultEntity.successWithData(kemonoArtistService.getArtistByPage(page, pageSize,
+                new QueryWrapper<KemonoArtist>().orderByDesc("last_update")));
     }
 
     @PostMapping
-    public ResultEntity<FanboxArtist> insert(@RequestBody FanboxArtist fanboxArtist) {
-        fanboxArtist.setGmtCreate(new Date());
-        if (StringUtils.isEmpty(fanboxArtist.getType())) {
-            fanboxArtist.setType("fanbox");
+    public ResultEntity<KemonoArtist> insert(@RequestBody KemonoArtist kemonoArtist) {
+        kemonoArtist.setGmtCreate(new Date());
+        if (StringUtils.isEmpty(kemonoArtist.getType())) {
+            kemonoArtist.setType("fanbox");
         }
-        fanboxArtist.setEnable(true);
-        fanboxArtistService.addArtist(fanboxArtist);
+        kemonoArtist.setEnable(true);
+        kemonoArtistService.addArtist(kemonoArtist);
         GeccoEngine geccoEngine =
-                fanboxScheduler.buildArtistGecco(Collections.singletonList(fanboxArtist));
+                kemonoScheduler.buildArtistGecco(Collections.singletonList(kemonoArtist));
         if (geccoEngine != null) {
             geccoEngine.start();
         }
-        return ResultEntity.successWithData(fanboxArtist);
+        return ResultEntity.successWithData(kemonoArtist);
     }
 
     @PostMapping("status")
-    public ResultEntity<FanboxArtist> setStatus(String artistId, @RequestParam(required = false,
+    public ResultEntity<KemonoArtist> setStatus(String artistId, @RequestParam(required = false,
             defaultValue = "false") boolean status) {
-        return ResultEntity.successWithData(fanboxArtistService.updateByArtistId(new FanboxArtist().setArtistId(artistId).setEnable(status)));
+        return ResultEntity.successWithData(kemonoArtistService.updateByArtistId(new KemonoArtist().setArtistId(artistId).setEnable(status)));
     }
 
     @PostMapping("clean/history")
-    public ResultEntity<Integer> cleanHistory() {
+    public ResultEntity<Boolean> cleanHistory() {
         return ResultEntity.successWithData(crawlerRequestService.cleanAll());
     }
 }

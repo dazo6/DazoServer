@@ -1,4 +1,4 @@
-package com.dazo66.crawler;
+package com.dazo66.crawler.kemono;
 
 import com.geccocrawler.gecco.annotation.Gecco;
 import com.geccocrawler.gecco.annotation.Href;
@@ -9,12 +9,12 @@ import com.geccocrawler.gecco.request.HttpGetRequest;
 import com.geccocrawler.gecco.spider.HtmlBean;
 import lombok.Data;
 
-@Gecco(matchUrl = "https://kemono.party/{type}/user/{artistId}", pipelines = {"consolePipeline",
-        "fanboxPostPipeline"}, downloader = "myHttpDownloader")
+@Gecco(matchUrl = "https://kemono.su/{type}/user/{artistId}", pipelines = {"consolePipeline",
+        "kemonoPostPipeline"}, downloader = "myHttpDownloader")
 @Data
 /**
  * @author Dazo66
- */ public class FanboxUser implements HtmlBean {
+ */ public class kemonoUser implements HtmlBean {
 
     @Request
     private HttpGetRequest request;

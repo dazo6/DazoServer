@@ -26,7 +26,7 @@ public class KemonoHelper {
     public static String loginAndGetCookie(String username, String password) {
         try {
             CloseableHttpClient client = HttpClientBuilder.create().build();
-            HttpPost httpPost = new HttpPost(new URI("https://kemono.party/account/login"));
+            HttpPost httpPost = new HttpPost(new URI("https://kemono.su/account/login"));
             List<NameValuePair> form = new ArrayList<>();
             form.add(new BasicNameValuePair("username", username));
             form.add(new BasicNameValuePair("password", password));
@@ -49,7 +49,7 @@ public class KemonoHelper {
                 return null;
             }
         } catch (Exception e) {
-            log.error("get kemono.party cookie fail:", e);
+            log.error("get kemono.su cookie fail:", e);
             return null;
         }
 

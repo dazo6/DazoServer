@@ -12,8 +12,7 @@ public class ImageUtils {
     public static void zipImageFile(BufferedImage image, File desFile, double quality) throws IOException {
         File parentFile = desFile.getParentFile();
         if (parentFile == null) {
-            parentFile =
-                    new File(StringUtils.substringBeforeLast(desFile.getAbsolutePath().replace('\\', '/'), "/"));
+            parentFile = new File(StringUtils.substringBeforeLast(desFile.getAbsolutePath().replace('\\', '/'), "/"));
         }
         if (!parentFile.exists()) {
             parentFile.mkdirs();

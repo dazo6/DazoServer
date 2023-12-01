@@ -4,18 +4,25 @@ import com.google.common.collect.Lists;
 import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.http.HeaderElement;
+import org.apache.http.HttpRequest;
+import org.apache.http.HttpResponse;
 import org.apache.http.NameValuePair;
 import org.apache.http.client.config.RequestConfig;
 import org.apache.http.client.entity.UrlEncodedFormEntity;
 import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.client.methods.HttpGet;
+import org.apache.http.client.methods.HttpRequestBase;
+import org.apache.http.client.protocol.HttpClientContext;
+import org.apache.http.impl.client.BasicCookieStore;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.DefaultRedirectStrategy;
 import org.apache.http.impl.client.HttpClientBuilder;
 import org.apache.http.impl.conn.PoolingHttpClientConnectionManager;
+import org.apache.http.impl.cookie.BasicClientCookie;
 import org.apache.http.message.BasicHeader;
 import org.apache.http.message.BasicNameValuePair;
 import org.apache.http.util.EntityUtils;
+import org.thymeleaf.util.MapUtils;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -33,6 +40,7 @@ import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -56,6 +64,10 @@ public class MultiThreadHttpDownloader {
     private int THREAD_NUM = 8;
     private int TIME_OUT = 5000;
 
+    private Map<String, String> headers;
+
+    private Map<String, String> cookie;
+
     private AtomicReference<Throwable> throwableAtomicReference = new AtomicReference<>();
 
     public MultiThreadHttpDownloader(CloseableHttpClient httpClient, String url,
@@ -70,6 +82,14 @@ public class MultiThreadHttpDownloader {
         this(httpClient, url, localPath);
         this.THREAD_NUM = threadNum;
         this.TIME_OUT = timeout;
+    }
+
+    public void setHeaders(Map<String, String> headers) {
+        this.headers = headers;
+    }
+
+    public void setCookie(Map<String, String> cookie) {
+        this.cookie = cookie;
     }
 
     //开始下载文件
@@ -113,6 +133,25 @@ public class MultiThreadHttpDownloader {
                 timeElapsed / 1000.0, downloadedBytes.get() / timeElapsed));
     }
 
+    private CloseableHttpResponse setHeaderAndCookieThenExecute(CloseableHttpClient httpClient, HttpRequestBase request) throws IOException {
+        HttpClientContext cookieContext = HttpClientContext.create();
+        cookieContext.setCookieStore(new BasicCookieStore());
+        if (!MapUtils.isEmpty(headers)) {
+            for (Map.Entry<String, String> entry : headers.entrySet()) {
+                request.setHeader(entry.getKey(), entry.getValue());
+            }
+        }
+        if (!MapUtils.isEmpty(cookie)) {
+            for (Map.Entry<String, String> entry : cookie.entrySet()) {
+                BasicClientCookie cookie = new BasicClientCookie(entry.getKey(), entry.getValue());
+                cookie.setPath("/");
+                cookie.setDomain(request.getURI().getHost());
+                cookieContext.getCookieStore().addCookie(cookie);
+            }
+        }
+        return httpClient.execute(request);
+    }
+
     //检测目标文件是否支持断点续传，以决定是否开启多线程下载文件的不同部分
     public boolean supportResumeDownload() throws IOException {
         Integer resCode = null;
@@ -121,9 +160,8 @@ public class MultiThreadHttpDownloader {
             try {
                 HttpGet httpGet = new HttpGet(url.toURI());
                 httpGet.setHeader("Range", "bytes=0-");
-                httpGet.setHeader("referer", "https://kemono.party/");
                 httpGet.setConfig(RequestConfig.custom().setRedirectsEnabled(true).setConnectTimeout(TIME_OUT).setSocketTimeout(TIME_OUT).setConnectionRequestTimeout(TIME_OUT).build());
-                CloseableHttpResponse execute = httpClient.execute(httpGet);
+                CloseableHttpResponse execute = setHeaderAndCookieThenExecute(httpClient, httpGet);
                 fileSize = (int) execute.getEntity().getContentLength();
                 resCode = execute.getStatusLine().getStatusCode();
                 execute.close();
@@ -291,7 +329,6 @@ public class MultiThreadHttpDownloader {
             CloseableHttpResponse execute = null;
             try {
                 HttpGet httpGet = new HttpGet(url.toURI());
-                httpGet.setHeader("referer", "https://kemono.party/");
                 httpGet.setHeader("Range", String.format("bytes=%d-%d", start, end));
                 httpGet.setConfig(RequestConfig.custom().setConnectTimeout(TIME_OUT).setSocketTimeout(TIME_OUT).setConnectionRequestTimeout(TIME_OUT).build());
                 /*HttpURLConnection con = (HttpURLConnection) url.openConnection(proxy);
@@ -299,7 +336,7 @@ public class MultiThreadHttpDownloader {
                 con.setConnectTimeout(TIME_OUT);
                 con.setReadTimeout(TIME_OUT);
                 con.connect();*/
-                execute = httpClient.execute(httpGet);
+                execute = setHeaderAndCookieThenExecute(httpClient, httpGet);
                 HeaderElement[] elements = execute.getFirstHeader("Content-Length").getElements();
                 if (elements.length == 0) {
                     return false;

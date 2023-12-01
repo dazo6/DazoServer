@@ -19,9 +19,9 @@ public interface CrawlerRequestService {
 
     CrawlerRequest add(String url);
 
-    int cleanAll();
+    Boolean cleanAll();
 
-    int updateByUrl(CrawlerRequest crawlerRequest);
+    Boolean updateByUrl(CrawlerRequest crawlerRequest);
 
     Page<CrawlerRequest> getByPage(int page, int pageSize,
                                    QueryWrapper<CrawlerRequest> queryWrapper);

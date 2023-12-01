@@ -1,11 +1,13 @@
-package com.dazo66.service;
+package com.dazo66.crawler.kemono.pipeline;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dazo66.config.GeccoConfig;
 import com.dazo66.entity.CrawlerRequest;
-import com.dazo66.entity.FanboxArtist;
+import com.dazo66.entity.KemonoArtist;
+import com.dazo66.service.CrawlerRequestService;
+import com.dazo66.service.KemonoArtistService;
 import com.dazo66.util.SpringContextUtils;
 import com.dazo66.util.StringUtil;
 import com.geccocrawler.gecco.GeccoEngine;
@@ -34,10 +36,10 @@ import java.util.stream.Collectors;
 @Service
 @AutoConfigureAfter(GeccoConfig.class)
 @Slf4j
-public class FanboxScheduler {
+public class KemonoScheduler {
 
     @Autowired
-    private FanboxArtistService fanboxArtistService;
+    private KemonoArtistService kemonoArtistService;
     @Autowired
     private CrawlerRequestService crawlerRequestService;
 
@@ -57,7 +59,7 @@ public class FanboxScheduler {
                 //工程的包路径
                 .classpath("com.dazo66")
                 //开始抓取的页面地址
-                .start("https://kemono.party/favorites").pipelineFactory(springPipelineFactory)
+                .start("https://kemono.su/favorites").pipelineFactory(springPipelineFactory)
                 //开启几个爬虫线程
                 .thread(2)
                 //单个爬虫每次抓取完一个请求后的间隔时间
@@ -74,9 +76,9 @@ public class FanboxScheduler {
     public void autoUnsubArtist() {
         File[] files = new File(fileSavePath).listFiles();
         Set<String> artistSet = Arrays.stream(files).map(File::getName).collect(Collectors.toSet());
-        LambdaQueryWrapper<FanboxArtist> query = new LambdaQueryWrapper<FanboxArtist>().isNotNull(FanboxArtist::getLastUpdate).eq(FanboxArtist::getEnable, true);
-        Page<FanboxArtist> unableArtist = fanboxArtistService.getArtistByPage(1, 20000, query);
-        for (FanboxArtist record : unableArtist.getRecords()) {
+        LambdaQueryWrapper<KemonoArtist> query = new LambdaQueryWrapper<KemonoArtist>().isNotNull(KemonoArtist::getLastUpdate).eq(KemonoArtist::getEnable, true);
+        Page<KemonoArtist> unableArtist = kemonoArtistService.getArtistByPage(1, 20000, query);
+        for (KemonoArtist record : unableArtist.getRecords()) {
             if (!artistSet.contains(StringUtil.cleanSym(record.getName()))) {
                 record.setEnable(false);
                 //fanboxArtistService.updateByArtistId(record);
@@ -95,10 +97,10 @@ public class FanboxScheduler {
         }
     }
 
-    public GeccoEngine buildArtistGecco(List<FanboxArtist> artists) {
+    public GeccoEngine buildArtistGecco(List<KemonoArtist> artists) {
         if (artists == null) {
-            Page<FanboxArtist> artistByPage = fanboxArtistService.getArtistByPage(1, 20,
-                    new QueryWrapper<>(new FanboxArtist().setEnable(true)).orderByAsc("rand()"));
+            Page<KemonoArtist> artistByPage = kemonoArtistService.getArtistByPage(1, 20,
+                    new QueryWrapper<>(new KemonoArtist().setEnable(true)).orderByAsc("rand()"));
             artists = artistByPage.getRecords();
         }
         if (artists.size() == 0) {
@@ -106,7 +108,7 @@ public class FanboxScheduler {
             return null;
         }
         List<HttpRequest> httpGetRequestList =
-                artists.stream().map(artist -> new HttpGetRequest(String.format("https://kemono" + ".party/%s/user/%s", artist.getType(), artist.getArtistId()))).collect(Collectors.toList());
+                artists.stream().map(artist -> new HttpGetRequest(String.format("https://kemono.su/%s/user/%s", artist.getType(), artist.getArtistId()))).collect(Collectors.toList());
         SpringPipelineFactory springPipelineFactory =
                 SpringContextUtils.getBean(SpringPipelineFactory.class);
         return GeccoEngine.create()

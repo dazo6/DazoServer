@@ -3,19 +3,34 @@ package com.dazo66.entity;
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
-import com.dazo66.util.StringUtil;
 import lombok.Data;
 import lombok.experimental.Accessors;
 
 import java.util.Date;
 
 /**
- * @author Dazo66
- */
+ * @author dazo66(sundazhong.sdz)
+ * @date 2023/11/9 1:50
+ **/
 @Accessors(chain = true)
 @Data
 @TableName("t_fanbox_artist")
-@CreateTableSql("CREATE TABLE `t_fanbox_artist`  (\n" + "  `id` int NOT NULL AUTO_INCREMENT,\n" + "  `name` varchar(256) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL,\n" + "  `type` varchar(256) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL,\n" + "  `artist_id` varchar(256) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL,\n" + "  `gmt_create` timestamp NULL DEFAULT NULL,\n" + "  `last_update` text CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL,\n" + "  `enable` int NOT NULL,\n" + "  PRIMARY KEY (`id`) USING BTREE,\n" + "  UNIQUE INDEX `uk_artist_id`(`artist_id` ASC) USING BTREE\n" + ") ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci ROW_FORMAT = Dynamic;")
+@CreateTableSql("create table t_fanbox_artist\n" +
+        "(\n" +
+        "    id          int auto_increment\n" +
+        "        primary key,\n" +
+        "    name        varchar(256)            not null,\n" +
+        "    artist_id   varchar(256)            not null,\n" +
+        "    gmt_create  timestamp               not null,\n" +
+        "    last_update text                    null,\n" +
+        "    enable      int                     not null,\n" +
+        "    compression tinyint                 null comment '是否压缩 1或者null表示压缩 0表示不压缩',\n" +
+        "    constraint uk_artist_id\n" +
+        "        unique (artist_id)\n" +
+        ");\n" +
+        "\n" +
+        "\n" +
+        " ")
 public class FanboxArtist {
     @TableId(type = IdType.AUTO)
     private Integer id;
@@ -25,5 +40,4 @@ public class FanboxArtist {
     private Boolean enable;
     private Date gmtCreate;
     private Date lastUpdate;
-
 }

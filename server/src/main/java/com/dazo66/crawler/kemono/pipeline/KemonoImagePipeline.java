@@ -1,8 +1,10 @@
-package com.dazo66.service;
+package com.dazo66.crawler.kemono.pipeline;
 
-import com.dazo66.crawler.FanboxPost;
+import com.dazo66.crawler.kemono.KemonoPost;
 import com.dazo66.entity.CrawlerRequest;
-import com.dazo66.entity.FanboxArtist;
+import com.dazo66.entity.KemonoArtist;
+import com.dazo66.service.CrawlerRequestService;
+import com.dazo66.service.KemonoArtistService;
 import com.dazo66.util.DownloadAction;
 import com.dazo66.util.StringUtil;
 import com.geccocrawler.gecco.pipeline.Pipeline;
@@ -13,12 +15,16 @@ import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.tools.ant.util.DateUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import javax.annotation.Resource;
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -31,12 +37,11 @@ import java.util.concurrent.TimeUnit;
  */
 @Service
 @Slf4j
-public class FanboxImagePipeline implements Pipeline<FanboxPost> {
+public class KemonoImagePipeline implements Pipeline<KemonoPost> {
 
 
-    private final ThreadPoolExecutor executors = new ThreadPoolExecutor(3, 3, 0L,
-            TimeUnit.MILLISECONDS, new LinkedBlockingQueue<>(),
-            new ThreadFactoryBuilder().setNameFormat("download-%02d").build());
+    @Resource(name = "downloadThreadPool")
+    private ThreadPoolExecutor executors;
     @Autowired
     private CloseableHttpClient fanboxHttpClient;
     @Value("${fanbox.save.path}")
@@ -45,18 +50,27 @@ public class FanboxImagePipeline implements Pipeline<FanboxPost> {
     @Autowired
     private CrawlerRequestService crawlerRequestService;
     @Autowired
-    private FanboxArtistService fanboxArtistService;
+    private KemonoArtistService kemonoArtistService;
+
+    private static Map<String, String> kemonoHeaders = new HashMap<String, String>() {
+        {
+            put("referer", "https://kemono.su/");
+        }
+    };
 
     @Override
     @Transactional
-    public void process(FanboxPost bean) {
+    public void process(KemonoPost bean) {
         try {
+            KemonoArtist artist = kemonoArtistService.getArtistId(bean.getArtistId());
             Object[] images = bean.getImages();
             List<Future<Boolean>> list = new ArrayList<>();
             for (int i = 0; i < images.length; i++) {
                 Object url = images[i];
-                Future<Boolean> future = executors.submit(new DownloadAction(fanboxHttpClient,
-                        url.toString(), getDownloadPath(bean, i)));
+                DownloadAction task = new DownloadAction(fanboxHttpClient,
+                        url.toString(), getDownloadPath(bean, i), artist.getCompression());
+                task.setHeaders(kemonoHeaders);
+                Future<Boolean> future = executors.submit(task);
                 list.add(future);
             }
             if (bean.getDownloads().length == bean.getDownloadsName().length) {
@@ -69,8 +83,10 @@ public class FanboxImagePipeline implements Pipeline<FanboxPost> {
                     if (name.startsWith("Download ")) {
                         name = name.substring(9);
                     }
-                    Future<Boolean> future = executors.submit(new DownloadAction(fanboxHttpClient
-                            , url.toString(), getDownloadPath(bean, name)));
+                    DownloadAction task = new DownloadAction(fanboxHttpClient
+                            , url.toString(), getDownloadPath(bean, name), artist.getCompression());
+                    task.setHeaders(kemonoHeaders);
+                    Future<Boolean> future = executors.submit(task);
                     list.add(future);
                 }
             }
@@ -86,7 +102,7 @@ public class FanboxImagePipeline implements Pipeline<FanboxPost> {
             }
             if (isDone) {
                 crawlerRequestService.updateByUrl(new CrawlerRequest().setUrl(bean.getRequest().getUrl()).setIsDone(true));
-                fanboxArtistService.updateByArtistId(new FanboxArtist().setArtistId(bean.getArtistId()).setLastUpdate(new Date()));
+                kemonoArtistService.updateByArtistId(new KemonoArtist().setArtistId(bean.getArtistId()).setLastUpdate(new Date()));
             }
         } catch (Exception e) {
             log.error("下载post中的图片出错: ", e);
@@ -95,8 +111,8 @@ public class FanboxImagePipeline implements Pipeline<FanboxPost> {
     }
 
 
-    public String getDownloadPath(FanboxPost post, int index) {
-        FanboxArtist artist = fanboxArtistService.getArtistId(post.getArtistId());
+    public String getDownloadPath(KemonoPost post, int index) {
+        KemonoArtist artist = kemonoArtistService.getArtistId(post.getArtistId());
         String time = post.getTime();
         if (StringUtils.isEmpty(time) && time.length() < 10) {
             time = DateUtils.format(new Date(), "yyyy-MM-dd");
@@ -106,9 +122,9 @@ public class FanboxImagePipeline implements Pipeline<FanboxPost> {
         return fileSavePath + String.format("/%s/%s-%s-%0" + getNumberLen(post.getImages().length) + "d", StringUtil.cleanSym(artist.getName()), time, StringUtil.cleanSym(post.getTitle()), index);
     }
 
-    public String getDownloadPath(FanboxPost post, String name) {
+    public String getDownloadPath(KemonoPost post, String name) {
 
-        FanboxArtist artist = fanboxArtistService.getArtistId(post.getArtistId());
+        KemonoArtist artist = kemonoArtistService.getArtistId(post.getArtistId());
         String time = post.getTime();
         if (StringUtils.isEmpty(time) && time.length() < 10) {
             time = DateUtils.format(new Date(), "yyyy-MM-dd");

@@ -53,7 +53,7 @@ public class TestGecco {
                 //工程的包路径
                 .classpath("com.dazo66")
                 //开始抓取的页面地址
-                .start("https://kemono.party/fanbox/user/79281725").pipelineFactory(name -> {
+                .start("https://kemono.su/fanbox/user/79281725").pipelineFactory(name -> {
             if (name.equals("consolePipeline")) {
                 return new ConsolePipeline();
             }
@@ -81,7 +81,7 @@ public class TestGecco {
                 //工程的包路径
                 .classpath("com.dazo66")
                 //开始抓取的页面地址
-                .start("https://kemono.party/favorites").pipelineFactory(springPipelineFactory).scheduler(scheduler)
+                .start("https://kemono.su/favorites").pipelineFactory(springPipelineFactory).scheduler(scheduler)
                 //开启几个爬虫线程
                 .thread(5)
                 //单个爬虫每次抓取完一个请求后的间隔时间

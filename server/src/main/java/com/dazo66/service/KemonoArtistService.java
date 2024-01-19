@@ -2,23 +2,24 @@ package com.dazo66.service;
 
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import com.dazo66.entity.KemonoArtist;
+import com.dazo66.entity.Artist;
+import com.dazo66.entity.ArtistDomainEnum;
 
 /**
  * @author Dazo66
  */
 public interface KemonoArtistService {
 
-    Page<KemonoArtist> getArtistByPage(int page, int pageSize,
-                                       Wrapper<KemonoArtist> queryWrapper);
+    Page<Artist> getArtistByPage(int page, int pageSize,
+                                 Wrapper<Artist> queryWrapper);
 
-    KemonoArtist addArtist(KemonoArtist artist);
+    Artist addArtist(Artist artist);
 
-    KemonoArtist getArtistId(String artistId);
+    Artist getArtistId(String artistId, ArtistDomainEnum domain);
 
-    KemonoArtist disable(String artistId);
+    Artist disable(String artistId);
 
-    KemonoArtist updateByArtistId(KemonoArtist artist);
+    Artist updateByArtistId(Artist artist);
 
 
 }

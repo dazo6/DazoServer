@@ -1,35 +1,28 @@
 package com.dazo66.crawler.kemono.pipeline;
 
 import com.dazo66.crawler.kemono.KemonoPost;
+import com.dazo66.entity.Artist;
+import com.dazo66.entity.ArtistDomainEnum;
 import com.dazo66.entity.CrawlerRequest;
-import com.dazo66.entity.KemonoArtist;
 import com.dazo66.service.CrawlerRequestService;
 import com.dazo66.service.KemonoArtistService;
 import com.dazo66.util.DownloadAction;
 import com.dazo66.util.StringUtil;
 import com.geccocrawler.gecco.pipeline.Pipeline;
-import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.tools.ant.util.DateUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import javax.annotation.Resource;
-import java.util.ArrayList;
-import java.util.Date;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
-import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
 
 
 /**
@@ -62,7 +55,7 @@ public class KemonoImagePipeline implements Pipeline<KemonoPost> {
     @Transactional
     public void process(KemonoPost bean) {
         try {
-            KemonoArtist artist = kemonoArtistService.getArtistId(bean.getArtistId());
+            Artist artist = kemonoArtistService.getArtistId(bean.getArtistId(), ArtistDomainEnum.KEMONO);
             Object[] images = bean.getImages();
             List<Future<Boolean>> list = new ArrayList<>();
             for (int i = 0; i < images.length; i++) {
@@ -102,7 +95,7 @@ public class KemonoImagePipeline implements Pipeline<KemonoPost> {
             }
             if (isDone) {
                 crawlerRequestService.updateByUrl(new CrawlerRequest().setUrl(bean.getRequest().getUrl()).setIsDone(true));
-                kemonoArtistService.updateByArtistId(new KemonoArtist().setArtistId(bean.getArtistId()).setLastUpdate(new Date()));
+                kemonoArtistService.updateByArtistId(new Artist().setArtistId(bean.getArtistId()).setLastUpdate(new Date()));
             }
         } catch (Exception e) {
             log.error("下载post中的图片出错: ", e);
@@ -112,7 +105,7 @@ public class KemonoImagePipeline implements Pipeline<KemonoPost> {
 
 
     public String getDownloadPath(KemonoPost post, int index) {
-        KemonoArtist artist = kemonoArtistService.getArtistId(post.getArtistId());
+        Artist artist = kemonoArtistService.getArtistId(post.getArtistId(), ArtistDomainEnum.KEMONO);
         String time = post.getTime();
         if (StringUtils.isEmpty(time) && time.length() < 10) {
             time = DateUtils.format(new Date(), "yyyy-MM-dd");
@@ -124,7 +117,7 @@ public class KemonoImagePipeline implements Pipeline<KemonoPost> {
 
     public String getDownloadPath(KemonoPost post, String name) {
 
-        KemonoArtist artist = kemonoArtistService.getArtistId(post.getArtistId());
+        Artist artist = kemonoArtistService.getArtistId(post.getArtistId(), ArtistDomainEnum.KEMONO);
         String time = post.getTime();
         if (StringUtils.isEmpty(time) && time.length() < 10) {
             time = DateUtils.format(new Date(), "yyyy-MM-dd");
@@ -136,13 +129,12 @@ public class KemonoImagePipeline implements Pipeline<KemonoPost> {
     }
 
 
-
-    private static int getNumberLen(int num) {
+    public static int getNumberLen(int num) {
         int count = 0;
         while (num != 0) {
             num /= 10;
             ++count;
         }
-        return count;
+        return count == 0 ? 1 : count;
     }
 }

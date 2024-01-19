@@ -1,36 +1,101 @@
 package com.dazo66.crawler.fanbox;
 
+import com.alibaba.fastjson.JSON;
+import com.alibaba.fastjson.JSONObject;
 import com.geccocrawler.gecco.annotation.Gecco;
 import com.geccocrawler.gecco.annotation.JSONPath;
+import com.geccocrawler.gecco.annotation.Request;
 import com.geccocrawler.gecco.annotation.RequestParameter;
+import com.geccocrawler.gecco.request.HttpGetRequest;
 import com.geccocrawler.gecco.spider.JsonBean;
 import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.extern.slf4j.Slf4j;
 
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * @author dazo66(sundazhong.sdz)
  * @date 2023/11/6 0:01
  **/
-@Gecco(matchUrl = "https://api.fanbox.cc/post.info?postId={postId}", pipelines = {
-        "consolePipeline"}, downloader = "myHttpDownloader")
-@Data
+@Gecco(matchUrl = "https://api.fanbox.cc/post.info?postId={postId}", pipelines = {"fanboxPostDetailPipeline"}, downloader = "myHttpDownloader")
+@Slf4j
 public class FanboxPostDetail implements JsonBean {
 
+    public static final String IMAGE = "image";
+    public static final String ARTICLE = "article";
+    @Getter
+    @Setter
+    @Request
+    private HttpGetRequest request;
+
+    @Getter
+    @Setter
     @RequestParameter
     private String postId;
 
-    @JSONPath("$.body.body")
-    private Body body;
+    @Setter
+    @JSONPath("$.body")
+    private JSONObject body;
 
+    @Getter
+    @Setter
+    @JSONPath("$.body.imageForShare")
+    private String imageForShare;
+
+    @Getter
+    @Setter
     @JSONPath("$.body.publishedDatetime")
     private String publishedDatetime;
+    @Getter
+    @Setter
+    @JSONPath("$.body.isRestricted")
+    private Boolean isRestricted;
+
+
+    @Getter
+    @Setter
+    @JSONPath("$.body.creatorId")
+    private String artistId;
+
+
+    @Getter
+    @Setter
+    @JSONPath("$.body.title")
+    private String title;
+
+
+    @Getter
+    @Setter
+    @JSONPath("$.body.type")
+    private String type;
+
+
+    public List<Image> getImages() {
+        if (body.getJSONObject("body") != null) {
+            if (type.equals(IMAGE)) {
+                return body.getJSONObject("body").getJSONArray("images").toJavaList(Image.class);
+            } else if (type.equals(ARTICLE)) {
+                return body.getJSONObject("body").getJSONObject("imageMap").values().stream().map(o -> JSONObject.toJavaObject((JSON) o, Image.class)).collect(Collectors.toList());
+            } else {
+                log.error("unknow fanbox post type: {}, {}", type, JSON.toJSONString(body));
+                return Collections.emptyList();
+            }
+        } else {
+            return Collections.emptyList();
+        }
+    }
+
 
     @Data
     public static class Body {
         private String text;
         private List<Image> images;
-
+        private Map<String, Image> imageMap;
         // getters and setters
     }
 

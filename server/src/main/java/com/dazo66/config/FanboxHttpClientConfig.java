@@ -2,7 +2,6 @@ package com.dazo66.config;
 
 import com.dazo66.util.CloseableHttpClientWrapper;
 import com.dazo66.util.IpUtils;
-import com.dazo66.util.KemonoHelper;
 import com.dazo66.util.SpringContextUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.http.HttpHost;
@@ -11,8 +10,6 @@ import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.DefaultRedirectStrategy;
 import org.apache.http.impl.client.HttpClientBuilder;
 import org.apache.http.impl.conn.PoolingHttpClientConnectionManager;
-import org.apache.http.message.BasicHeader;
-import org.apache.solr.common.StringUtils;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -21,7 +18,6 @@ import org.springframework.scheduling.annotation.Scheduled;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.Proxy;
-import java.util.ArrayList;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -48,20 +44,18 @@ public class FanboxHttpClientConfig {
     }
 
     public CloseableHttpClient createHttpclient() {
-        RequestConfig clientConfig =
-                RequestConfig.custom().setConnectTimeout(60000).setConnectionRequestTimeout(60000).setSocketTimeout(60000).build();
+        RequestConfig clientConfig = RequestConfig.custom().setConnectTimeout(60000).setConnectionRequestTimeout(60000).setSocketTimeout(60000).build();
 
-        PoolingHttpClientConnectionManager syncConnectionManager =
-                new PoolingHttpClientConnectionManager();
-
+        PoolingHttpClientConnectionManager syncConnectionManager = new PoolingHttpClientConnectionManager();
         syncConnectionManager.setMaxTotal(1000);
         syncConnectionManager.setDefaultMaxPerRoute(50);
         HttpClientBuilder httpClientBuilder = HttpClientBuilder.create();
+
         if (IpUtils.checkIpPort(proxyIp, proxyPort)) {
             log.info("代理可用，开始使用代理通道");
             httpClientBuilder.setProxy(new HttpHost(proxyIp, proxyPort));
         }
-        ArrayList<BasicHeader> headers = new ArrayList<>();
+/*        ArrayList<BasicHeader> headers = new ArrayList<>();
         String cookie = KemonoHelper.loginAndGetCookie(kemonoUsername, kemonoPassword);
         if (StringUtils.isEmpty(cookie)) {
             log.info("更新cookie失败");
@@ -72,13 +66,14 @@ public class FanboxHttpClientConfig {
         }
         BasicHeader agentHeader = new BasicHeader("User-Agent",
                 "Mozilla/5.0 (Windows NT 10.0; " + "Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.4896.127 Safari/537.36");
-        headers.add(agentHeader);
-        return httpClientBuilder
-                .setDefaultHeaders(headers)
+        headers.add(agentHeader);*/
+        CloseableHttpClient client = httpClientBuilder
+                // .setDefaultHeaders(headers)
                 .setDefaultRequestConfig(clientConfig)
                 .setRedirectStrategy(new DefaultRedirectStrategy())
                 .setConnectionManager(syncConnectionManager)
                 .build();
+        return client;
     }
 
     @Scheduled(initialDelay = 24, fixedDelay = 24, timeUnit = TimeUnit.HOURS)

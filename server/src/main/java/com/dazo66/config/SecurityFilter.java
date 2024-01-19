@@ -5,11 +5,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.util.AntPathMatcher;
 
-import javax.servlet.Filter;
-import javax.servlet.FilterChain;
-import javax.servlet.ServletException;
-import javax.servlet.ServletRequest;
-import javax.servlet.ServletResponse;
+import javax.servlet.*;
 import javax.servlet.http.HttpServletRequest;
 import java.io.IOException;
 import java.util.List;
@@ -28,6 +24,10 @@ public class SecurityFilter implements Filter {
     public void doFilter(ServletRequest servletRequest, ServletResponse servletResponse,
                          FilterChain filterChain) throws IOException, ServletException {
         HttpServletRequest httpServletRequest = (HttpServletRequest) servletRequest;
+        if (((HttpServletRequest) servletRequest).getMethod().equals("GET")) {
+            filterChain.doFilter(servletRequest, servletResponse);
+            return;
+        }
         if (isAddrInWhiteList(uris, "/", httpServletRequest.getRequestURI())) {
             filterChain.doFilter(servletRequest, servletResponse);
         } else if (isAddrInWhiteList(whiteAddr, ".", httpServletRequest.getRemoteAddr())) {

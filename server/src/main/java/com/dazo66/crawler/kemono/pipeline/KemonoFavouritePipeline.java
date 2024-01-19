@@ -1,7 +1,8 @@
 package com.dazo66.crawler.kemono.pipeline;
 
 import com.dazo66.crawler.kemono.KemonoFavourite;
-import com.dazo66.entity.KemonoArtist;
+import com.dazo66.entity.Artist;
+import com.dazo66.entity.ArtistDomainEnum;
 import com.dazo66.service.KemonoArtistService;
 import com.geccocrawler.gecco.pipeline.Pipeline;
 import com.geccocrawler.gecco.request.HttpGetRequest;
@@ -37,15 +38,15 @@ public class KemonoFavouritePipeline implements Pipeline<SpiderBean> {
                 String type = uriTemplateVariables.get("type");
                 String artistId = uriTemplateVariables.get("id");
                 String artistName = kemonoFavourite.getArtistNames().get(i);
-                if (kemonoArtistService.getArtistId(artistId) == null) {
-                    KemonoArtist kemonoArtist = new KemonoArtist();
-                    kemonoArtist.setArtistId(artistId);
-                    kemonoArtist.setEnable(true);
-                    kemonoArtist.setName(artistName);
-                    kemonoArtist.setType(type);
-                    kemonoArtist.setGmtCreate(new Date());
-                    kemonoArtistService.addArtist(kemonoArtist);
-                    log.info("自动订阅作者成功: {},", kemonoArtist);
+                if (kemonoArtistService.getArtistId(artistId, ArtistDomainEnum.KEMONO) == null) {
+                    Artist artist = new Artist();
+                    artist.setArtistId(artistId);
+                    artist.setEnable(true);
+                    artist.setName(artistName);
+                    artist.setType(type);
+                    artist.setGmtCreate(new Date());
+                    kemonoArtistService.addArtist(artist);
+                    log.info("自动订阅作者成功: {},", artist);
                 }
             } else {
                 log.error("不支持的作者链接格式：{}", url);

@@ -31,7 +31,8 @@ import java.util.Date;
         "\n" +
         "\n" +
         " ")
-public class KemonoArtist {
+public class Artist {
+
     @TableId(type = IdType.AUTO)
     private Integer id;
     private String name;
@@ -41,5 +42,6 @@ public class KemonoArtist {
     private Date gmtCreate;
     private Date lastUpdate;
     private Boolean compression;
+    private ArtistDomainEnum domain;
 
 }

@@ -1,6 +1,7 @@
 package com.dazo66.crawler;
 
 
+import com.alibaba.fastjson.JSONObject;
 import com.dazo66.util.SpringContextUtils;
 import com.geccocrawler.gecco.annotation.Downloader;
 import com.geccocrawler.gecco.downloader.AbstractDownloader;
@@ -14,8 +15,8 @@ import com.geccocrawler.gecco.request.HttpRequest;
 import com.geccocrawler.gecco.response.HttpResponse;
 import com.geccocrawler.gecco.spider.SpiderThreadLocal;
 import com.geccocrawler.gecco.utils.UrlUtils;
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.io.IOUtils;
 import org.apache.http.Header;
 import org.apache.http.HttpEntity;
 import org.apache.http.HttpHost;
@@ -45,12 +46,7 @@ import org.apache.http.ssl.TrustStrategy;
 import org.apache.http.util.CharArrayBuffer;
 
 import javax.net.ssl.SSLContext;
-import java.io.ByteArrayInputStream;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.io.Reader;
-import java.io.UnsupportedEncodingException;
+import java.io.*;
 import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
 import java.util.ArrayList;
@@ -58,9 +54,9 @@ import java.util.List;
 import java.util.Map;
 
 @Downloader("myHttpDownloader")
+@Slf4j
 public class MyHttpDownloader extends AbstractDownloader {
 
-    private static Log log = LogFactory.getLog(com.geccocrawler.gecco.downloader.HttpClientDownloader.class);
 
     private CloseableHttpClient httpClient;
 
@@ -122,7 +118,7 @@ public class MyHttpDownloader extends AbstractDownloader {
     @Override
     public HttpResponse download(HttpRequest request, int timeout) throws DownloadException {
         if (log.isDebugEnabled()) {
-            log.debug("downloading..." + request.getUrl());
+            log.debug("downloading... {}", JSONObject.toJSONString(request));
         }
         HttpRequestBase reqObj = null;
         if (request instanceof HttpPostRequest) {//post
@@ -154,7 +150,7 @@ public class MyHttpDownloader extends AbstractDownloader {
                 .setConnectionRequestTimeout(1000)//从连接池获取连接的超时时间
                 .setSocketTimeout(timeout)//获取内容的超时时间
                 .setConnectTimeout(timeout)//建立socket连接的超时时间
-                .setRedirectsEnabled(false);
+                .setRedirectsEnabled(true);
         //proxy
         HttpHost proxy = null;
         Proxys proxys = ProxysContext.get();
@@ -205,6 +201,7 @@ public class MyHttpDownloader extends AbstractDownloader {
                 if (proxy != null) {
                     proxys.failure(proxy.getHostName(), proxy.getPort());
                 }
+                log.debug("download error: {} , {}", response.getStatusLine().getStatusCode(), IOUtils.toString(response.getEntity().getContent()));
                 throw new DownloadServerException("" + status);
             }
             if (proxy != null) {

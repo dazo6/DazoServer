@@ -2,7 +2,6 @@ package com.dazo66.util;
 
 import lombok.extern.slf4j.Slf4j;
 import net.coobird.thumbnailator.util.ThumbnailatorUtils;
-import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.IOUtils;
 import org.apache.commons.lang.exception.ExceptionUtils;
 import org.apache.http.Header;
@@ -14,18 +13,18 @@ import org.apache.http.client.protocol.HttpClientContext;
 import org.apache.http.impl.client.BasicCookieStore;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.cookie.BasicClientCookie;
-import org.apache.ibatis.util.MapUtil;
 import org.thymeleaf.util.MapUtils;
 
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
 import java.io.File;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.file.Files;
 import java.util.Map;
 import java.util.concurrent.Callable;
+
+import static java.nio.file.StandardOpenOption.CREATE_NEW;
 
 @Slf4j
 public class DownloadAction implements Callable<Boolean> {
@@ -94,7 +93,7 @@ public class DownloadAction implements Callable<Boolean> {
             if (response.getStatusLine().getStatusCode() == 200) {
                 Header[] responseHeaders = response.getHeaders("content-type");
                 String remoteFilename;
-                if (responseHeaders.length == 0 || responseHeaders[0].getElements().length == 0 || responseHeaders[0].getElements()[0].getParameters().length == 0) {
+                if (responseHeaders.length == 0 || responseHeaders[0].getElements().length == 0 || responseHeaders[0].getElements()[0].getParameters().length == 0 || url.contains("fanbox.cc")) {
                     remoteFilename = url.substring(url.lastIndexOf("/") - 1);
                 } else {
                     remoteFilename = responseHeaders[0].getElements()[0].getParameter(0).getValue();
@@ -103,20 +102,25 @@ public class DownloadAction implements Callable<Boolean> {
                                 "jpe$", "jpg");
                 String filename = localPath + suffix;
                 file = new File(filename);
+                if (!file.getParentFile().exists()) {
+                    file.getParentFile().mkdirs();
+                }
                 String fileType = suffix.substring(1);
                 if (ThumbnailatorUtils.getSupportedOutputFormats().contains(fileType) && !"gif".equalsIgnoreCase(fileType)) {
                     file = new File(localPath + ".jpg");
-                    final long contentLength = Long.parseLong(response.getFirstHeader("content" +
-                            "-length").getValue());
+                    if (file.exists()) {
+                        return true;
+                    }
+                    Long contentLength = response.getFirstHeader("content-length") == null ? 0 : Long.parseLong(response.getFirstHeader("content-length").getValue());
                     double quality = 1d;
-                    if (compression == null || compression) {
+                    if ((compression == null || compression) && contentLength > 0) {
                         BufferedImage image = ImageIO.read(response.getEntity().getContent());
                         if (ImageUtils.needCompression(image, contentLength)) {
                             quality = 0.9d;
                         }
                         ImageUtils.zipImageFile(image, new File(localPath), quality);
                     } else {
-                        OutputStream output = Files.newOutputStream(file.toPath());
+                        OutputStream output = Files.newOutputStream(file.toPath(), CREATE_NEW);
                         IOUtils.copy(response.getEntity().getContent(), output);
                         output.close();
                     }

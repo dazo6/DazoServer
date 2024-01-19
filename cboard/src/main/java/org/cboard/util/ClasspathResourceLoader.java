@@ -19,6 +19,7 @@ package org.cboard.util;
  * under the License.
  */
 
+import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections.ExtendedProperties;
 import org.apache.commons.lang.StringUtils;
 import org.apache.velocity.exception.ResourceNotFoundException;
@@ -76,6 +77,7 @@ import java.io.InputStream;
  * @author <a href="mailto:geirm@optonline.net">Geir Magnusson Jr.</a>
  * @version $Id: ClasspathResourceLoader.java 471259 2006-11-04 20:26:57Z henning $
  */
+@Slf4j
 public class ClasspathResourceLoader extends ResourceLoader {
 
     /**
@@ -101,7 +103,7 @@ public class ClasspathResourceLoader extends ResourceLoader {
      */
     @Override
     public InputStream getResourceStream(String name) throws ResourceNotFoundException {
-        log.info("get resource" + name);
+        log.error("get resource" + name);
         InputStream result = null;
 
         if (StringUtils.isEmpty(name)) {

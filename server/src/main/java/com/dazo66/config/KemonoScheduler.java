@@ -1,21 +1,24 @@
-package com.dazo66.crawler.kemono.pipeline;
+package com.dazo66.config;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import com.dazo66.config.GeccoConfig;
+import com.dazo66.entity.Artist;
+import com.dazo66.entity.ArtistDomainEnum;
 import com.dazo66.entity.CrawlerRequest;
-import com.dazo66.entity.KemonoArtist;
 import com.dazo66.service.CrawlerRequestService;
 import com.dazo66.service.KemonoArtistService;
+import com.dazo66.util.FanboxHelper;
 import com.dazo66.util.SpringContextUtils;
 import com.dazo66.util.StringUtil;
 import com.geccocrawler.gecco.GeccoEngine;
+import com.geccocrawler.gecco.downloader.proxy.Proxys;
 import com.geccocrawler.gecco.request.HttpGetRequest;
 import com.geccocrawler.gecco.request.HttpRequest;
 import com.geccocrawler.gecco.scheduler.UniqueSpiderScheduler;
 import com.geccocrawler.gecco.spring.SpringPipelineFactory;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.http.HttpHost;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -26,6 +29,7 @@ import org.springframework.stereotype.Service;
 import java.io.File;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
@@ -48,8 +52,11 @@ public class KemonoScheduler {
 
     @Value("${fanbox.save.path}")
     private String fileSavePath;
+    @Value("${fanbox.save.cookie}")
+    private String fanboxsessid;
 
-    @Scheduled(initialDelay = 0, fixedDelay = 20, timeUnit = TimeUnit.MINUTES)
+    // kemono 挂了 暂停这个定时任务
+    // @Scheduled(initialDelay = 0, fixedDelay = 20, timeUnit = TimeUnit.MINUTES)
     public void autoSubKemono() {
         log.info("开始自动订阅作者！");
         SpringPipelineFactory springPipelineFactory =
@@ -72,13 +79,14 @@ public class KemonoScheduler {
                 .run();
     }
 
-    @Scheduled(initialDelay = 0, fixedDelay = 20, timeUnit = TimeUnit.MINUTES)
+    // kemono 挂了 暂停这个定时任务
+    // @Scheduled(initialDelay = 0, fixedDelay = 20, timeUnit = TimeUnit.MINUTES)
     public void autoUnsubArtist() {
         File[] files = new File(fileSavePath).listFiles();
         Set<String> artistSet = Arrays.stream(files).map(File::getName).collect(Collectors.toSet());
-        LambdaQueryWrapper<KemonoArtist> query = new LambdaQueryWrapper<KemonoArtist>().isNotNull(KemonoArtist::getLastUpdate).eq(KemonoArtist::getEnable, true);
-        Page<KemonoArtist> unableArtist = kemonoArtistService.getArtistByPage(1, 20000, query);
-        for (KemonoArtist record : unableArtist.getRecords()) {
+        LambdaQueryWrapper<Artist> query = new LambdaQueryWrapper<Artist>().isNotNull(Artist::getLastUpdate).eq(Artist::getEnable, true);
+        Page<Artist> unableArtist = kemonoArtistService.getArtistByPage(1, 20000, query);
+        for (Artist record : unableArtist.getRecords()) {
             if (!artistSet.contains(StringUtil.cleanSym(record.getName()))) {
                 record.setEnable(false);
                 //fanboxArtistService.updateByArtistId(record);
@@ -88,7 +96,7 @@ public class KemonoScheduler {
 
     }
 
-    @Scheduled(initialDelay = 0, fixedDelay = 10, timeUnit = TimeUnit.MINUTES)
+    @Scheduled(initialDelay = 30, fixedDelay = 60 * 6, timeUnit = TimeUnit.MINUTES)
     public void schedulerSearchNeedPost() {
         // 阻塞方式运行
         GeccoEngine geccoEngine = buildArtistGecco(null);
@@ -97,18 +105,17 @@ public class KemonoScheduler {
         }
     }
 
-    public GeccoEngine buildArtistGecco(List<KemonoArtist> artists) {
+    public GeccoEngine buildArtistGecco(List<Artist> artists) {
         if (artists == null) {
-            Page<KemonoArtist> artistByPage = kemonoArtistService.getArtistByPage(1, 20,
-                    new QueryWrapper<>(new KemonoArtist().setEnable(true)).orderByAsc("rand()"));
+            Page<Artist> artistByPage = kemonoArtistService.getArtistByPage(1, 20,
+                    new QueryWrapper<>(new Artist().setEnable(true).setDomain(ArtistDomainEnum.FANBOX)).orderByAsc("rand()"));
             artists = artistByPage.getRecords();
         }
-        if (artists.size() == 0) {
+        if (artists.isEmpty()) {
             log.info("作者队列为空，不需要爬取");
             return null;
         }
-        List<HttpRequest> httpGetRequestList =
-                artists.stream().map(artist -> new HttpGetRequest(String.format("https://kemono.su/%s/user/%s", artist.getType(), artist.getArtistId()))).collect(Collectors.toList());
+        List<HttpRequest> httpGetRequestList = buildArtistRequest(artists);
         SpringPipelineFactory springPipelineFactory =
                 SpringContextUtils.getBean(SpringPipelineFactory.class);
         return GeccoEngine.create()
@@ -118,12 +125,25 @@ public class KemonoScheduler {
                 .start(httpGetRequestList).pipelineFactory(springPipelineFactory).scheduler(new UniqueSpiderScheduler())
                 //开启几个爬虫线程
                 .thread(2)
+                .retry(10)
                 //单个爬虫每次抓取完一个请求后的间隔时间
                 .interval(2000)
                 //循环抓取
                 .loop(false)
                 //使用pc端userAgent
                 .mobile(false);
+    }
+
+    private List<HttpRequest> buildArtistRequest(List<Artist> artists) {
+        List<HttpRequest> httpGetRequestList = artists.stream().map(artist -> {
+            if (ArtistDomainEnum.KEMONO == artist.getDomain()) {
+                return new HttpGetRequest(String.format("https://kemono.su/%s/user/%s", artist.getType(), artist.getArtistId()));
+            } else if (ArtistDomainEnum.FANBOX == artist.getDomain()) {
+                return FanboxHelper.getHttpRequest(String.format("https://api.fanbox.cc/post.listCreator?creatorId=%s&limit=10", artist.getArtistId()), fanboxsessid);
+            }
+            return null;
+        }).filter(Objects::nonNull).collect(Collectors.toList());
+        return httpGetRequestList;
     }
 
     @Scheduled(initialDelay = 0, fixedDelay = 5, timeUnit = TimeUnit.MINUTES)
@@ -136,24 +156,64 @@ public class KemonoScheduler {
 
     }
 
+    private List<HttpRequest> buildImageRequest(List<CrawlerRequest> crawlerRequests) {
+        List<HttpRequest> httpGetRequestList = crawlerRequests.stream().map(request -> {
+            if (request.getUrl().contains("kemono")) {
+                return new HttpGetRequest(request.getUrl());
+            } else if (request.getUrl().contains("fanbox")) {
+                return FanboxHelper.getHttpRequest(request.getUrl(), fanboxsessid);
+            }
+            return null;
+        }).filter(Objects::nonNull).collect(Collectors.toList());
+        return httpGetRequestList;
+    }
+
     public GeccoEngine buildImageGecco() {
         SpringPipelineFactory springPipelineFactory =
                 SpringContextUtils.getBean(SpringPipelineFactory.class);
         Page<CrawlerRequest> crawlerRequestByPage = crawlerRequestService.getByPage(1, 20,
                 new QueryWrapper<>(new CrawlerRequest().setIsDone(false)).orderByAsc("rand()"));
-        if (crawlerRequestByPage.getRecords().size() == 0) {
+        if (crawlerRequestByPage.getRecords().isEmpty()) {
             log.info("爬取队列为空，不需要爬取");
             return null;
         }
-        List<HttpRequest> httpGetRequests =
-                crawlerRequestByPage.getRecords().stream().map(crawlerRequest -> new HttpGetRequest(crawlerRequest.getUrl())).collect(Collectors.toList());
         return GeccoEngine.create()
                 //工程的包路径
                 .classpath("com.dazo66")
                 //开始抓取的页面地址
-                .start(httpGetRequests).pipelineFactory(springPipelineFactory).scheduler(new UniqueSpiderScheduler())
+                .start(buildImageRequest(crawlerRequestByPage.getRecords()))
+                .pipelineFactory(springPipelineFactory)
+                .scheduler(new UniqueSpiderScheduler())
+                .debug(true)
+                .proxysLoader(new Proxys() {
+                    @Override
+                    public HttpHost getProxy() {
+                        return new HttpHost("127.0.0.1", 1080);
+                    }
+
+                    @Override
+                    public boolean addProxy(String host, int port) {
+                        return false;
+                    }
+
+                    @Override
+                    public boolean addProxy(String host, int port, String src) {
+                        return false;
+                    }
+
+                    @Override
+                    public void failure(String host, int port) {
+
+                    }
+
+                    @Override
+                    public void success(String host, int port) {
+
+                    }
+                })
                 //开启几个爬虫线程
-                .thread(2)
+                .thread(5)
+                .retry(5)
                 //单个爬虫每次抓取完一个请求后的间隔时间
                 .interval(2000)
                 //循环抓取

@@ -31,8 +31,7 @@ public class TestSpringGeccoFanbox {
         SpringPipelineFactory springPipelineFactory = SpringContextUtils.getBean(SpringPipelineFactory.class);
 
         List<HttpRequest> httpRequests = Lists.newArrayList(
-                "https://api.fanbox.cc/post.info?postId=4307880",
-                "https://api.fanbox.cc/post.listCreator?creatorId=bttn&limit=10"
+                "https://api.fanbox.cc/post.info?postId=6005343"
         ).stream().map(url -> FanboxHelper.getHttpRequest(url, fanboxsessid)).collect(Collectors.toList());
 
         UniqueSpiderScheduler scheduler = new UniqueSpiderScheduler();

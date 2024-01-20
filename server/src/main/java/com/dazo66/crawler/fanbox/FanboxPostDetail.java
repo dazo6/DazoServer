@@ -2,6 +2,7 @@ package com.dazo66.crawler.fanbox;
 
 import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONObject;
+import com.alibaba.fastjson.annotation.JSONField;
 import com.geccocrawler.gecco.annotation.Gecco;
 import com.geccocrawler.gecco.annotation.JSONPath;
 import com.geccocrawler.gecco.annotation.Request;
@@ -9,6 +10,7 @@ import com.geccocrawler.gecco.annotation.RequestParameter;
 import com.geccocrawler.gecco.request.HttpGetRequest;
 import com.geccocrawler.gecco.spider.JsonBean;
 import lombok.Data;
+import lombok.EqualsAndHashCode;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
@@ -28,6 +30,9 @@ public class FanboxPostDetail implements JsonBean {
 
     public static final String IMAGE = "image";
     public static final String ARTICLE = "article";
+
+
+    public static final String FILE = "file";
     @Getter
     @Setter
     @Request
@@ -75,12 +80,14 @@ public class FanboxPostDetail implements JsonBean {
     private String type;
 
 
-    public List<Image> getImages() {
+    public List<? extends DownloadObject> getDownloadObject() {
         if (body.getJSONObject("body") != null) {
             if (type.equals(IMAGE)) {
                 return body.getJSONObject("body").getJSONArray("images").toJavaList(Image.class);
             } else if (type.equals(ARTICLE)) {
                 return body.getJSONObject("body").getJSONObject("imageMap").values().stream().map(o -> JSONObject.toJavaObject((JSON) o, Image.class)).collect(Collectors.toList());
+            } else if (type.equals(FILE)) {
+                return body.getJSONObject("body").getJSONArray("files").toJavaList(File.class);
             } else {
                 log.error("unknow fanbox post type: {}, {}", type, JSON.toJSONString(body));
                 return Collections.emptyList();
@@ -99,14 +106,31 @@ public class FanboxPostDetail implements JsonBean {
         // getters and setters
     }
 
+    @EqualsAndHashCode(callSuper = true)
     @Data
-    public static class Image {
-        private String id;
-        private String extension;
+    public static class Image extends DownloadObject {
         private int width;
         private int height;
-        private String originalUrl;
+        @JSONField(name = "originalUrl")
+        private String url;
         private String thumbnailUrl;
+    }
+
+    @EqualsAndHashCode(callSuper = true)
+    @Data
+    public static class File extends DownloadObject {
+        private String url;
+        private String thumbnailUrl;
+        private Integer size;
+    }
+
+    @Data
+    public static abstract class DownloadObject {
+        private String id;
+        private String extension;
+
+        public abstract String getUrl();
+
 
     }
 

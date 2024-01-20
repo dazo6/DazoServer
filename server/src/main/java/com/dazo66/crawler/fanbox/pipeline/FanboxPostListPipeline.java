@@ -35,10 +35,12 @@ public class FanboxPostListPipeline implements Pipeline<FanboxPostList> {
     @Override
     public void process(FanboxPostList bean) {
 
+        boolean isUpdate = false;
         for (FanboxPost item : bean.getItems()) {
             String url = "https://api.fanbox.cc/post.info?postId=" + item.getId();
             if (crawlerRequestService.check(url)) {
                 crawlerRequestService.add(url);
+                isUpdate = true;
                 log.info("add url {}", url);
             }
         }
@@ -46,7 +48,7 @@ public class FanboxPostListPipeline implements Pipeline<FanboxPostList> {
             URIBuilder uriBuilder = new URIBuilder(bean.getNextUrl());
             Map<String, String> queryMap = uriBuilder.getQueryParams().stream().collect(Collectors.toMap(NameValuePair::getName, NameValuePair::getValue));
             String maxId = queryMap.get("maxId");
-            if (maxId != null) {
+            if (maxId != null && isUpdate) {
                 // 下一页存在更新 需要加到队列里去
                 DeriveSchedulerContext.into(FanboxHelper.getHttpRequest(bean.getNextUrl(), fanboxsessid));
             }

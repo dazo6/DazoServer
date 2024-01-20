@@ -52,7 +52,6 @@ public class FanboxPostDetailPipeline implements Pipeline<FanboxPostDetail> {
             put("Referer", "https://www.fanbox.cc/");
             put("Origin", "https://www.fanbox.cc");
             put("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/117.0.0.0 Safari/537.36");
-            put("FANBOXSESSID", fanboxsessid);
         }
     };
 
@@ -77,10 +76,10 @@ public class FanboxPostDetailPipeline implements Pipeline<FanboxPostDetail> {
             log.error("找不到这个用户：{}", bean.getArtistId());
             return;
         }
-        List<FanboxPostDetail.Image> images = bean.getImages();
+        List<? extends FanboxPostDetail.DownloadObject> downloadObject = bean.getDownloadObject();
         List<String> imageUrls = new ArrayList<>();
         imageUrls.add(bean.getImageForShare());
-        imageUrls.addAll(images.stream().map(FanboxPostDetail.Image::getOriginalUrl).collect(Collectors.toList()));
+        imageUrls.addAll(downloadObject.stream().map(FanboxPostDetail.DownloadObject::getUrl).collect(Collectors.toList()));
         List<Future<Boolean>> list = new ArrayList<>();
         for (int i = 0; i < imageUrls.size(); i++) {
             DownloadAction task = new DownloadAction(fanboxHttpClient, imageUrls.get(i), getDownloadPath(bean, artist, imageUrls.size(), i), artist.getCompression());

@@ -96,7 +96,7 @@ public class KemonoScheduler {
 
     }
 
-    @Scheduled(initialDelay = 30, fixedDelay = 60 * 6, timeUnit = TimeUnit.MINUTES)
+    @Scheduled(initialDelay = 0, fixedDelay = 60, timeUnit = TimeUnit.MINUTES)
     public void schedulerSearchNeedPost() {
         // 阻塞方式运行
         GeccoEngine geccoEngine = buildArtistGecco(null);

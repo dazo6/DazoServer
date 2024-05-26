@@ -1,10 +1,5 @@
 package com.dazo66.util;
 
-import java.util.HashMap;
-import java.util.Map;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
-
 /**
  * @author dazo66(sundazhong.sdz)
  * @date 2023/2/25 11:33
@@ -23,6 +18,6 @@ public class StringUtil {
                 builder.append(c);
             }
         }
-        return builder.toString();
+        return builder.toString().trim();
     }
 }

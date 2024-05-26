@@ -55,6 +55,7 @@ public class MultiThreadHttpDownloader {
 
     private Map<String, String> cookie;
 
+
     private AtomicReference<Throwable> throwableAtomicReference = new AtomicReference<>();
 
     public MultiThreadHttpDownloader(CloseableHttpClient httpClient, String url,

@@ -12,8 +12,8 @@ import org.apache.http.impl.client.HttpClientBuilder;
 import org.apache.http.message.BasicNameValuePair;
 
 import java.net.URI;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.*;
+import java.util.stream.Collectors;
 
 /**
  * @author dazo66(sundazhong.sdz)
@@ -23,7 +23,7 @@ import java.util.List;
 public class KemonoHelper {
 
 
-    public static String loginAndGetCookie(String username, String password) {
+    public static Map<String, String> loginAndGetCookie(String username, String password) {
         try {
             CloseableHttpClient client = HttpClientBuilder.create().build();
             HttpPost httpPost = new HttpPost(new URI("https://kemono.su/account/login"));
@@ -36,15 +36,17 @@ public class KemonoHelper {
             if (execute.getStatusLine().getStatusCode() == 302
                     && execute.getHeaders("Location")[0].getValue().contains("/artists?logged_in=yes")) {
                 Header[] headers = execute.getHeaders("set-cookie");
-                StringBuilder cookieBuilder = new StringBuilder();
+                Map<String, String> cookieMap = new HashMap<>();
                 if (headers.length > 0) {
                     for (Header header : headers) {
                         String value = header.getValue();
-                        cookieBuilder.append(value, 0, value.indexOf(";") + 1);
-                        cookieBuilder.append(" ");
+                        List<String> ddg1 = Arrays.asList(value.split("; ")).stream().filter(s -> s.contains("__ddg1")).collect(Collectors.toList());
+                        if (!ddg1.isEmpty()) {
+                            cookieMap.put("__ddg1", ddg1.get(0).split("=")[1]);
+                        }
                     }
                 }
-                return cookieBuilder.toString();
+                return cookieMap;
             } else {
                 return null;
             }

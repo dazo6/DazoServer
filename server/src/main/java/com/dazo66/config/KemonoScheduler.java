@@ -56,7 +56,7 @@ public class KemonoScheduler {
     private String fanboxsessid;
 
     // kemono 挂了 暂停这个定时任务
-    // @Scheduled(initialDelay = 0, fixedDelay = 20, timeUnit = TimeUnit.MINUTES)
+    @Scheduled(initialDelay = 0, fixedDelay = 20, timeUnit = TimeUnit.MINUTES)
     public void autoSubKemono() {
         log.info("开始自动订阅作者！");
         SpringPipelineFactory springPipelineFactory =
@@ -79,8 +79,7 @@ public class KemonoScheduler {
                 .run();
     }
 
-    // kemono 挂了 暂停这个定时任务
-    // @Scheduled(initialDelay = 0, fixedDelay = 20, timeUnit = TimeUnit.MINUTES)
+    @Scheduled(initialDelay = 0, fixedDelay = 20, timeUnit = TimeUnit.MINUTES)
     public void autoUnsubArtist() {
         File[] files = new File(fileSavePath).listFiles();
         Set<String> artistSet = Arrays.stream(files).map(File::getName).collect(Collectors.toSet());
@@ -108,7 +107,7 @@ public class KemonoScheduler {
     public GeccoEngine buildArtistGecco(List<Artist> artists) {
         if (artists == null) {
             Page<Artist> artistByPage = kemonoArtistService.getArtistByPage(1, 20,
-                    new QueryWrapper<>(new Artist().setEnable(true).setDomain(ArtistDomainEnum.FANBOX)).orderByAsc("rand()"));
+                    new QueryWrapper<>(new Artist().setEnable(true)).orderByAsc("rand()"));
             artists = artistByPage.getRecords();
         }
         if (artists.isEmpty()) {
@@ -125,7 +124,7 @@ public class KemonoScheduler {
                 .start(httpGetRequestList).pipelineFactory(springPipelineFactory).scheduler(new UniqueSpiderScheduler())
                 //开启几个爬虫线程
                 .thread(2)
-                .retry(10)
+                .retry(50)
                 //单个爬虫每次抓取完一个请求后的间隔时间
                 .interval(2000)
                 //循环抓取

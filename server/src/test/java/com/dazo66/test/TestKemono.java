@@ -1,5 +1,6 @@
 package com.dazo66.test;
 
+import com.alibaba.fastjson.JSON;
 import com.dazo66.util.IpUtils;
 import com.dazo66.util.MultiThreadHttpDownloader;
 import com.google.common.collect.Lists;
@@ -10,7 +11,6 @@ import org.apache.http.NameValuePair;
 import org.apache.http.client.config.RequestConfig;
 import org.apache.http.client.entity.UrlEncodedFormEntity;
 import org.apache.http.client.methods.CloseableHttpResponse;
-import org.apache.http.client.methods.HttpGet;
 import org.apache.http.client.methods.HttpPost;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.DefaultRedirectStrategy;
@@ -18,16 +18,13 @@ import org.apache.http.impl.client.HttpClientBuilder;
 import org.apache.http.impl.conn.PoolingHttpClientConnectionManager;
 import org.apache.http.message.BasicHeader;
 import org.apache.http.message.BasicNameValuePair;
-import org.apache.http.util.EntityUtils;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
-import java.io.UnsupportedEncodingException;
-import java.net.MalformedURLException;
 import java.net.URI;
 import java.net.URISyntaxException;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.*;
+import java.util.stream.Collectors;
 
 /**
  * @author dazo66(sundazhong.sdz)
@@ -47,15 +44,17 @@ public class TestKemono {
         CloseableHttpResponse execute = client.execute(httpPost);
         if (execute.getStatusLine().getStatusCode() == 302 && execute.getHeaders("Location")[0].getValue().contains("/artists?logged_in=yes")) {
             Header[] headers = execute.getHeaders("set-cookie");
-            StringBuilder cookieBuilder = new StringBuilder();
+            Map<String, String> cookieMap = new HashMap<>();
             if (headers.length > 0) {
                 for (Header header : headers) {
                     String value = header.getValue();
-                    cookieBuilder.append(value, 0, value.indexOf(";") + 1);
-                    cookieBuilder.append(" ");
+                    List<String> ddg1 = Arrays.asList(value.split("; ")).stream().filter(s -> s.contains("__ddg1")).collect(Collectors.toList());
+                    if (!ddg1.isEmpty()) {
+                        cookieMap.put("__ddg1", ddg1.get(0).split("=")[1]);
+                    }
                 }
             }
-            System.out.println("cookie: " + cookieBuilder);
+            System.out.println("cookie: " + JSON.toJSONString(cookieMap));
         } else {
             System.out.println("登录失败~");
         }

@@ -98,8 +98,8 @@ public abstract class KylinBaseModel implements Serializable {
     private String getJoinSql(String factAlias) {
         String s = model.getJSONArray("lookups").stream().map(e -> {
             JSONObject j = (JSONObject) e;
-            String[] pk = j.getJSONObject("join").getJSONArray("primary_key").stream().map(p -> p.toString()).toArray(String[]::new);
-            String[] fk = j.getJSONObject("join").getJSONArray("foreign_key").stream().map(p -> p.toString()).toArray(String[]::new);
+            String[] pk = j.getJSONObject("join").getJSONArray("primary_key").stream().map(Object::toString).toArray(String[]::new);
+            String[] fk = j.getJSONObject("join").getJSONArray("foreign_key").stream().map(Object::toString).toArray(String[]::new);
             List<String> on = new ArrayList<>();
             for (int i = 0; i < pk.length; i++) {
                 on.add(String.format("%s.%s = %s.%s", tableAlias.get(j.getString("table")),
@@ -107,7 +107,7 @@ public abstract class KylinBaseModel implements Serializable {
             }
             String type = j.getJSONObject("join").getString("type").toUpperCase();
             String pTable = formatTableName(j.getString("table"));
-            String onStr = on.stream().collect(Collectors.joining(" and "));
+            String onStr = String.join(" and ", on);
             return String.format("\n %s JOIN %s %s ON %s", type, pTable, tableAlias.get(pTable), onStr);
         }).collect(Collectors.joining(" "));
         return s;
@@ -122,7 +122,7 @@ public abstract class KylinBaseModel implements Serializable {
     public String formatTableName(String rawName) {
         String tmp = rawName.replaceAll("\"", "");
         StringJoiner joiner = new StringJoiner(".");
-        Arrays.stream(tmp.split("\\.")).map(i -> surroundWithQuta(i)).forEach(joiner::add);
+        Arrays.stream(tmp.split("\\.")).map(this::surroundWithQuta).forEach(joiner::add);
         return joiner.toString();
     }
     

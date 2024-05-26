@@ -39,11 +39,17 @@ public class DownloadAction implements Callable<Boolean> {
 
     private Map<String, String> cookie;
 
+    private Boolean useMultiDownloader = true;
+
     public DownloadAction(CloseableHttpClient client, String url, String localPath, Boolean compression) {
         this.url = url;
         this.localPath = localPath;
         this.httpClient = client;
         this.compression = compression;
+    }
+
+    public void setUseMultiDownloader(Boolean useMultiDownloader) {
+        this.useMultiDownloader = useMultiDownloader;
     }
 
     public void setCompression(Boolean compression) {
@@ -106,14 +112,14 @@ public class DownloadAction implements Callable<Boolean> {
                     file.getParentFile().mkdirs();
                 }
                 String fileType = suffix.substring(1);
-                if (ThumbnailatorUtils.getSupportedOutputFormats().contains(fileType) && !"gif".equalsIgnoreCase(fileType)) {
-                    file = new File(localPath + ".jpg");
+                if (ThumbnailatorUtils.getSupportedOutputFormats().contains(fileType) && !"gif".equalsIgnoreCase(fileType) || !useMultiDownloader) {
+                    file = new File(localPath + "." + fileType);
                     if (file.exists()) {
                         return true;
                     }
                     Long contentLength = response.getFirstHeader("content-length") == null ? 0 : Long.parseLong(response.getFirstHeader("content-length").getValue());
                     double quality = 1d;
-                    if ((compression == null || compression) && contentLength > 0) {
+                    if ((compression == null || compression) && contentLength > 0 && ThumbnailatorUtils.getSupportedOutputFormats().contains(fileType)) {
                         BufferedImage image = ImageIO.read(response.getEntity().getContent());
                         if (ImageUtils.needCompression(image, contentLength)) {
                             quality = 0.9d;
@@ -131,7 +137,7 @@ public class DownloadAction implements Callable<Boolean> {
                     multiThreadHttpDownloader.setHeaders(headers);
                     multiThreadHttpDownloader.setCookie(cookie);
                     multiThreadHttpDownloader.get();
-                    log.info("download success " + filename);
+                    log.info("MultiThreadHttpDownloader download success " + filename);
                 }
                 return true;
             } else {

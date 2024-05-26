@@ -1,11 +1,6 @@
 package com.dazo66.crawler.kemono;
 
-import com.geccocrawler.gecco.annotation.Gecco;
-import com.geccocrawler.gecco.annotation.Href;
-import com.geccocrawler.gecco.annotation.HtmlField;
-import com.geccocrawler.gecco.annotation.Request;
-import com.geccocrawler.gecco.annotation.RequestParameter;
-import com.geccocrawler.gecco.annotation.Text;
+import com.geccocrawler.gecco.annotation.*;
 import com.geccocrawler.gecco.request.HttpGetRequest;
 import com.geccocrawler.gecco.spider.HtmlBean;
 import lombok.Data;
@@ -32,7 +27,7 @@ public class KemonoPost implements HtmlBean {
     private String artistName;
     @HtmlField(cssPath = "#page>header>div.post__info>h1>span:nth-child(1)")
     private String title;
-    @HtmlField(cssPath = "#page>header>div.post__info>div.post__published>time")
+    @HtmlField(cssPath = "#page>header>div.post__info>div.post__published")
     private String time;
     @Href
     @HtmlField(cssPath = ".fileThumb")

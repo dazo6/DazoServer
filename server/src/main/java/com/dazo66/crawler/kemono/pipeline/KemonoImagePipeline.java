@@ -7,6 +7,7 @@ import com.dazo66.entity.CrawlerRequest;
 import com.dazo66.service.CrawlerRequestService;
 import com.dazo66.service.KemonoArtistService;
 import com.dazo66.util.DownloadAction;
+import com.dazo66.util.KemonoHelper;
 import com.dazo66.util.StringUtil;
 import com.geccocrawler.gecco.pipeline.Pipeline;
 import lombok.extern.slf4j.Slf4j;
@@ -23,6 +24,8 @@ import java.util.*;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.ThreadPoolExecutor;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 
 /**
@@ -45,9 +48,17 @@ public class KemonoImagePipeline implements Pipeline<KemonoPost> {
     @Autowired
     private KemonoArtistService kemonoArtistService;
 
+
+    @Value("${kemono.username}")
+    private String kemonoUsername;
+
+    @Value("${kemono.password}")
+    private String kemonoPassword;
+
     private static Map<String, String> kemonoHeaders = new HashMap<String, String>() {
         {
             put("referer", "https://kemono.su/");
+            put("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.4896.127 Safari/537.36");
         }
     };
 
@@ -63,6 +74,8 @@ public class KemonoImagePipeline implements Pipeline<KemonoPost> {
                 DownloadAction task = new DownloadAction(fanboxHttpClient,
                         url.toString(), getDownloadPath(bean, i), artist.getCompression());
                 task.setHeaders(kemonoHeaders);
+                task.setUseMultiDownloader(false);
+                task.setCookie(KemonoHelper.loginAndGetCookie(kemonoUsername, kemonoPassword));
                 Future<Boolean> future = executors.submit(task);
                 list.add(future);
             }
@@ -79,6 +92,8 @@ public class KemonoImagePipeline implements Pipeline<KemonoPost> {
                     DownloadAction task = new DownloadAction(fanboxHttpClient
                             , url.toString(), getDownloadPath(bean, name), artist.getCompression());
                     task.setHeaders(kemonoHeaders);
+                    task.setUseMultiDownloader(false);
+                    task.setCookie(KemonoHelper.loginAndGetCookie(kemonoUsername, kemonoPassword));
                     Future<Boolean> future = executors.submit(task);
                     list.add(future);
                 }
@@ -107,10 +122,9 @@ public class KemonoImagePipeline implements Pipeline<KemonoPost> {
     public String getDownloadPath(KemonoPost post, int index) {
         Artist artist = kemonoArtistService.getArtistId(post.getArtistId(), ArtistDomainEnum.KEMONO);
         String time = post.getTime();
-        if (StringUtils.isEmpty(time) && time.length() < 10) {
+        time = getDataStr(time);
+        if (StringUtils.isEmpty(time)) {
             time = DateUtils.format(new Date(), "yyyy-MM-dd");
-        } else {
-            time = time.substring(0, 10);
         }
         return fileSavePath + String.format("/%s/%s-%s-%0" + getNumberLen(post.getImages().length) + "d", StringUtil.cleanSym(artist.getName()), time, StringUtil.cleanSym(post.getTitle()), index);
     }
@@ -119,13 +133,25 @@ public class KemonoImagePipeline implements Pipeline<KemonoPost> {
 
         Artist artist = kemonoArtistService.getArtistId(post.getArtistId(), ArtistDomainEnum.KEMONO);
         String time = post.getTime();
-        if (StringUtils.isEmpty(time) && time.length() < 10) {
+        time = getDataStr(time);
+        if (StringUtils.isEmpty(time)) {
             time = DateUtils.format(new Date(), "yyyy-MM-dd");
-        } else {
-            time = time.substring(0, 10);
         }
         return fileSavePath + String.format("/%s/%s-%s-%s", StringUtil.cleanSym(artist.getName()), time,
                 StringUtil.cleanSym(post.getTitle()), StringUtil.cleanSym(name));
+    }
+
+    private static Pattern DATA_REGEX = Pattern.compile("(20\\d\\d-[0-1]\\d-[0-3]\\d)");
+
+    public static String getDataStr(String string) {
+        if (StringUtils.isEmpty(string)) {
+            return "";
+        }
+        Matcher matcher = DATA_REGEX.matcher(string);
+        if (matcher.find()) {
+            return matcher.group();
+        }
+        return "";
     }
 
 

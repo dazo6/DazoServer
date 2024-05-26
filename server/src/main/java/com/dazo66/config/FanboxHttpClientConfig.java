@@ -32,11 +32,6 @@ public class FanboxHttpClientConfig {
     @Value("${fanbox.proxy.port}")
     private Integer proxyPort;
 
-    @Value("${kemono.username}")
-    private String kemonoUsername;
-
-    @Value("${kemono.password}")
-    private String kemonoPassword;
 
     @Bean("fanboxHttpClient")
     public CloseableHttpClient warpperClient() {
@@ -55,18 +50,7 @@ public class FanboxHttpClientConfig {
             log.info("代理可用，开始使用代理通道");
             httpClientBuilder.setProxy(new HttpHost(proxyIp, proxyPort));
         }
-/*        ArrayList<BasicHeader> headers = new ArrayList<>();
-        String cookie = KemonoHelper.loginAndGetCookie(kemonoUsername, kemonoPassword);
-        if (StringUtils.isEmpty(cookie)) {
-            log.info("更新cookie失败");
-        } else {
-            BasicHeader cookieHeader = new BasicHeader("cookie", cookie);
-            log.info("获得cookie {}", cookie);
-            headers.add(cookieHeader);
-        }
-        BasicHeader agentHeader = new BasicHeader("User-Agent",
-                "Mozilla/5.0 (Windows NT 10.0; " + "Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.4896.127 Safari/537.36");
-        headers.add(agentHeader);*/
+
         CloseableHttpClient client = httpClientBuilder
                 // .setDefaultHeaders(headers)
                 .setDefaultRequestConfig(clientConfig)

@@ -101,6 +101,9 @@ public class FanboxPostDetailPipeline implements Pipeline<FanboxPostDetail> {
         if (isDone) {
             crawlerRequestService.updateByUrl(new CrawlerRequest().setUrl(bean.getRequest().getUrl()).setIsDone(true));
             kemonoArtistService.updateByArtistId(new Artist().setArtistId(bean.getArtistId()).setLastUpdate(new Date()));
+        } else {
+            CrawlerRequest crawlerRequest = crawlerRequestService.getByUrl(bean.getRequest().getUrl());
+            crawlerRequestService.updateByUrl(new CrawlerRequest().setUrl(bean.getRequest().getUrl()).setErrorCount(crawlerRequest.getErrorCount() == null ? 1 : crawlerRequest.getErrorCount() + 1));
         }
     }
 

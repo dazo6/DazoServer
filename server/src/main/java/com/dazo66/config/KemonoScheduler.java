@@ -170,8 +170,9 @@ public class KemonoScheduler {
     public GeccoEngine buildImageGecco() {
         SpringPipelineFactory springPipelineFactory =
                 SpringContextUtils.getBean(SpringPipelineFactory.class);
-        Page<CrawlerRequest> crawlerRequestByPage = crawlerRequestService.getByPage(1, 20,
-                new QueryWrapper<>(new CrawlerRequest().setIsDone(false)).orderByAsc("rand()"));
+        Page<CrawlerRequest> crawlerRequestByPage = crawlerRequestService
+                .getLambdaQuery().eq(CrawlerRequest::getIsDone, false)
+                .le(CrawlerRequest::getErrorCount, 10).page(new Page<>(1, 20));
         if (crawlerRequestByPage.getRecords().isEmpty()) {
             log.info("爬取队列为空，不需要爬取");
             return null;

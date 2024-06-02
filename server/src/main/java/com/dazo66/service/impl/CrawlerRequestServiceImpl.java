@@ -1,17 +1,14 @@
 package com.dazo66.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
-import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.baomidou.mybatisplus.extension.conditions.query.LambdaQueryChainWrapper;
 import com.dazo66.entity.CrawlerRequest;
-import com.dazo66.mapper.CrawlerRequestMapper;
 import com.dazo66.repository.CrawlerRequestRepository;
 import com.dazo66.service.CrawlerRequestService;
-import com.geccocrawler.gecco.utils.UrlMatcher;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.Date;
-import java.util.Map;
 
 /**
  * @author Dazo66
@@ -51,9 +48,13 @@ public class CrawlerRequestServiceImpl implements CrawlerRequestService {
     }
 
     @Override
-    public Page<CrawlerRequest> getByPage(int page, int pageSize,
-                                          QueryWrapper<CrawlerRequest> queryWrapper) {
-        return crawlerRequestRepository.page(Page.of(page, pageSize), queryWrapper);
+    public LambdaQueryChainWrapper<CrawlerRequest> getLambdaQuery() {
+        return crawlerRequestRepository.lambdaQuery();
+    }
+
+    @Override
+    public CrawlerRequest getByUrl(String url) {
+        return crawlerRequestRepository.lambdaQuery().gt(CrawlerRequest::getUrl, url).one();
     }
 
 }

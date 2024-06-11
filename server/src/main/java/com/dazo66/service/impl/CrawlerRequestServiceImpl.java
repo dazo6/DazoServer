@@ -32,6 +32,7 @@ public class CrawlerRequestServiceImpl implements CrawlerRequestService {
         crawlerRequest.setUrl(url);
         crawlerRequest.setGmtCreate(new Date());
         crawlerRequest.setIsDone(false);
+        crawlerRequest.setErrorCount(0);
         crawlerRequestRepository.saveOrUpdate(crawlerRequest);
         return crawlerRequest;
     }
@@ -54,7 +55,7 @@ public class CrawlerRequestServiceImpl implements CrawlerRequestService {
 
     @Override
     public CrawlerRequest getByUrl(String url) {
-        return crawlerRequestRepository.lambdaQuery().gt(CrawlerRequest::getUrl, url).one();
+        return crawlerRequestRepository.lambdaQuery().eq(CrawlerRequest::getUrl, url).one();
     }
 
 }

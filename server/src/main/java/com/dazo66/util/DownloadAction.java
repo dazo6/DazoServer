@@ -1,24 +1,19 @@
 package com.dazo66.util;
 
+import com.squareup.okhttp.OkHttpClient;
+import com.squareup.okhttp.Request;
+import com.squareup.okhttp.Response;
 import lombok.extern.slf4j.Slf4j;
 import net.coobird.thumbnailator.util.ThumbnailatorUtils;
 import org.apache.commons.io.IOUtils;
 import org.apache.commons.lang.exception.ExceptionUtils;
-import org.apache.http.Header;
-import org.apache.http.HeaderElement;
-import org.apache.http.client.methods.CloseableHttpResponse;
-import org.apache.http.client.methods.HttpGet;
-import org.apache.http.client.methods.HttpRequestBase;
-import org.apache.http.client.protocol.HttpClientContext;
-import org.apache.http.impl.client.BasicCookieStore;
-import org.apache.http.impl.client.CloseableHttpClient;
-import org.apache.http.impl.cookie.BasicClientCookie;
 import org.thymeleaf.util.MapUtils;
 
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.file.Files;
 import java.util.Map;
@@ -32,7 +27,7 @@ public class DownloadAction implements Callable<Boolean> {
     private Boolean compression;
     private String url;
     private String localPath;
-    private CloseableHttpClient httpClient;
+    private OkHttpClient httpClient;
     private int retryCount = 10;
 
     private Map<String, String> headers;
@@ -41,11 +36,16 @@ public class DownloadAction implements Callable<Boolean> {
 
     private Boolean useMultiDownloader = true;
 
-    public DownloadAction(CloseableHttpClient client, String url, String localPath, Boolean compression) {
+    public DownloadAction(String url, String localPath, Boolean compression) {
         this.url = url;
         this.localPath = localPath;
-        this.httpClient = client;
         this.compression = compression;
+        OkHttpClient bean = SpringContextUtils.getBean(OkHttpClient.class);
+        if (bean != null) {
+            this.httpClient = bean;
+        } else {
+            httpClient = new OkHttpClient();
+        }
     }
 
     public void setUseMultiDownloader(Boolean useMultiDownloader) {
@@ -68,44 +68,27 @@ public class DownloadAction implements Callable<Boolean> {
 
     @Override
     public Boolean call() {
-        HttpClientContext cookieContext = HttpClientContext.create();
-        cookieContext.setCookieStore(new BasicCookieStore());
-        HttpRequestBase request = new HttpGet(url);
+        Request.Builder builder = new Request.Builder().url(url);
         if (!MapUtils.isEmpty(headers)) {
             for (Map.Entry<String, String> entry : headers.entrySet()) {
-                request.setHeader(entry.getKey(), entry.getValue());
+                builder.addHeader(entry.getKey(), entry.getValue());
             }
         }
         if (!MapUtils.isEmpty(cookie)) {
+            StringBuilder cookieBuilder = new StringBuilder();
             for (Map.Entry<String, String> entry : cookie.entrySet()) {
-                BasicClientCookie cookie = new BasicClientCookie(entry.getKey(), entry.getValue());
-                cookie.setPath("/");
-                cookie.setDomain(request.getURI().getHost());
-                cookieContext.getCookieStore().addCookie(cookie);
+                cookieBuilder.append(entry.getKey()).append("=").append(entry.getValue()).append(";");
             }
+            builder.addHeader("Cookie", cookieBuilder.toString());
         }
-        CloseableHttpResponse response = null;
+        Response response = null;
         File file = null;
+        InputStream inputStream = null;
         try {
-            response = httpClient.execute(request, cookieContext);
-            while (response.getStatusLine().getStatusCode() == 302) {
-                HeaderElement[] locations = response.getFirstHeader("Location").getElements();
-                if (locations != null && locations.length != 0) {
-                    response.close();
-                    request = new HttpGet(locations[0].toString());
-                    response = httpClient.execute(request, cookieContext);
-                }
-            }
-            if (response.getStatusLine().getStatusCode() == 200) {
-                Header[] responseHeaders = response.getHeaders("content-type");
-                String remoteFilename;
-                if (responseHeaders.length == 0 || responseHeaders[0].getElements().length == 0 || responseHeaders[0].getElements()[0].getParameters().length == 0 || url.contains("fanbox.cc")) {
-                    remoteFilename = url.substring(url.lastIndexOf("/") - 1);
-                } else {
-                    remoteFilename = responseHeaders[0].getElements()[0].getParameter(0).getValue();
-                }
-                String suffix = remoteFilename.substring(remoteFilename.lastIndexOf('.')).replaceAll(
-                                "jpe$", "jpg");
+            response = httpClient.newCall(builder.build()).execute();
+            if (response.isSuccessful()) {
+                String remoteFilename = url.substring(url.lastIndexOf("/") - 1);
+                String suffix = remoteFilename.substring(remoteFilename.lastIndexOf('.')).replaceAll("jpe$", "jpg");
                 String filename = localPath + suffix;
                 file = new File(filename);
                 if (!file.getParentFile().exists()) {
@@ -114,36 +97,38 @@ public class DownloadAction implements Callable<Boolean> {
                 String fileType = suffix.substring(1);
                 if (ThumbnailatorUtils.getSupportedOutputFormats().contains(fileType) && !"gif".equalsIgnoreCase(fileType) || !useMultiDownloader) {
                     file = new File(localPath + "." + fileType);
-                    if (file.exists()) {
+                    // 文件已存在 且有内容 就跳过
+                    if (file.exists() && file.length() > 1024) {
+                        tryUnizp(fileType, file);
                         return true;
                     }
-                    Long contentLength = response.getFirstHeader("content-length") == null ? 0 : Long.parseLong(response.getFirstHeader("content-length").getValue());
+                    long contentLength = response.headers("Content-Length").isEmpty() ? 0 : Long.parseLong(response.headers("Content-Length").get(0));
                     double quality = 1d;
-                    if ((compression == null || compression) && contentLength > 0 && ThumbnailatorUtils.getSupportedOutputFormats().contains(fileType)) {
-                        BufferedImage image = ImageIO.read(response.getEntity().getContent());
+                    inputStream = response.body().byteStream();
+                    if ((compression == null || compression) && contentLength > 0 && ThumbnailatorUtils.getSupportedOutputFormats().contains(fileType) && !"gif".equalsIgnoreCase(fileType)) {
+                        BufferedImage image = ImageIO.read(inputStream);
                         if (ImageUtils.needCompression(image, contentLength)) {
                             quality = 0.9d;
                         }
                         ImageUtils.zipImageFile(image, new File(localPath), quality);
                     } else {
                         OutputStream output = Files.newOutputStream(file.toPath(), CREATE_NEW);
-                        IOUtils.copy(response.getEntity().getContent(), output);
+                        IOUtils.copy(inputStream, output);
                         output.close();
                     }
                     log.info("download and compression success name: {}.{}, quality: {}", localPath, fileType, quality);
                 } else {
-                    response.close();
                     MultiThreadHttpDownloader multiThreadHttpDownloader = new MultiThreadHttpDownloader(httpClient, url, file.getAbsolutePath(), 8, 5000);
                     multiThreadHttpDownloader.setHeaders(headers);
                     multiThreadHttpDownloader.setCookie(cookie);
                     multiThreadHttpDownloader.get();
                     log.info("MultiThreadHttpDownloader download success " + filename);
                 }
+                tryUnizp(fileType, file);
                 return true;
             } else {
-                log.error("download error, " + response.getStatusLine().getStatusCode() + " url: "
+                log.error("download error, " + response.code() + " url: "
                         + url);
-                response.close();
                 retryCount--;
                 if (retryCount > 0) {
                     return call();
@@ -152,8 +137,15 @@ public class DownloadAction implements Callable<Boolean> {
                 }
             }
         } catch (Throwable e) {
+            if (inputStream != null) {
+                try {
+                    inputStream.close();
+                } catch (IOException ex) {
+                    // ignore
+                }
+            }
             try {
-                Thread.sleep(1000L);
+                Thread.sleep(2000L);
             } catch (InterruptedException interruptedException) {
                 interruptedException.printStackTrace();
             }
@@ -169,12 +161,32 @@ public class DownloadAction implements Callable<Boolean> {
             }
         } finally {
             if (response != null) {
-                try {
-                    response.close();
-                } catch (IOException e) {
-                    // ignore
+
+                if (inputStream != null) {
+                    try {
+                        inputStream.close();
+                    } catch (IOException ex) {
+                        // ignore
+                    }
                 }
+
             }
+        }
+    }
+
+    private void tryUnizp(String fileType, File file) throws Exception {
+        if (fileType.equals("zip") || fileType.equals("rar") || fileType.equals("7z")) {
+            ZipUtils.unzip(file.getAbsolutePath(), (zipEntry, integer) -> {
+                if (zipEntry.isDirectory()) {
+                    return "";
+                }
+                String name = zipEntry.getName();
+                if (name.contains("/")) {
+                    name = name.substring(name.lastIndexOf('/') + 1);
+                }
+                return localPath + "-" + String.format("%04d", integer) + "-" + name;
+
+            });
         }
     }
 

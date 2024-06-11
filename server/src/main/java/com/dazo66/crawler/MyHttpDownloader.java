@@ -14,104 +14,37 @@ import com.geccocrawler.gecco.request.HttpPostRequest;
 import com.geccocrawler.gecco.request.HttpRequest;
 import com.geccocrawler.gecco.response.HttpResponse;
 import com.geccocrawler.gecco.spider.SpiderThreadLocal;
-import com.geccocrawler.gecco.utils.UrlUtils;
+import com.squareup.okhttp.*;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.io.IOUtils;
-import org.apache.http.Header;
-import org.apache.http.HttpEntity;
 import org.apache.http.HttpHost;
-import org.apache.http.NameValuePair;
-import org.apache.http.client.HttpRequestRetryHandler;
-import org.apache.http.client.config.RequestConfig;
-import org.apache.http.client.entity.UrlEncodedFormEntity;
-import org.apache.http.client.methods.HttpEntityEnclosingRequestBase;
-import org.apache.http.client.methods.HttpGet;
-import org.apache.http.client.methods.HttpPost;
-import org.apache.http.client.methods.HttpRequestBase;
-import org.apache.http.client.protocol.HttpClientContext;
-import org.apache.http.config.Registry;
-import org.apache.http.config.RegistryBuilder;
-import org.apache.http.conn.socket.ConnectionSocketFactory;
-import org.apache.http.conn.socket.PlainConnectionSocketFactory;
-import org.apache.http.conn.ssl.SSLConnectionSocketFactory;
-import org.apache.http.impl.client.BasicCookieStore;
-import org.apache.http.impl.client.CloseableHttpClient;
-import org.apache.http.impl.client.HttpClientBuilder;
-import org.apache.http.impl.conn.PoolingHttpClientConnectionManager;
-import org.apache.http.impl.cookie.BasicClientCookie;
-import org.apache.http.message.BasicNameValuePair;
-import org.apache.http.protocol.HttpContext;
-import org.apache.http.ssl.SSLContexts;
-import org.apache.http.ssl.TrustStrategy;
 import org.apache.http.util.CharArrayBuffer;
 
-import javax.net.ssl.SSLContext;
 import java.io.*;
-import java.security.cert.CertificateException;
-import java.security.cert.X509Certificate;
-import java.util.ArrayList;
-import java.util.List;
+import java.net.InetSocketAddress;
+import java.net.Proxy;
 import java.util.Map;
+
+import static java.net.Proxy.Type.HTTP;
 
 @Downloader("myHttpDownloader")
 @Slf4j
 public class MyHttpDownloader extends AbstractDownloader {
 
 
-    private CloseableHttpClient httpClient;
-
-    private HttpClientContext cookieContext;
+    private OkHttpClient httpClient;
 
     private boolean isSpringHttpClient = false;
 
     public MyHttpDownloader() {
 
-        cookieContext = HttpClientContext.create();
-        cookieContext.setCookieStore(new BasicCookieStore());
-        CloseableHttpClient fanboxHttpClient = SpringContextUtils.getBean("fanboxHttpClient");
+        OkHttpClient fanboxHttpClient = SpringContextUtils.getBean("fanboxOkHttpClient");
         if (fanboxHttpClient != null) {
             log.info("gecco use spring http client!");
             httpClient = fanboxHttpClient;
             isSpringHttpClient = true;
         } else {
-            Registry<ConnectionSocketFactory> socketFactoryRegistry = null;
-            try {
-                //构造一个信任所有ssl证书的httpclient
-                SSLContext sslContext = SSLContexts.custom().loadTrustMaterial(null, new TrustStrategy() {
-                    @Override
-                    public boolean isTrusted(X509Certificate[] chain, String authType) throws CertificateException {
-                        return true;
-                    }
-                }).build();
-                SSLConnectionSocketFactory sslsf = new SSLConnectionSocketFactory(sslContext);
-                socketFactoryRegistry = RegistryBuilder.<ConnectionSocketFactory>create()
-                        .register("http", PlainConnectionSocketFactory.getSocketFactory())
-                        .register("https", sslsf)
-                        .build();
-            } catch (Exception ex) {
-                socketFactoryRegistry = RegistryBuilder.<ConnectionSocketFactory>create()
-                        .register("http", PlainConnectionSocketFactory.getSocketFactory())
-                        .register("https", SSLConnectionSocketFactory.getSocketFactory())
-                        .build();
-            }
-            RequestConfig clientConfig = RequestConfig.custom().setRedirectsEnabled(false).build();
-            PoolingHttpClientConnectionManager syncConnectionManager = new PoolingHttpClientConnectionManager(socketFactoryRegistry);
-            syncConnectionManager.setMaxTotal(1000);
-            syncConnectionManager.setDefaultMaxPerRoute(50);
-            httpClient = HttpClientBuilder.create()
-                    .setDefaultRequestConfig(clientConfig)
-                    .setConnectionManager(syncConnectionManager)
-                    .setRetryHandler(new HttpRequestRetryHandler() {
-                        @Override
-                        public boolean retryRequest(IOException exception, int executionCount, HttpContext context) {
-                            int retryCount = SpiderThreadLocal.get().getEngine().getRetry();
-                            boolean retry = (executionCount <= retryCount);
-                            if (log.isDebugEnabled() && retry) {
-                                log.debug("retry : " + executionCount);
-                            }
-                            return retry;
-                        }
-                    }).build();
+            httpClient = new OkHttpClient();
         }
     }
 
@@ -120,37 +53,35 @@ public class MyHttpDownloader extends AbstractDownloader {
         if (log.isDebugEnabled()) {
             log.debug("downloading... {}", JSONObject.toJSONString(request));
         }
-        HttpRequestBase reqObj = null;
+        Request.Builder reqObj = null;
         if (request instanceof HttpPostRequest) {//post
             HttpPostRequest post = (HttpPostRequest) request;
-            reqObj = new HttpPost(post.getUrl());
-            //post fields
-            List<NameValuePair> fields = new ArrayList<NameValuePair>();
-            for (Map.Entry<String, String> entry : post.getFields().entrySet()) {
-                NameValuePair nvp = new BasicNameValuePair(entry.getKey(), entry.getValue());
-                fields.add(nvp);
-            }
-            try {
-                HttpEntity entity = new UrlEncodedFormEntity(fields, "UTF-8");
-                ((HttpEntityEnclosingRequestBase) reqObj).setEntity(entity);
-            } catch (UnsupportedEncodingException e) {
-                e.printStackTrace();
-            }
+            StringBuilder builder = new StringBuilder();
+
+            post.getFields().forEach((name, value) -> {
+                if (builder.length() != 0) {
+                    builder.append('&');
+                }
+                builder.append(name);
+                if (value != null) {
+                    builder.append('=');
+                    builder.append(value);
+                }
+
+            });
+
+            RequestBody requestBody = RequestBody.create(com.squareup.okhttp.MediaType.parse("application/x-www-form-urlencoded"), builder.toString());
+            reqObj = new Request.Builder().url(post.getUrl()).method("POST", requestBody);
+
         } else {//get
-            reqObj = new HttpGet(request.getUrl());
+            reqObj = new Request.Builder().url(request.getUrl()).get();
         }
         //header
         boolean isMobile = SpiderThreadLocal.get().getEngine().isMobile();
-        reqObj.addHeader("User-Agent", UserAgent.getUserAgent(isMobile));
+        reqObj.header("User-Agent", UserAgent.getUserAgent(isMobile));
         for (Map.Entry<String, String> entry : request.getHeaders().entrySet()) {
-            reqObj.setHeader(entry.getKey(), entry.getValue());
+            reqObj.header(entry.getKey(), entry.getValue());
         }
-        //request config
-        RequestConfig.Builder builder = RequestConfig.custom()
-                .setConnectionRequestTimeout(1000)//从连接池获取连接的超时时间
-                .setSocketTimeout(timeout)//获取内容的超时时间
-                .setConnectTimeout(timeout)//建立socket连接的超时时间
-                .setRedirectsEnabled(true);
         //proxy
         HttpHost proxy = null;
         Proxys proxys = ProxysContext.get();
@@ -159,41 +90,31 @@ public class MyHttpDownloader extends AbstractDownloader {
             proxy = proxys.getProxy();
             if (proxy != null) {
                 log.debug("proxy:" + proxy.getHostName() + ":" + proxy.getPort());
-                builder.setProxy(proxy);
-                builder.setConnectTimeout(1000);//如果走代理，连接超时时间固定为1s
+                httpClient.setProxy(new Proxy(HTTP, new InetSocketAddress(proxy.getHostName(), proxy.getPort())));
             }
         }
-        reqObj.setConfig(builder.build());
         //request and response
         try {
+            StringBuilder cookieBuilder = new StringBuilder();
             for (Map.Entry<String, String> entry : request.getCookies().entrySet()) {
-                BasicClientCookie cookie = new BasicClientCookie(entry.getKey(), entry.getValue());
-                cookie.setPath("/");
-                cookie.setDomain(reqObj.getURI().getHost());
-                cookieContext.getCookieStore().addCookie(cookie);
+                cookieBuilder.append(entry.getKey()).append("=").append(entry.getValue()).append(";");
             }
-            org.apache.http.HttpResponse response = httpClient.execute(reqObj, cookieContext);
-            int status = response.getStatusLine().getStatusCode();
+            reqObj.header("Cookie", cookieBuilder.toString());
+            Response response = httpClient.newCall(reqObj.build()).execute();
+            int status = response.code();
             HttpResponse resp = new HttpResponse();
             resp.setStatus(status);
-            if (status == 302 || status == 301) {
-                String redirectUrl = response.getFirstHeader("Location").getValue();
-                resp.setContent(UrlUtils.relative2Absolute(request.getUrl(), redirectUrl));
-            } else if (status == 200) {
-                HttpEntity responseEntity = response.getEntity();
-                ByteArrayInputStream raw = toByteInputStream(responseEntity.getContent());
+            if (response.isSuccessful()) {
+                ResponseBody body = response.body();
+                ByteArrayInputStream raw = toByteInputStream(body.byteStream());
                 resp.setRaw(raw);
-                String contentType = null;
-                Header contentTypeHeader = responseEntity.getContentType();
-                if (contentTypeHeader != null) {
-                    contentType = contentTypeHeader.getValue();
-                }
-                resp.setContentType(contentType);
-                if (!isImage(contentType)) {
-                    String charset = getCharset(request.getCharset(), contentType);
+                MediaType contentType = body.contentType();
+                resp.setContentType(contentType.toString());
+                if (!isImage(contentType.toString())) {
+                    String charset = getCharset(request.getCharset(), contentType.toString());
                     resp.setCharset(charset);
                     //String content = EntityUtils.toString(responseEntity, charset);
-                    String content = getContent(raw, responseEntity.getContentLength(), charset);
+                    String content = getContent(raw, body.contentLength(), charset);
                     resp.setContent(content);
                 }
             } else {
@@ -201,7 +122,7 @@ public class MyHttpDownloader extends AbstractDownloader {
                 if (proxy != null) {
                     proxys.failure(proxy.getHostName(), proxy.getPort());
                 }
-                log.debug("download error: {} , {}", response.getStatusLine().getStatusCode(), IOUtils.toString(response.getEntity().getContent()));
+                log.debug("download error: {} , {}", response.code(), IOUtils.toString(response.body().byteStream()));
                 throw new DownloadServerException("" + status);
             }
             if (proxy != null) {
@@ -214,20 +135,11 @@ public class MyHttpDownloader extends AbstractDownloader {
                 proxys.failure(proxy.getHostName(), proxy.getPort());
             }
             throw new DownloadException(e);
-        } finally {
-            reqObj.releaseConnection();
         }
     }
 
     @Override
     public void shutdown() {
-        if (!isSpringHttpClient) {
-            try {
-                httpClient.close();
-            } catch (IOException e) {
-                httpClient = null;
-            }
-        }
     }
 
     public String getContent(InputStream instream, long contentLength, String charset) throws IOException {

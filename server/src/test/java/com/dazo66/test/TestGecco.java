@@ -1,5 +1,6 @@
 package com.dazo66.test;
 
+import com.dazo66.config.CookieConfig;
 import com.dazo66.crawler.kemono.pipeline.KemonoImagePipeline;
 import com.dazo66.service.ConsolePipeline;
 import com.dazo66.util.ImageUtils;
@@ -90,7 +91,9 @@ public class TestGecco {
 /*        testOne("https://kemono.su/fanbox/user/18209583/post/4646634");
         testOne("https://kemono.su/fanbox/user/4606746/post/7262836");
         testOne("https://kemono.su/fanbox/user/26654959/post/7225710");*/
-        testOne("https://kemono.su/fanbox/user/55386946/post/6402569");
+        // testOne("https://kemono.su/fanbox/user/55386946/post/6402569");
+        // testOne("https://kemono.su/fanbox/user/4217586/post/4397914");
+        testOne("https://api.fanbox.cc/post.info?postId=7866421");
     }
 
     @Test
@@ -98,10 +101,20 @@ public class TestGecco {
         System.out.println(KemonoImagePipeline.getDataStr("<div style=\\\"width: 89px; display: inline-block;\\\">\\n Published:\\n</div> 2023-07-27"));
     }
 
+    @Autowired
+    private CookieConfig cookieConfig;
+
     public void testOne(String url) {
 
 
-        List<HttpRequest> httpRequests = Lists.newArrayList(url).stream().map(HttpGetRequest::new).collect(Collectors.toList());
+        List<HttpRequest> httpRequests = Lists.newArrayList(url).stream().map(s -> {
+            HttpGetRequest httpGetRequest = new HttpGetRequest(s);
+            httpGetRequest.setCookies(cookieConfig.getFanboxCookie());
+            httpGetRequest.addHeader("Referer", "https://www.fanbox.cc/");
+            httpGetRequest.addHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/117.0.0.0 Safari/537.36");
+            httpGetRequest.addHeader("Origin", "https://www.fanbox.cc");
+            return httpGetRequest;
+        }).collect(Collectors.toList());
 
         UniqueSpiderScheduler scheduler = new UniqueSpiderScheduler();
         GeccoEngine.create()
@@ -112,6 +125,7 @@ public class TestGecco {
                 .start(httpRequests)
                 .pipelineFactory(springPipelineFactory)
                 .scheduler(scheduler)
+                .proxy(true)
                 .proxysLoader(new Proxys() {
                     @Override
                     public HttpHost getProxy() {

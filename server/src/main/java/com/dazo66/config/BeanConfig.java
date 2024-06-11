@@ -21,7 +21,7 @@ public class BeanConfig {
 
     @Bean("downloadThreadPool")
     public ThreadPoolExecutor getDownloadThreadPool() {
-        return new ThreadPoolExecutor(10, 10, 0L,
+        return new ThreadPoolExecutor(5, 5, 0L,
             TimeUnit.MILLISECONDS, new LinkedBlockingQueue<>(),
             new ThreadFactoryBuilder().setNameFormat("download-%02d").build());
     }

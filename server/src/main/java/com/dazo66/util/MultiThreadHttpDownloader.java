@@ -1,27 +1,18 @@
 package com.dazo66.util;
 
-import com.google.common.collect.Lists;
+import com.alibaba.druid.util.StringUtils;
+import com.squareup.okhttp.OkHttpClient;
+import com.squareup.okhttp.Request;
+import com.squareup.okhttp.Response;
 import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.http.HeaderElement;
-import org.apache.http.client.config.RequestConfig;
-import org.apache.http.client.methods.CloseableHttpResponse;
-import org.apache.http.client.methods.HttpGet;
-import org.apache.http.client.methods.HttpRequestBase;
 import org.apache.http.client.protocol.HttpClientContext;
 import org.apache.http.impl.client.BasicCookieStore;
-import org.apache.http.impl.client.CloseableHttpClient;
-import org.apache.http.impl.client.DefaultRedirectStrategy;
-import org.apache.http.impl.client.HttpClientBuilder;
-import org.apache.http.impl.conn.PoolingHttpClientConnectionManager;
-import org.apache.http.impl.cookie.BasicClientCookie;
-import org.apache.http.message.BasicHeader;
 import org.thymeleaf.util.MapUtils;
 
 import java.io.*;
 import java.net.MalformedURLException;
 import java.net.SocketTimeoutException;
-import java.net.URISyntaxException;
 import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -45,7 +36,7 @@ public class MultiThreadHttpDownloader {
 
     private final AtomicInteger failThreads = new AtomicInteger(0);
     private final int MIN_SIZE = 2 << 20;
-    private final CloseableHttpClient httpClient;
+    private final OkHttpClient httpClient;
     private boolean multiThreaded = true;
     private int fileSize = 0;
     private int THREAD_NUM = 8;
@@ -58,14 +49,14 @@ public class MultiThreadHttpDownloader {
 
     private AtomicReference<Throwable> throwableAtomicReference = new AtomicReference<>();
 
-    public MultiThreadHttpDownloader(CloseableHttpClient httpClient, String url,
+    public MultiThreadHttpDownloader(OkHttpClient httpClient, String url,
                                      String localPath) throws MalformedURLException {
         this.httpClient = httpClient;
         this.url = new URL(url);
         this.localFile = new File(localPath);
     }
 
-    public MultiThreadHttpDownloader(CloseableHttpClient httpClient, String url, String localPath
+    public MultiThreadHttpDownloader(OkHttpClient httpClient, String url, String localPath
             , int threadNum, int timeout) throws MalformedURLException {
         this(httpClient, url, localPath);
         this.THREAD_NUM = threadNum;
@@ -121,38 +112,35 @@ public class MultiThreadHttpDownloader {
                 timeElapsed / 1000.0, downloadedBytes.get() / timeElapsed));
     }
 
-    private CloseableHttpResponse setHeaderAndCookieThenExecute(CloseableHttpClient httpClient, HttpRequestBase request) throws IOException {
+    private Response setHeaderAndCookieThenExecute(OkHttpClient httpClient, Request.Builder request) throws IOException {
         HttpClientContext cookieContext = HttpClientContext.create();
         cookieContext.setCookieStore(new BasicCookieStore());
         if (!MapUtils.isEmpty(headers)) {
             for (Map.Entry<String, String> entry : headers.entrySet()) {
-                request.setHeader(entry.getKey(), entry.getValue());
+                request.header(entry.getKey(), entry.getValue());
             }
         }
         if (!MapUtils.isEmpty(cookie)) {
+            StringBuilder cookieBuilder = new StringBuilder();
             for (Map.Entry<String, String> entry : cookie.entrySet()) {
-                BasicClientCookie cookie = new BasicClientCookie(entry.getKey(), entry.getValue());
-                cookie.setPath("/");
-                cookie.setDomain(request.getURI().getHost());
-                cookieContext.getCookieStore().addCookie(cookie);
+                cookieBuilder.append(entry.getKey()).append("=").append(entry.getValue()).append(";");
             }
+            request.addHeader("Cookie", cookieBuilder.toString());
         }
-        return httpClient.execute(request, cookieContext);
+        return httpClient.newCall(request.build()).execute();
     }
 
     //检测目标文件是否支持断点续传，以决定是否开启多线程下载文件的不同部分
     public boolean supportResumeDownload() throws IOException {
-        Integer resCode = null;
+        Boolean resCode = null;
         Exception e1 = null;
         for (int i = 0; i < 10; i++) {
             try {
-                HttpGet httpGet = new HttpGet(url.toURI());
-                httpGet.setHeader("Range", "bytes=0-");
-                httpGet.setConfig(RequestConfig.custom().setRedirectsEnabled(true).setConnectTimeout(TIME_OUT).setSocketTimeout(TIME_OUT).setConnectionRequestTimeout(TIME_OUT).build());
-                CloseableHttpResponse execute = setHeaderAndCookieThenExecute(httpClient, httpGet);
-                fileSize = (int) execute.getEntity().getContentLength();
-                resCode = execute.getStatusLine().getStatusCode();
-                execute.close();
+                com.squareup.okhttp.Request.Builder builder = new Request.Builder().url(url);
+                builder.header("Range", "bytes=0-");
+                Response execute = setHeaderAndCookieThenExecute(httpClient, builder);
+                fileSize = (int) execute.body().contentLength();
+                resCode = execute.isSuccessful();
                 break;
             } catch (Exception e) {
                 e1 = e;
@@ -162,7 +150,7 @@ public class MultiThreadHttpDownloader {
         if (resCode == null) {
             throw new RuntimeException(e1);
         }
-        if (resCode == 206) {
+        if (resCode) {
             log.info(localFile + " * Support resume download");
             return true;
         } else {
@@ -263,21 +251,7 @@ public class MultiThreadHttpDownloader {
     }
 
     public static void main(String[] args) throws Throwable {
-        RequestConfig clientConfig =
-                RequestConfig.custom().setRedirectsEnabled(true).setConnectTimeout(60000).setConnectionRequestTimeout(60000).setSocketTimeout(60000).build();
-
-        PoolingHttpClientConnectionManager syncConnectionManager =
-                new PoolingHttpClientConnectionManager();
-
-        syncConnectionManager.setMaxTotal(1000);
-        syncConnectionManager.setDefaultMaxPerRoute(50);
-        HttpClientBuilder httpClientBuilder = HttpClientBuilder.create();
-        BasicHeader agentHeader = new BasicHeader("User-Agent",
-                "Mozilla/5.0 (Windows NT 10.0; " + "Win64; x64) " + "AppleWebKit/537.36 (KHTML, " + "like Gecko) Chrome/100.0.4896.127 " + "Safari/537.36");
-        CloseableHttpClient httpClient =
-                httpClientBuilder.setDefaultHeaders(Lists.newArrayList(agentHeader)).setDefaultRequestConfig(clientConfig).setRedirectStrategy(new DefaultRedirectStrategy()).setConnectionManager(syncConnectionManager).build();
-
-        new MultiThreadHttpDownloader(httpClient, "http://127.0.0.1:8080", "D:/ls-lR.jpg", 5, 5000).get();
+        new MultiThreadHttpDownloader(new OkHttpClient(), "https://repo.huaweicloud.com/java/jdk/11.0.2+9/jdk-11.0.2_windows-x64_bin.exe", "jdk-11.0.2_windows-x64_bin.exe", 5, 5000).get();
     }
 
     //一个下载线程负责下载文件的某一部分，如果失败则自动重试，直到下载完成
@@ -314,26 +288,24 @@ public class MultiThreadHttpDownloader {
 
         //下载文件指定范围的部分
         public boolean download() {
-            CloseableHttpResponse execute = null;
+            Response execute = null;
             try {
-                HttpGet httpGet = new HttpGet(url.toURI());
-                httpGet.setHeader("Range", String.format("bytes=%d-%d", start, end));
-                httpGet.setConfig(RequestConfig.custom().setConnectTimeout(TIME_OUT).setSocketTimeout(TIME_OUT).setConnectionRequestTimeout(TIME_OUT).build());
+                com.squareup.okhttp.Request.Builder builder = new Request.Builder().url(url);
+                builder.header("Range", String.format("bytes=%d-%d", start, end));
                 /*HttpURLConnection con = (HttpURLConnection) url.openConnection(proxy);
                 con.setRequestProperty("Range", String.format("bytes=%d-%d", start, end));
                 con.setConnectTimeout(TIME_OUT);
                 con.setReadTimeout(TIME_OUT);
                 con.connect();*/
-                execute = setHeaderAndCookieThenExecute(httpClient, httpGet);
-                HeaderElement[] elements = execute.getFirstHeader("Content-Length").getElements();
-                if (elements.length == 0) {
+                execute = setHeaderAndCookieThenExecute(httpClient, builder);
+                String length = execute.header("Content-Length");
+                if (StringUtils.isEmpty(length)) {
                     return false;
                 }
-                if (execute.getStatusLine().getStatusCode() == 403) {
+                if (!execute.isSuccessful()) {
                     return false;
                 }
-                int partSize = Integer.parseInt(elements[0].getName());
-                // int partSize = con.getHeaderFieldInt("Content-Length", -1);
+                int partSize = Integer.parseInt(length);
                 if (partSize != end - start + 1) {
                     return false;
                 }
@@ -347,7 +319,7 @@ public class MultiThreadHttpDownloader {
                     }
                     out = Files.newOutputStream(file.toPath());
                 }
-                try (InputStream in = execute.getEntity().getContent()) {
+                try (InputStream in = execute.body().byteStream()) {
                     byte[] buffer = new byte[1024];
                     int size;
                     while (start <= end && (size = in.read(buffer)) > 0) {
@@ -356,7 +328,7 @@ public class MultiThreadHttpDownloader {
                         out.write(buffer, 0, size);
                         out.flush();
                     }
-                    execute.close();
+                    in.close();
                     if (start <= end) {
                         return false;
                     } else {
@@ -371,18 +343,8 @@ public class MultiThreadHttpDownloader {
                 log.info(localFile + " Part " + (id + 1) + " encountered error.");
                 throwableAtomicReference.set(e);
                 return false;
-            } catch (URISyntaxException e) {
-                log.info(localFile + " Part " + (id + 1) + " to uri error.");
-                throwableAtomicReference.set(e);
-                return false;
             } finally {
-                if (execute != null) {
-                    try {
-                        execute.close();
-                    } catch (IOException e) {
-                        // ignore
-                    }
-                }
+                // ignore
             }
 
             return true;

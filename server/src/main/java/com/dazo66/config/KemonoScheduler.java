@@ -19,7 +19,6 @@ import com.geccocrawler.gecco.scheduler.UniqueSpiderScheduler;
 import com.geccocrawler.gecco.spring.SpringPipelineFactory;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.http.HttpHost;
-import org.apache.http.impl.client.CloseableHttpClient;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.AutoConfigureAfter;
@@ -46,9 +45,6 @@ public class KemonoScheduler {
     private KemonoArtistService kemonoArtistService;
     @Autowired
     private CrawlerRequestService crawlerRequestService;
-
-    @Autowired
-    private CloseableHttpClient fanboxHttpClient;
 
     @Value("${fanbox.save.path}")
     private String fileSavePath;
@@ -95,7 +91,7 @@ public class KemonoScheduler {
 
     }
 
-    @Scheduled(initialDelay = 0, fixedDelay = 60, timeUnit = TimeUnit.MINUTES)
+    @Scheduled(initialDelay = 30, fixedDelay = 60, timeUnit = TimeUnit.MINUTES)
     public void schedulerSearchNeedPost() {
         // 阻塞方式运行
         GeccoEngine geccoEngine = buildArtistGecco(null);
@@ -172,7 +168,7 @@ public class KemonoScheduler {
                 SpringContextUtils.getBean(SpringPipelineFactory.class);
         Page<CrawlerRequest> crawlerRequestByPage = crawlerRequestService
                 .getLambdaQuery().eq(CrawlerRequest::getIsDone, false)
-                .le(CrawlerRequest::getErrorCount, 10).page(new Page<>(1, 20));
+                .le(CrawlerRequest::getErrorCount, 10).page(new Page<>(1, 2));
         if (crawlerRequestByPage.getRecords().isEmpty()) {
             log.info("爬取队列为空，不需要爬取");
             return null;

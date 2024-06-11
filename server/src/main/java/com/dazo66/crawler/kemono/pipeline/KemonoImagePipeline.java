@@ -1,5 +1,6 @@
 package com.dazo66.crawler.kemono.pipeline;
 
+import com.dazo66.config.CookieConfig;
 import com.dazo66.crawler.kemono.KemonoPost;
 import com.dazo66.entity.Artist;
 import com.dazo66.entity.ArtistDomainEnum;
@@ -7,12 +8,10 @@ import com.dazo66.entity.CrawlerRequest;
 import com.dazo66.service.CrawlerRequestService;
 import com.dazo66.service.KemonoArtistService;
 import com.dazo66.util.DownloadAction;
-import com.dazo66.util.KemonoHelper;
 import com.dazo66.util.StringUtil;
 import com.geccocrawler.gecco.pipeline.Pipeline;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
-import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.tools.ant.util.DateUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -38,8 +37,6 @@ public class KemonoImagePipeline implements Pipeline<KemonoPost> {
 
     @Resource(name = "downloadThreadPool")
     private ThreadPoolExecutor executors;
-    @Autowired
-    private CloseableHttpClient fanboxHttpClient;
     @Value("${fanbox.save.path}")
     private String fileSavePath;
 
@@ -47,13 +44,10 @@ public class KemonoImagePipeline implements Pipeline<KemonoPost> {
     private CrawlerRequestService crawlerRequestService;
     @Autowired
     private KemonoArtistService kemonoArtistService;
+    @Autowired
+    private CookieConfig cookieConfig;
 
 
-    @Value("${kemono.username}")
-    private String kemonoUsername;
-
-    @Value("${kemono.password}")
-    private String kemonoPassword;
 
     private static Map<String, String> kemonoHeaders = new HashMap<String, String>() {
         {
@@ -71,11 +65,11 @@ public class KemonoImagePipeline implements Pipeline<KemonoPost> {
             List<Future<Boolean>> list = new ArrayList<>();
             for (int i = 0; i < images.length; i++) {
                 Object url = images[i];
-                DownloadAction task = new DownloadAction(fanboxHttpClient,
+                DownloadAction task = new DownloadAction(
                         url.toString(), getDownloadPath(bean, i), artist.getCompression());
                 task.setHeaders(kemonoHeaders);
                 task.setUseMultiDownloader(false);
-                task.setCookie(KemonoHelper.loginAndGetCookie(kemonoUsername, kemonoPassword));
+                task.setCookie(cookieConfig.getCookie());
                 Future<Boolean> future = executors.submit(task);
                 list.add(future);
             }
@@ -89,11 +83,10 @@ public class KemonoImagePipeline implements Pipeline<KemonoPost> {
                     if (name.startsWith("Download ")) {
                         name = name.substring(9);
                     }
-                    DownloadAction task = new DownloadAction(fanboxHttpClient
-                            , url.toString(), getDownloadPath(bean, name), artist.getCompression());
+                    DownloadAction task = new DownloadAction(url.toString(), getDownloadPath(bean, name), artist.getCompression());
                     task.setHeaders(kemonoHeaders);
                     task.setUseMultiDownloader(false);
-                    task.setCookie(KemonoHelper.loginAndGetCookie(kemonoUsername, kemonoPassword));
+                    task.setCookie(cookieConfig.getCookie());
                     Future<Boolean> future = executors.submit(task);
                     list.add(future);
                 }

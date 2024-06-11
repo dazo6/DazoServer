@@ -4,6 +4,7 @@ import com.alibaba.fastjson.JSON;
 import com.dazo66.util.IpUtils;
 import com.dazo66.util.MultiThreadHttpDownloader;
 import com.google.common.collect.Lists;
+import com.squareup.okhttp.OkHttpClient;
 import org.apache.http.Consts;
 import org.apache.http.Header;
 import org.apache.http.HttpHost;
@@ -80,7 +81,7 @@ public class TestKemono {
             CloseableHttpClient httpClient =
                     httpClientBuilder.setDefaultHeaders(Lists.newArrayList(cookieHeader, agentHeader)).setDefaultRequestConfig(clientConfig).setRedirectStrategy(new DefaultRedirectStrategy()).setConnectionManager(syncConnectionManager).build();
             String url = "https://kemono.su/data/22/1b/221ba4c04c4e328ea32adc5108cc66e4aff90ce107ca69243dd353c6711b77bf.gif?f=2addebe9-6a7f-4149-86f0-a1473b98b5d8.gif";
-            new MultiThreadHttpDownloader(httpClient, url, "D:/ls-lR.gif", 5, 5000).get();
+        new MultiThreadHttpDownloader(new OkHttpClient(), url, "D:/ls-lR.gif", 5, 5000).get();
 
     }
 

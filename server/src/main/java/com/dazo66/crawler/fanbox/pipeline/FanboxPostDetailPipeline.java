@@ -1,6 +1,7 @@
 package com.dazo66.crawler.fanbox.pipeline;
 
 import com.alibaba.fastjson.JSONObject;
+import com.dazo66.config.CookieConfig;
 import com.dazo66.crawler.fanbox.FanboxPostDetail;
 import com.dazo66.entity.Artist;
 import com.dazo66.entity.ArtistDomainEnum;
@@ -12,13 +13,11 @@ import com.dazo66.util.StringUtil;
 import com.geccocrawler.gecco.pipeline.Pipeline;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
-import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.tools.ant.util.DateUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
-import javax.annotation.PostConstruct;
 import javax.annotation.Resource;
 import java.util.*;
 import java.util.concurrent.ExecutionException;
@@ -38,14 +37,14 @@ public class FanboxPostDetailPipeline implements Pipeline<FanboxPostDetail> {
 
     @Resource(name = "downloadThreadPool")
     private ThreadPoolExecutor executors;
-    @Autowired
-    private CloseableHttpClient fanboxHttpClient;
     @Value("${fanbox.save.path}")
     private String fileSavePath;
     @Autowired
     private KemonoArtistService kemonoArtistService;
     @Autowired
     private CrawlerRequestService crawlerRequestService;
+    @Autowired
+    private CookieConfig cookieConfig;
 
     private Map<String, String> fanboxHeaders = new HashMap<String, String>() {
         {
@@ -54,16 +53,6 @@ public class FanboxPostDetailPipeline implements Pipeline<FanboxPostDetail> {
             put("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/117.0.0.0 Safari/537.36");
         }
     };
-
-    @Value("${fanbox.save.cookie}")
-    private String fanboxsessid;
-    private Map<String, String> cookies = new HashMap<>();
-
-    @PostConstruct
-    public void init() {
-        cookies.put("FANBOXSESSID", fanboxsessid);
-    }
-
 
     @Override
     public void process(FanboxPostDetail bean) {
@@ -82,9 +71,9 @@ public class FanboxPostDetailPipeline implements Pipeline<FanboxPostDetail> {
         imageUrls.addAll(downloadObject.stream().map(FanboxPostDetail.DownloadObject::getUrl).collect(Collectors.toList()));
         List<Future<Boolean>> list = new ArrayList<>();
         for (int i = 0; i < imageUrls.size(); i++) {
-            DownloadAction task = new DownloadAction(fanboxHttpClient, imageUrls.get(i), getDownloadPath(bean, artist, imageUrls.size(), i), artist.getCompression());
+            DownloadAction task = new DownloadAction(imageUrls.get(i), getDownloadPath(bean, artist, imageUrls.size(), i), artist.getCompression());
             task.setHeaders(fanboxHeaders);
-            task.setCookie(cookies);
+            task.setCookie(cookieConfig.getFanboxCookie());
             Future<Boolean> future = executors.submit(task);
             list.add(future);
         }
@@ -117,7 +106,4 @@ public class FanboxPostDetailPipeline implements Pipeline<FanboxPostDetail> {
         return fileSavePath + String.format("/%s/%s-%s-%0" + getNumberLen(total) + "d", StringUtil.cleanSym(artist.getName()), time, StringUtil.cleanSym(post.getTitle()), index);
     }
 
-    public static void main(String[] args) {
-        System.out.println(String.format("/%s/%s-%s-%0" + getNumberLen(0) + "d", "xxx", "yyy", "zzz", 0));
-    }
 }

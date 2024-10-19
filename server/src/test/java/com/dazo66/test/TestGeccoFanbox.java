@@ -18,16 +18,18 @@ import java.util.stream.Collectors;
  **/
 public class TestGeccoFanbox {
 
-    private String sessId = "21689594";
+    private String sessId = "21689594_lJhEg0qNCK9errWdeZwuflV57YOn8sGH";
 
     @Test
     public void test() {
 
 
         List<HttpRequest> httpRequests = Lists.newArrayList(
-                "https://api.fanbox.cc/post.info?postId=7309268",
+                "https://api.fanbox.cc/post.paginateCreator?creatorId=takk"
+                // "https://api.fanbox.cc/post.info?postId=8491401"
+/*                "https://api.fanbox.cc/post.info?postId=7309268",
                 "https://api.fanbox.cc/post.info?postId=7310418",
-                "https://api.fanbox.cc/post.listCreator?creatorId=niki-niki&limit=5"
+                "https://api.fanbox.cc/post.listCreator?creatorId=niki-niki&limit=5"*/
         ).stream().map(this::getHttpRequest).collect(Collectors.toList());
 
         UniqueSpiderScheduler scheduler = new UniqueSpiderScheduler();

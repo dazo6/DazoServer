@@ -26,10 +26,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import java.io.File;
-import java.util.Arrays;
-import java.util.List;
-import java.util.Objects;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
@@ -91,7 +88,7 @@ public class KemonoScheduler {
 
     }
 
-    @Scheduled(initialDelay = 30, fixedDelay = 60, timeUnit = TimeUnit.MINUTES)
+    @Scheduled(initialDelay = 0, fixedDelay = 60, timeUnit = TimeUnit.MINUTES)
     public void schedulerSearchNeedPost() {
         // 阻塞方式运行
         GeccoEngine geccoEngine = buildArtistGecco(null);
@@ -102,9 +99,15 @@ public class KemonoScheduler {
 
     public GeccoEngine buildArtistGecco(List<Artist> artists) {
         if (artists == null) {
-            Page<Artist> artistByPage = kemonoArtistService.getArtistByPage(1, 20,
-                    new QueryWrapper<>(new Artist().setEnable(true)).orderByAsc("rand()"));
-            artists = artistByPage.getRecords();
+            artists = new ArrayList<>();
+            Page<Artist> artistByPage = kemonoArtistService.getArtistByPage(1, 20, new QueryWrapper<>(new Artist().setArtistId("bttn")));
+            artists.addAll(artistByPage.getRecords());
+            artistByPage = kemonoArtistService.getArtistByPage(1, 20,
+                    new QueryWrapper<>(new Artist().setEnable(true).setDomain(ArtistDomainEnum.FANBOX)).orderByAsc("rand()"));
+            artists.addAll(artistByPage.getRecords());
+            artistByPage = kemonoArtistService.getArtistByPage(1, 20,
+                    new QueryWrapper<>(new Artist().setEnable(true).setDomain(ArtistDomainEnum.KEMONO)).orderByAsc("rand()"));
+            artists.addAll(artistByPage.getRecords());
         }
         if (artists.isEmpty()) {
             log.info("作者队列为空，不需要爬取");
@@ -134,7 +137,7 @@ public class KemonoScheduler {
             if (ArtistDomainEnum.KEMONO == artist.getDomain()) {
                 return new HttpGetRequest(String.format("https://kemono.su/%s/user/%s", artist.getType(), artist.getArtistId()));
             } else if (ArtistDomainEnum.FANBOX == artist.getDomain()) {
-                return FanboxHelper.getHttpRequest(String.format("https://api.fanbox.cc/post.listCreator?creatorId=%s&limit=10", artist.getArtistId()), fanboxsessid);
+                return FanboxHelper.getHttpRequest(String.format("https://api.fanbox.cc/post.paginateCreator?creatorId=%s", artist.getArtistId()), fanboxsessid);
             }
             return null;
         }).filter(Objects::nonNull).collect(Collectors.toList());
@@ -208,7 +211,7 @@ public class KemonoScheduler {
                     }
                 })
                 //开启几个爬虫线程
-                .thread(5)
+                .thread(2)
                 .retry(5)
                 //单个爬虫每次抓取完一个请求后的间隔时间
                 .interval(2000)

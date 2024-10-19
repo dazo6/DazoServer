@@ -23,17 +23,13 @@ import java.util.stream.Collectors;
 public class FanboxPostList implements JsonBean {
 
     @Setter
-    @JSONPath("$.body.items")
+    @JSONPath("$.body")
     private List<JSONObject> items;
     @Getter
     @Setter
     @RequestParameter
     private Integer limit;
 
-    @Getter
-    @Setter
-    @JSONPath("$.body.nextUrl")
-    private String nextUrl;
     @Getter
     @Setter
     @RequestParameter

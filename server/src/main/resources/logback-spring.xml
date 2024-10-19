@@ -30,7 +30,7 @@
             <fileNamePattern>${LOG_FILE}.%d{yyyy-MM-dd}.%i.log</fileNamePattern>
             <maxHistory>7</maxHistory>
             <maxFileSize>50MB</maxFileSize>
-            <totalSizeCap>2GB</totalSizeCap>
+            <totalSizeCap>500MB</totalSizeCap>
         </rollingPolicy>
     </appender>
 

@@ -48,6 +48,7 @@ public class MyHttpDownloader extends AbstractDownloader {
         }
     }
 
+
     @Override
     public HttpResponse download(HttpRequest request, int timeout) throws DownloadException {
         if (log.isDebugEnabled()) {

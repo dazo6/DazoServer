@@ -1,6 +1,8 @@
 package com.dazo66.service;
 
+import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.extension.conditions.query.LambdaQueryChainWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dazo66.entity.CrawlerRequest;
 
 /**
@@ -23,6 +25,8 @@ public interface CrawlerRequestService {
     Boolean updateByUrl(CrawlerRequest crawlerRequest);
 
     LambdaQueryChainWrapper<CrawlerRequest> getLambdaQuery();
+
+    Page<CrawlerRequest> getPage(Page<CrawlerRequest> page, Wrapper<CrawlerRequest> queryWrapper);
 
     CrawlerRequest getByUrl(String url);
 }

@@ -92,6 +92,10 @@ public class KemonoImagePipeline implements Pipeline<KemonoPost> {
                 }
             }
             boolean isDone = true;
+            // 重新获取一次
+            if (list.isEmpty()) {
+                crawlerRequestService.add(String.format("https://kemono.su/api/v1/%s/user/%s/post/%s", bean.getType(), bean.getArtistId(), bean.getPost()));
+            }
             for (Future<Boolean> future : list) {
                 try {
                     if (!future.get()) {

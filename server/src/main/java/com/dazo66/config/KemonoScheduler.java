@@ -48,6 +48,17 @@ public class KemonoScheduler {
     @Value("${fanbox.save.cookie}")
     private String fanboxsessid;
 
+    // @Scheduled(initialDelay = 0, fixedDelay = 20, timeUnit = TimeUnit.MINUTES)
+    public void fixData() {
+        crawlerRequestService.getLambdaQuery().like(CrawlerRequest::getUrl, "kemono").like(CrawlerRequest::getUrl, "post/").list().forEach(crawlerRequest -> {
+            if (!crawlerRequest.getUrl().contains("/api/v1/")) {
+                crawlerRequest.setUrl(crawlerRequest.getUrl().replace("https://kemono.su/", "https://kemono.su/api/v1/"));
+                crawlerRequestService.updateByUrl(crawlerRequest);
+                log.info("fix url: {}", crawlerRequest.getUrl());
+            }
+        });
+    }
+
     // kemono 挂了 暂停这个定时任务
     @Scheduled(initialDelay = 0, fixedDelay = 20, timeUnit = TimeUnit.MINUTES)
     public void autoSubKemono() {
@@ -103,10 +114,10 @@ public class KemonoScheduler {
             Page<Artist> artistByPage = kemonoArtistService.getArtistByPage(1, 20, new QueryWrapper<>(new Artist().setArtistId("bttn")));
             artists.addAll(artistByPage.getRecords());
             artistByPage = kemonoArtistService.getArtistByPage(1, 20,
-                    new QueryWrapper<>(new Artist().setEnable(true).setDomain(ArtistDomainEnum.FANBOX)).orderByAsc("rand()"));
-            artists.addAll(artistByPage.getRecords());
-            artistByPage = kemonoArtistService.getArtistByPage(1, 20,
                     new QueryWrapper<>(new Artist().setEnable(true).setDomain(ArtistDomainEnum.KEMONO)).orderByAsc("rand()"));
+            artists.addAll(artistByPage.getRecords());
+            artistByPage = kemonoArtistService.getArtistByPage(1, 10,
+                    new QueryWrapper<>(new Artist().setEnable(true).setDomain(ArtistDomainEnum.FANBOX)).orderByAsc("rand()"));
             artists.addAll(artistByPage.getRecords());
         }
         if (artists.isEmpty()) {
@@ -122,8 +133,8 @@ public class KemonoScheduler {
                 //开始抓取的页面地址
                 .start(httpGetRequestList).pipelineFactory(springPipelineFactory).scheduler(new UniqueSpiderScheduler())
                 //开启几个爬虫线程
-                .thread(2)
-                .retry(50)
+                .thread(3)
+                .retry(3)
                 //单个爬虫每次抓取完一个请求后的间隔时间
                 .interval(2000)
                 //循环抓取
@@ -135,7 +146,7 @@ public class KemonoScheduler {
     private List<HttpRequest> buildArtistRequest(List<Artist> artists) {
         List<HttpRequest> httpGetRequestList = artists.stream().map(artist -> {
             if (ArtistDomainEnum.KEMONO == artist.getDomain()) {
-                return new HttpGetRequest(String.format("https://kemono.su/%s/user/%s", artist.getType(), artist.getArtistId()));
+                return new HttpGetRequest(String.format("https://kemono.su/api/v1/%s/user/%s/posts-legacy", artist.getType(), artist.getArtistId()));
             } else if (ArtistDomainEnum.FANBOX == artist.getDomain()) {
                 return FanboxHelper.getHttpRequest(String.format("https://api.fanbox.cc/post.paginateCreator?creatorId=%s", artist.getArtistId()), fanboxsessid);
             }
@@ -169,16 +180,20 @@ public class KemonoScheduler {
     public GeccoEngine buildImageGecco() {
         SpringPipelineFactory springPipelineFactory =
                 SpringContextUtils.getBean(SpringPipelineFactory.class);
-        Page<CrawlerRequest> crawlerRequestByPage = crawlerRequestService
-                .getLambdaQuery().eq(CrawlerRequest::getIsDone, false)
-                .le(CrawlerRequest::getErrorCount, 10).page(new Page<>(1, 2));
+        LambdaQueryWrapper<CrawlerRequest> queryChainWrapper = new QueryWrapper<CrawlerRequest>().orderByAsc("rand()")
+                .lambda()
+                .eq(CrawlerRequest::getIsDone, false)
+                .le(CrawlerRequest::getErrorCount, 50);
+        Page<CrawlerRequest> crawlerRequestByPage = crawlerRequestService.getPage(new Page<>(1, 20), queryChainWrapper);
         if (crawlerRequestByPage.getRecords().isEmpty()) {
             log.info("爬取队列为空，不需要爬取");
             return null;
         }
+        String classpath = "com.dazo66";
+
         return GeccoEngine.create()
                 //工程的包路径
-                .classpath("com.dazo66")
+                .classpath(classpath)
                 //开始抓取的页面地址
                 .start(buildImageRequest(crawlerRequestByPage.getRecords()))
                 .pipelineFactory(springPipelineFactory)
@@ -211,7 +226,7 @@ public class KemonoScheduler {
                     }
                 })
                 //开启几个爬虫线程
-                .thread(2)
+                .thread(5)
                 .retry(5)
                 //单个爬虫每次抓取完一个请求后的间隔时间
                 .interval(2000)

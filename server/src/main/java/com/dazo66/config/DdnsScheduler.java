@@ -13,7 +13,7 @@ import java.util.concurrent.TimeUnit;
 @Slf4j
 public class DdnsScheduler {
 
-    @Value("${dnspod.token}")
+    @Value("${dnspod.token:114515}")
     private String token;
 
     private String ipv6Cache;

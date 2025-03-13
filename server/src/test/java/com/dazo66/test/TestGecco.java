@@ -88,12 +88,12 @@ public class TestGecco {
 
     @Test
     public void test() {
-/*        testOne("https://kemono.su/fanbox/user/18209583/post/4646634");
-        testOne("https://kemono.su/fanbox/user/4606746/post/7262836");
-        testOne("https://kemono.su/fanbox/user/26654959/post/7225710");*/
-        // testOne("https://kemono.su/fanbox/user/55386946/post/6402569");
-        // testOne("https://kemono.su/fanbox/user/4217586/post/4397914");
-        testOne("https://api.fanbox.cc/post.info?postId=7866421");
+        testKemono("https://kemono.su/api/v1/fanbox/user/18209583/post/4646634");
+        testKemono("https://kemono.su/api/v1/fanbox/user/4606746/post/7262836");
+        testKemono("https://kemono.su/api/v1/fanbox/user/26654959/post/7225710");
+        // testKemono("https://kemono.su/fanbox/user/55386946/post/6402569");
+        // testKemono("https://kemono.su/fanbox/user/4217586/post/4397914");
+        /*        testOne("https://api.fanbox.cc/post.info?postId=7866421");*/
     }
 
     @Test
@@ -103,6 +103,62 @@ public class TestGecco {
 
     @Autowired
     private CookieConfig cookieConfig;
+
+    public void testKemono(String url) {
+
+
+        List<HttpRequest> httpRequests = Lists.newArrayList(url).stream().map(s -> {
+            HttpGetRequest httpGetRequest = new HttpGetRequest(s);
+            return httpGetRequest;
+        }).collect(Collectors.toList());
+
+        UniqueSpiderScheduler scheduler = new UniqueSpiderScheduler();
+        GeccoEngine.create()
+                // post__attachment-link
+                //工程的包路径
+                .classpath("com.dazo66")
+                //开始抓取的页面地址
+                .start(httpRequests)
+                .pipelineFactory(springPipelineFactory)
+                .scheduler(scheduler)
+                .proxy(true)
+                .proxysLoader(new Proxys() {
+                    @Override
+                    public HttpHost getProxy() {
+                        return new HttpHost("127.0.0.1", 1080);
+                    }
+
+                    @Override
+                    public boolean addProxy(String host, int port) {
+                        return false;
+                    }
+
+                    @Override
+                    public boolean addProxy(String host, int port, String src) {
+                        return false;
+                    }
+
+                    @Override
+                    public void failure(String host, int port) {
+
+                    }
+
+                    @Override
+                    public void success(String host, int port) {
+
+                    }
+                })
+                //开启几个爬虫线程
+                .thread(5)
+                //单个爬虫每次抓取完一个请求后的间隔时间
+                .interval(2000)
+                //循环抓取
+                .loop(false)
+                //使用pc端userAgent
+                .mobile(false)
+                //阻塞方式运行
+                .run();
+    }
 
     public void testOne(String url) {
 

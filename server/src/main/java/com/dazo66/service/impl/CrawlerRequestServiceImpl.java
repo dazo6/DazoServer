@@ -1,7 +1,9 @@
 package com.dazo66.service.impl;
 
+import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.conditions.query.LambdaQueryChainWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dazo66.entity.CrawlerRequest;
 import com.dazo66.repository.CrawlerRequestRepository;
 import com.dazo66.service.CrawlerRequestService;
@@ -51,6 +53,11 @@ public class CrawlerRequestServiceImpl implements CrawlerRequestService {
     @Override
     public LambdaQueryChainWrapper<CrawlerRequest> getLambdaQuery() {
         return crawlerRequestRepository.lambdaQuery();
+    }
+
+    @Override
+    public Page<CrawlerRequest> getPage(Page<CrawlerRequest> page, Wrapper<CrawlerRequest> queryWrapper) {
+        return crawlerRequestRepository.page(page, queryWrapper);
     }
 
     @Override

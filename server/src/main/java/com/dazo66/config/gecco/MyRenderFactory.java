@@ -12,7 +12,6 @@ import com.geccocrawler.gecco.spider.SpiderBean;
 import com.geccocrawler.gecco.spider.conversion.Conversion;
 import com.geccocrawler.gecco.spider.render.*;
 import com.geccocrawler.gecco.spider.render.html.HtmlRender;
-import com.geccocrawler.gecco.spider.render.json.JsonRender;
 import com.geccocrawler.gecco.utils.ReflectUtils;
 import net.sf.cglib.beans.BeanMap;
 import org.apache.commons.lang3.StringUtils;

@@ -1,6 +1,7 @@
 package com.dazo66.config;
 
 
+import com.dazo66.config.gecco.MySpiderBeanFactory;
 import com.geccocrawler.gecco.spider.SpiderBeanFactory;
 import com.geccocrawler.gecco.spring.SpringPipelineFactory;
 import org.springframework.context.annotation.Bean;
@@ -19,7 +20,7 @@ public class GeccoConfig {
 
     @Bean
     public SpiderBeanFactory getSpiderBeanFactory() {
-        return new SpiderBeanFactory("com.dazo66", getSpringPipelineFactory());
+        return new MySpiderBeanFactory("com.dazo66", getSpringPipelineFactory());
     }
 
 }

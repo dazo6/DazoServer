@@ -123,13 +123,12 @@ public class KemonoScheduler {
             return null;
         }
         List<HttpRequest> httpGetRequestList = buildArtistRequest(artists);
-        SpringPipelineFactory springPipelineFactory =
-                SpringContextUtils.getBean(SpringPipelineFactory.class);
+        SpiderBeanFactory spiderBeanFactory = SpringContextUtils.getBean(SpiderBeanFactory.class);
         return GeccoEngine.create()
                 //工程的包路径
-                .classpath("com.dazo66")
+                .spiderBeanFactory(spiderBeanFactory)
                 //开始抓取的页面地址
-                .start(httpGetRequestList).pipelineFactory(springPipelineFactory).scheduler(new UniqueSpiderScheduler())
+                .start(httpGetRequestList).scheduler(new UniqueSpiderScheduler())
                 //开启几个爬虫线程
                 .thread(3)
                 .retry(3)
@@ -187,14 +186,14 @@ public class KemonoScheduler {
             log.info("爬取队列为空，不需要爬取");
             return null;
         }
-        String classpath = "com.dazo66";
+
+        SpiderBeanFactory spiderBeanFactory = SpringContextUtils.getBean(SpiderBeanFactory.class);
 
         return GeccoEngine.create()
-                //工程的包路径
-                .classpath(classpath)
+                .spiderBeanFactory(spiderBeanFactory)
                 //开始抓取的页面地址
                 .start(buildImageRequest(crawlerRequestByPage.getRecords()))
-                .pipelineFactory(springPipelineFactory)
+
                 .scheduler(new UniqueSpiderScheduler())
                 .debug(true)
                 .proxysLoader(new Proxys() {

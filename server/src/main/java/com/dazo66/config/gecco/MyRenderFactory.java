@@ -106,7 +106,7 @@ public class MyRenderFactory extends MonitorRenderFactory {
                         return list.toArray(a);
                     } else {
                         // Object[]
-                        return ((List<Object>) objectRender(src, field, jsonPath, json, genericClass)).toArray();
+                        return ((List) objectRender(src, field, jsonPath, json, genericClass)).toArray(getObjectArray(type, 0));
                     }
                 } else {
                     if (ReflectUtils.haveSuperType(type, SpiderBean.class)) {
@@ -120,6 +120,16 @@ public class MyRenderFactory extends MonitorRenderFactory {
                         return objectRender(src, field, jsonPath, json, field.getType());
                     }
                 }
+            }
+
+            @SuppressWarnings("unchecked")
+            public static <T> T[] getObjectArray(Class<?> clazz, int length) {
+                // 如果传入为String数组的Class(clazz.getName() = [Ljava.lang.String;)
+                // 通过调用clazz.getComponentType()，componentType.getName()的值：java.lang.String
+                Class<?> componentType = clazz.getComponentType();
+
+                return (T[]) Array.newInstance(componentType, length);
+
             }
 
             @SuppressWarnings({ "rawtypes" })
@@ -185,4 +195,5 @@ public class MyRenderFactory extends MonitorRenderFactory {
         }
 
     }
+
 }

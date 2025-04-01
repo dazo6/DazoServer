@@ -43,6 +43,8 @@ public class KemonoScheduler {
     private KemonoArtistService kemonoArtistService;
     @Autowired
     private CrawlerRequestService crawlerRequestService;
+    @Autowired
+    private SpiderBeanFactory spiderBeanFactory;
 
     @Value("${fanbox.save.path}")
     private String fileSavePath;
@@ -64,7 +66,6 @@ public class KemonoScheduler {
     @Scheduled(initialDelay = 0, fixedDelay = 20, timeUnit = TimeUnit.MINUTES)
     public void autoSubKemono() {
         log.info("开始自动订阅作者！");
-        SpiderBeanFactory spiderBeanFactory = SpringContextUtils.getBean(SpiderBeanFactory.class);
         GeccoEngine.create()
                 .spiderBeanFactory(spiderBeanFactory)
                 //开始抓取的页面地址
@@ -123,7 +124,6 @@ public class KemonoScheduler {
             return null;
         }
         List<HttpRequest> httpGetRequestList = buildArtistRequest(artists);
-        SpiderBeanFactory spiderBeanFactory = SpringContextUtils.getBean(SpiderBeanFactory.class);
         return GeccoEngine.create()
                 //工程的包路径
                 .spiderBeanFactory(spiderBeanFactory)
@@ -186,8 +186,6 @@ public class KemonoScheduler {
             log.info("爬取队列为空，不需要爬取");
             return null;
         }
-
-        SpiderBeanFactory spiderBeanFactory = SpringContextUtils.getBean(SpiderBeanFactory.class);
 
         return GeccoEngine.create()
                 .spiderBeanFactory(spiderBeanFactory)

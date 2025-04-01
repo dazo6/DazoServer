@@ -16,6 +16,7 @@ import com.geccocrawler.gecco.downloader.proxy.Proxys;
 import com.geccocrawler.gecco.request.HttpGetRequest;
 import com.geccocrawler.gecco.request.HttpRequest;
 import com.geccocrawler.gecco.scheduler.UniqueSpiderScheduler;
+import com.geccocrawler.gecco.spider.SpiderBeanFactory;
 import com.geccocrawler.gecco.spring.SpringPipelineFactory;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.http.HttpHost;
@@ -63,14 +64,11 @@ public class KemonoScheduler {
     @Scheduled(initialDelay = 0, fixedDelay = 20, timeUnit = TimeUnit.MINUTES)
     public void autoSubKemono() {
         log.info("开始自动订阅作者！");
-        SpringPipelineFactory springPipelineFactory =
-                SpringContextUtils.getBean(SpringPipelineFactory.class);
+        SpiderBeanFactory spiderBeanFactory = SpringContextUtils.getBean(SpiderBeanFactory.class);
         GeccoEngine.create()
-                // post__attachment-link
-                //工程的包路径
-                .classpath("com.dazo66")
+                .spiderBeanFactory(spiderBeanFactory)
                 //开始抓取的页面地址
-                .start("https://kemono.su/favorites").pipelineFactory(springPipelineFactory)
+                .start("https://kemono.su/favorites")
                 //开启几个爬虫线程
                 .thread(2)
                 //单个爬虫每次抓取完一个请求后的间隔时间

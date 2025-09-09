@@ -5,11 +5,13 @@ import com.geccocrawler.gecco.request.HttpGetRequest;
 import com.geccocrawler.gecco.spider.HtmlBean;
 import lombok.Data;
 
+import static com.dazo66.crawler.kemono.KemonoContents.KEMONO_HOST;
+
 /**
  * @author Dazo66
  */
-@Gecco(matchUrl = "https://kemono.su/{type}/user/{user}/post/{post}", pipelines = {
-        "consolePipeline", "kemonoImagePipeline"}, downloader = "myHttpDownloader")
+@Gecco(matchUrl = KEMONO_HOST + "{type}/user/{user}/post/{post}", pipelines = {
+        "consolePipeline", "kemonoImagePipeline"}, downloader = "kemonoDownloader")
 @Data
 public class KemonoPost implements HtmlBean {
 

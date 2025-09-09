@@ -18,6 +18,7 @@ import com.geccocrawler.gecco.request.HttpRequest;
 import com.geccocrawler.gecco.scheduler.UniqueSpiderScheduler;
 import com.geccocrawler.gecco.spider.SpiderBeanFactory;
 import com.geccocrawler.gecco.spring.SpringPipelineFactory;
+import com.google.common.collect.Lists;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.http.HttpHost;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -30,6 +31,8 @@ import java.io.File;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
+
+import static com.dazo66.crawler.kemono.KemonoContents.KEMONO_HOST;
 
 /**
  * @author Dazo66
@@ -48,30 +51,28 @@ public class KemonoScheduler {
 
     @Value("${fanbox.save.path}")
     private String fileSavePath;
-    @Value("${fanbox.save.cookie}")
-    private String fanboxsessid;
+
+    @Autowired
+    private CookieConfig cookieConfig;
 
     // @Scheduled(initialDelay = 0, fixedDelay = 20, timeUnit = TimeUnit.MINUTES)
     public void fixData() {
-        crawlerRequestService.getLambdaQuery().like(CrawlerRequest::getUrl, "kemono").like(CrawlerRequest::getUrl, "post/").list().forEach(crawlerRequest -> {
-            if (!crawlerRequest.getUrl().contains("/api/v1/")) {
-                crawlerRequest.setUrl(crawlerRequest.getUrl().replace("https://kemono.su/", "https://kemono.su/api/v1/"));
-                crawlerRequestService.updateByUrl(crawlerRequest);
-                log.info("fix url: {}", crawlerRequest.getUrl());
-            }
-        });
     }
 
-    // kemono 挂了 暂停这个定时任务
     @Scheduled(initialDelay = 0, fixedDelay = 20, timeUnit = TimeUnit.MINUTES)
     public void autoSubKemono() {
         log.info("开始自动订阅作者！");
+        List<HttpRequest> httpRequests = Lists.newArrayList(KEMONO_HOST + "api/v1/account/favorites?type=artist").stream().map(s -> {
+            HttpGetRequest httpGetRequest = new HttpGetRequest(s);
+            httpGetRequest.setCookies(cookieConfig.getCookie());
+            return httpGetRequest;
+        }).collect(Collectors.toList());
         GeccoEngine.create()
                 .spiderBeanFactory(spiderBeanFactory)
                 //开始抓取的页面地址
-                .start("https://kemono.su/favorites")
+                .start(httpRequests)
                 //开启几个爬虫线程
-                .thread(2)
+                .thread(1)
                 //单个爬虫每次抓取完一个请求后的间隔时间
                 .interval(2000)
                 //循环抓取
@@ -82,7 +83,7 @@ public class KemonoScheduler {
                 .run();
     }
 
-    @Scheduled(initialDelay = 0, fixedDelay = 20, timeUnit = TimeUnit.MINUTES)
+    @Scheduled(initialDelay = 0, fixedDelay = 1, timeUnit = TimeUnit.HOURS)
     public void autoUnsubArtist() {
         File[] files = new File(fileSavePath).listFiles();
         Set<String> artistSet = Arrays.stream(files).map(File::getName).collect(Collectors.toSet());
@@ -98,7 +99,7 @@ public class KemonoScheduler {
 
     }
 
-    @Scheduled(initialDelay = 0, fixedDelay = 60, timeUnit = TimeUnit.MINUTES)
+    @Scheduled(initialDelay = 1, fixedDelay = 60, timeUnit = TimeUnit.MINUTES)
     public void schedulerSearchNeedPost() {
         // 阻塞方式运行
         GeccoEngine geccoEngine = buildArtistGecco(null);
@@ -110,10 +111,13 @@ public class KemonoScheduler {
     public GeccoEngine buildArtistGecco(List<Artist> artists) {
         if (artists == null) {
             artists = new ArrayList<>();
-            Page<Artist> artistByPage = kemonoArtistService.getArtistByPage(1, 20, new QueryWrapper<>(new Artist().setArtistId("bttn")));
+            // 有限选取未更新的作者
+            Page<Artist> artistByPage = kemonoArtistService.getArtistByPage(1, 20, new LambdaQueryWrapper<>(new Artist()).isNull(Artist::getLastUpdate));
             artists.addAll(artistByPage.getRecords());
-            artistByPage = kemonoArtistService.getArtistByPage(1, 20,
-                    new QueryWrapper<>(new Artist().setEnable(true).setDomain(ArtistDomainEnum.KEMONO)).orderByAsc("rand()"));
+            Artist artist = new Artist().setEnable(true).setDomain(ArtistDomainEnum.KEMONO);
+            artistByPage = kemonoArtistService.getArtistByPage(1, 50,
+                    new QueryWrapper<>(artist).notIn(!artists.isEmpty(), "id", artists.stream().map(Artist::getId).collect(Collectors.toList()))
+                            .orderByAsc("rand()"));
             artists.addAll(artistByPage.getRecords());
             artistByPage = kemonoArtistService.getArtistByPage(1, 10,
                     new QueryWrapper<>(new Artist().setEnable(true).setDomain(ArtistDomainEnum.FANBOX)).orderByAsc("rand()"));
@@ -130,7 +134,7 @@ public class KemonoScheduler {
                 //开始抓取的页面地址
                 .start(httpGetRequestList).scheduler(new UniqueSpiderScheduler())
                 //开启几个爬虫线程
-                .thread(3)
+                .thread(6)
                 .retry(3)
                 //单个爬虫每次抓取完一个请求后的间隔时间
                 .interval(2000)
@@ -143,16 +147,16 @@ public class KemonoScheduler {
     private List<HttpRequest> buildArtistRequest(List<Artist> artists) {
         List<HttpRequest> httpGetRequestList = artists.stream().map(artist -> {
             if (ArtistDomainEnum.KEMONO == artist.getDomain()) {
-                return new HttpGetRequest(String.format("https://kemono.su/api/v1/%s/user/%s/posts-legacy", artist.getType(), artist.getArtistId()));
+                return new HttpGetRequest(String.format(KEMONO_HOST + "api/v1/%s/user/%s/posts", artist.getType(), artist.getArtistId()));
             } else if (ArtistDomainEnum.FANBOX == artist.getDomain()) {
-                return FanboxHelper.getHttpRequest(String.format("https://api.fanbox.cc/post.paginateCreator?creatorId=%s", artist.getArtistId()), fanboxsessid);
+                return FanboxHelper.getHttpRequest(String.format("https://api.fanbox.cc/post.paginateCreator?creatorId=%s", artist.getArtistId()), cookieConfig.getFanboxsessid());
             }
             return null;
         }).filter(Objects::nonNull).collect(Collectors.toList());
         return httpGetRequestList;
     }
 
-    @Scheduled(initialDelay = 0, fixedDelay = 5, timeUnit = TimeUnit.MINUTES)
+    @Scheduled(initialDelay = 5, fixedDelay = 5, timeUnit = TimeUnit.MINUTES)
     public void schedulerDownloadUrl() {
         // 阻塞方式运行
         GeccoEngine geccoEngine = buildImageGecco();
@@ -167,7 +171,7 @@ public class KemonoScheduler {
             if (request.getUrl().contains("kemono")) {
                 return new HttpGetRequest(request.getUrl());
             } else if (request.getUrl().contains("fanbox")) {
-                return FanboxHelper.getHttpRequest(request.getUrl(), fanboxsessid);
+                return FanboxHelper.getHttpRequest(request.getUrl(), cookieConfig.getFanboxsessid());
             }
             return null;
         }).filter(Objects::nonNull).collect(Collectors.toList());
@@ -191,7 +195,6 @@ public class KemonoScheduler {
                 .spiderBeanFactory(spiderBeanFactory)
                 //开始抓取的页面地址
                 .start(buildImageRequest(crawlerRequestByPage.getRecords()))
-
                 .scheduler(new UniqueSpiderScheduler())
                 .debug(true)
                 .proxysLoader(new Proxys() {

@@ -1,16 +1,14 @@
 package com.dazo66.crawler.kemono;
 
-import com.geccocrawler.gecco.annotation.Gecco;
-import com.geccocrawler.gecco.annotation.Href;
-import com.geccocrawler.gecco.annotation.HtmlField;
-import com.geccocrawler.gecco.annotation.Request;
-import com.geccocrawler.gecco.annotation.RequestParameter;
+import com.geccocrawler.gecco.annotation.*;
 import com.geccocrawler.gecco.request.HttpGetRequest;
 import com.geccocrawler.gecco.spider.HtmlBean;
 import lombok.Data;
 
-@Gecco(matchUrl = "https://kemono.su/{type}/user/{artistId}", pipelines = {"consolePipeline",
-        "kemonoPostPipeline"}, downloader = "myHttpDownloader")
+import static com.dazo66.crawler.kemono.KemonoContents.KEMONO_HOST;
+
+@Gecco(matchUrl = KEMONO_HOST + "{type}/user/{artistId}", pipelines = {"consolePipeline",
+        "kemonoPostPipeline"}, downloader = "kemonoDownloader")
 @Data
 /**
  * @author Dazo66

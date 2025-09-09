@@ -14,6 +14,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
+import static com.dazo66.crawler.kemono.KemonoContents.KEMONO_HOST;
+
 
 /**
  * @author Dazo66
@@ -35,7 +37,7 @@ public class KemonoPostJsonPipeline implements Pipeline<KemonoJsonUser> {
         if (bean instanceof KemonoNextPageJsonUser) {
             log.info("开始爬取作者：{} 偏移量：{}", bean.getArtistId(), ((KemonoNextPageJsonUser) bean).getOffset());
             Integer offset = ((KemonoNextPageJsonUser) bean).getOffset();
-            nextPage = String.format("https://kemono.su/api/v1/%s/user/%s/posts-legacy?o=%d", bean.getType(), bean.getArtistId(), offset + 50);
+            nextPage = String.format(KEMONO_HOST + "api/v1/%s/user/%s/posts?o=%d", bean.getType(), bean.getArtistId(), offset + 50);
         } else {
             log.info("开始爬取作者：{} 偏移量：{}", bean.getArtistId(), 0);
             nextPage = bean.getRequest().getUrl() + "?o=50";
@@ -49,7 +51,7 @@ public class KemonoPostJsonPipeline implements Pipeline<KemonoJsonUser> {
         List<KemonoJsonUser.Result> results = bean.getResults();
         boolean hasUpdate = false;
         for (KemonoJsonUser.Result post : results) {
-            String url = String.format("https://kemono.su/api/v1/%s/user/%s/post/%s", post.getService(), post.getUser(), post.getId());
+            String url = String.format(KEMONO_HOST + "api/v1/%s/user/%s/post/%s", post.getService(), post.getUser(), post.getId());
             if (crawlerRequestService.check(url)) {
                 hasUpdate = true;
                 crawlerRequestService.add(url);

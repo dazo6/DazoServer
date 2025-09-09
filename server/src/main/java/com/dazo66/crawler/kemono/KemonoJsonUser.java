@@ -14,11 +14,12 @@ import lombok.Setter;
 
 import java.util.List;
 
+import static com.dazo66.crawler.kemono.KemonoContents.KEMONO_HOST;
 
 /**
  * @author Dazo66
  */
-@Gecco(matchUrl = "https://kemono.su/api/v1/{type}/user/{artistId}/posts-legacy", pipelines = {"consolePipeline",
+@Gecco(matchUrl = KEMONO_HOST + "api/v1/{type}/user/{artistId}/posts", pipelines = {"consolePipeline",
         "kemonoPostJsonPipeline"}, downloader = "kemonoDownloader")
 @Setter
 public class KemonoJsonUser implements JsonBean {

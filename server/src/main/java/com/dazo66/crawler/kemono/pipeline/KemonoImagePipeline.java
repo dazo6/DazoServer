@@ -26,6 +26,7 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import static com.dazo66.crawler.kemono.KemonoContents.KEMONO_HOST;
 
 /**
  * @author Dazo66
@@ -51,7 +52,7 @@ public class KemonoImagePipeline implements Pipeline<KemonoPost> {
 
     private static Map<String, String> kemonoHeaders = new HashMap<String, String>() {
         {
-            put("referer", "https://kemono.su/");
+            put("referer", KEMONO_HOST + "");
             put("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.4896.127 Safari/537.36");
         }
     };
@@ -94,7 +95,7 @@ public class KemonoImagePipeline implements Pipeline<KemonoPost> {
             boolean isDone = true;
             // 重新获取一次
             if (list.isEmpty()) {
-                crawlerRequestService.add(String.format("https://kemono.su/api/v1/%s/user/%s/post/%s", bean.getType(), bean.getArtistId(), bean.getPost()));
+                crawlerRequestService.add(String.format(KEMONO_HOST + "api/v1/%s/user/%s/post/%s", bean.getType(), bean.getArtistId(), bean.getPost()));
             }
             for (Future<Boolean> future : list) {
                 try {

@@ -1,7 +1,5 @@
 package com.dazo66.crawler.kemono;
 
-import com.alibaba.fastjson.JSONObject;
-import com.dazo66.util.JsonUtils;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.geccocrawler.gecco.annotation.Gecco;
 import com.geccocrawler.gecco.annotation.JSONPath;
@@ -13,11 +11,12 @@ import lombok.Data;
 
 import java.util.List;
 
+import static com.dazo66.crawler.kemono.KemonoContents.KEMONO_HOST;
 /**
  * @author Dazo66
  */
-@Gecco(matchUrl = "https://kemono.su/api/v1/{type}/user/{user}/post/{postId}", pipelines = {
-        "consolePipeline", "kemonoImageJsonPipeline"}, downloader = "myHttpDownloader")
+@Gecco(matchUrl = KEMONO_HOST + "api/v1/{type}/user/{user}/post/{postId}", pipelines = {
+        "consolePipeline", "kemonoImageJsonPipeline"}, downloader = "kemonoDownloader")
 @Data
 public class KemonoJsonPost implements JsonBean {
 
@@ -32,43 +31,23 @@ public class KemonoJsonPost implements JsonBean {
 
     @JsonProperty("post")
     @JSONPath("$.post")
-    private JSONObject postJsonObject;
+    private Post post;
 
     @JSONPath("$.attachments")
     @JsonProperty("attachments")
-    private List<JSONObject> attachments;
+    private List<Attachment> attachments;
 
     @JSONPath("$.previews")
     @JsonProperty("previews")
-    private List<JSONObject> previews;
+    private List<Preview> previews;
 
     @JSONPath("$.videos")
     @JsonProperty("videos")
-    private List<JSONObject> videos;
+    private List<Video> videos;
 
     @JSONPath("$.props")
     @JsonProperty("props")
-    private JSONObject propsJsonObject;
-
-    public Post getPost() {
-        return JsonUtils.jsonObject2Bean(postJsonObject, Post.class);
-    }
-
-    public Props getProps() {
-        return JsonUtils.jsonObject2Bean(propsJsonObject, Props.class);
-    }
-
-    public List<Attachment> getAttachments() {
-        return JsonUtils.jsonObjectArray2Bean(attachments, Attachment.class);
-    }
-
-    public List<Preview> getPreviews() {
-        return JsonUtils.jsonObjectArray2Bean(previews, Preview.class);
-    }
-
-    public List<Video> getVideos() {
-        return JsonUtils.jsonObjectArray2Bean(videos, Video.class);
-    }
+    private Props props;
 
     @Data
     public static class Post {

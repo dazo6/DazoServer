@@ -17,6 +17,8 @@ import org.springframework.util.AntPathMatcher;
 import java.util.Date;
 import java.util.Map;
 
+import static com.dazo66.crawler.kemono.KemonoContents.KEMONO_HOST;
+
 @Service
 @Slf4j
 public class KemonoFavouritePipeline implements Pipeline<SpiderBean> {
@@ -33,7 +35,7 @@ public class KemonoFavouritePipeline implements Pipeline<SpiderBean> {
         for (int i = 0; i < kemonoFavourite.getArtistUrls().size(); i++) {
             AntPathMatcher matcher = new AntPathMatcher();
             String url = kemonoFavourite.getArtistUrls().get(i);
-            Map<String, String> uriTemplateVariables = matcher.extractUriTemplateVariables("https://kemono.su/{type}/user/{id}", url);
+            Map<String, String> uriTemplateVariables = matcher.extractUriTemplateVariables(KEMONO_HOST + "{type}/user/{id}", url);
             if (uriTemplateVariables.size() == 2 && uriTemplateVariables.containsKey("type") && uriTemplateVariables.containsKey("id")) {
                 String type = uriTemplateVariables.get("type");
                 String artistId = uriTemplateVariables.get("id");

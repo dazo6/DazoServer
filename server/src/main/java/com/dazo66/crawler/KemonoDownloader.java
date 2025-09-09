@@ -23,10 +23,14 @@ import org.apache.http.HttpHost;
 import org.apache.http.util.CharArrayBuffer;
 
 import java.io.*;
+import java.net.HttpCookie;
 import java.net.InetSocketAddress;
 import java.net.Proxy;
+import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
+import static com.dazo66.crawler.kemono.KemonoContents.KEMONO_HOST;
 import static java.net.Proxy.Type.HTTP;
 
 @Downloader("kemonoDownloader")
@@ -37,6 +41,8 @@ public class KemonoDownloader extends AbstractDownloader {
     private OkHttpClient httpClient;
 
     private boolean isSpringHttpClient = false;
+
+    private Map<String, HttpCookie> cookieMap = new ConcurrentHashMap<>();
 
     public KemonoDownloader() {
 
@@ -99,9 +105,18 @@ public class KemonoDownloader extends AbstractDownloader {
         //request and response
         try {
             StringBuilder cookieBuilder = new StringBuilder();
-            for (Map.Entry<String, String> entry : request.getCookies().entrySet()) {
-                cookieBuilder.append(entry.getKey()).append("=").append(entry.getValue()).append(";");
+            if (request.getCookies() != null) {
+                for (Map.Entry<String, String> entry : request.getCookies().entrySet()) {
+                    cookieBuilder.append(entry.getKey()).append("=").append(entry.getValue()).append(";");
+                }
             }
+
+            for (Map.Entry<String, HttpCookie> entry : cookieMap.entrySet()) {
+                if (!entry.getValue().hasExpired()) {
+                    cookieBuilder.append(entry.getKey()).append("=").append(entry.getValue().getValue()).append(";");
+                }
+            }
+            reqObj.header("accept", "text/css");
             reqObj.header("Cookie", cookieBuilder.toString());
             Response response = httpClient.newCall(reqObj.build()).execute();
             int status = response.code();
@@ -121,12 +136,46 @@ public class KemonoDownloader extends AbstractDownloader {
                     resp.setContent(content);
                 }
             } else {
+
+                if (response.code() == 403 && request.getUrl().contains(KEMONO_HOST)) {
+                    boolean needRetry = false;
+                    if (cookieMap.isEmpty()) {
+                        needRetry = true;
+                    }
+                    for (Map.Entry<String, HttpCookie> cookieEntry : cookieMap.entrySet()) {
+                        if (cookieEntry.getValue().hasExpired()) {
+                            needRetry = true;
+                        }
+                    }
+                    log.error("403错误，可能是cookie失效，尝试刷新cookie");
+                    List<String> headers = response.headers("Set-Cookie");
+                    if (headers != null && headers.size() > 0) {
+                        StringBuilder sb = new StringBuilder();
+                        for (String header : headers) {
+                            List<HttpCookie> cookies = HttpCookie.parse(header);
+                            log.info(cookies.toString());
+                            for (HttpCookie cookie : cookies) {
+                                cookieMap.put(cookie.getName(), cookie);
+                            }
+/*                            for (String cookie : cookies) {
+                                if (sb.length() > 0) {
+                                    sb.append(";");
+                                }
+                                sb.append(cookie);
+                            }*/
+                        }
+
+                    }
+                    if (needRetry) return download(request, timeout);
+
+                }
+
                 //404，500等
                 if (proxy != null) {
                     proxys.failure(proxy.getHostName(), proxy.getPort());
                 }
                 log.debug("download error: {} , {}", response.code(), IOUtils.toString(response.body().byteStream()));
-                if (response.code() == 400 && request.getUrl().contains("posts-legacy")) {
+                if (response.code() == 400 && request.getUrl().contains("posts")) {
                     if (SpringContextUtils.getApplicationContext() != null) {
                         SpringContextUtils.getBean(CrawlerRequestService.class).updateByUrl(new CrawlerRequest().setUrl(request.getUrl()).setIsDone(true));
                     }

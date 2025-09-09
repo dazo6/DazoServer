@@ -26,6 +26,8 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import static com.dazo66.crawler.kemono.KemonoContents.KEMONO_HOST;
+
 
 /**
  * @author Dazo66
@@ -50,7 +52,7 @@ public class KemonoImageJsonPipeline implements Pipeline<KemonoJsonPost> {
 
     private static Map<String, String> kemonoHeaders = new HashMap<String, String>() {
         {
-            put("referer", "https://kemono.su/");
+            put("referer", KEMONO_HOST + "");
             put("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.4896.127 Safari/537.36");
         }
     };
@@ -112,7 +114,7 @@ public class KemonoImageJsonPipeline implements Pipeline<KemonoJsonPost> {
 
     public String getDownloadPath(KemonoJsonPost post, int index) {
         Artist artist = kemonoArtistService.getArtistId(post.getArtistId(), ArtistDomainEnum.KEMONO);
-        String time = post.getPost().getAdded();
+        String time = post.getPost().getPublished();
         time = getDataStr(time);
         if (StringUtils.isEmpty(time)) {
             time = DateUtils.format(new Date(), "yyyy-MM-dd");
@@ -123,7 +125,7 @@ public class KemonoImageJsonPipeline implements Pipeline<KemonoJsonPost> {
     public String getDownloadPath(KemonoJsonPost post, String name) {
 
         Artist artist = kemonoArtistService.getArtistId(post.getArtistId(), ArtistDomainEnum.KEMONO);
-        String time = post.getPost().getAdded();
+        String time = post.getPost().getPublished();
         time = getDataStr(time);
         if (StringUtils.isEmpty(time)) {
             time = DateUtils.format(new Date(), "yyyy-MM-dd");

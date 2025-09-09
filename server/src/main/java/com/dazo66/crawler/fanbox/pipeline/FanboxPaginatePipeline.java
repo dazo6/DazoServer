@@ -34,7 +34,7 @@ public class FanboxPaginatePipeline implements Pipeline<FanboxPageinate> {
 
         for (String item : bean.getUrls()) {
             UriComponents uriComponents = UriComponentsBuilder.fromHttpUrl(item).build();
-            List<String> maxId = uriComponents.getQueryParams().get("maxId");
+            List<String> maxId = uriComponents.getQueryParams().get("firstId");
             if (maxId != null && !maxId.isEmpty()) {
                 List<CrawlerRequest> crawlerRequests = crawlerRequestService.getLambdaQuery()
                         .like(CrawlerRequest::getUrl, "post.info?postId=" + maxId.get(0)).list();

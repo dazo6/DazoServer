@@ -6,6 +6,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.annotation.Scheduled;
 
+import javax.annotation.PostConstruct;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -29,10 +30,14 @@ public class CookieConfig {
 
     @Scheduled(initialDelay = 24, fixedDelay = 24, timeUnit = TimeUnit.HOURS)
     public void updateCookie() {
+        init();
+    }
+
+    @PostConstruct
+    public void init() {
         log.info("更新 kemono cookie 开始");
-        Map<String, String> cookie = KemonoHelper.loginAndGetCookie(kemonoUsername, kemonoPassword);
-        cookie.clear();
-        cookie.putAll(cookie);
+        cookie = KemonoHelper.loginAndGetCookie(kemonoUsername, kemonoPassword);
+        log.info("更新 kemono cookie 结束: {}", cookie);
     }
 
     public Map<String, String> getCookie() {
@@ -43,5 +48,9 @@ public class CookieConfig {
         Map<String, String> cookies = new HashMap<>();
         cookies.put("FANBOXSESSID", fanboxsessid);
         return cookies;
+    }
+
+    public String getFanboxsessid() {
+        return fanboxsessid;
     }
 }

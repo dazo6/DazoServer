@@ -27,6 +27,8 @@ import java.net.URISyntaxException;
 import java.util.*;
 import java.util.stream.Collectors;
 
+import static com.dazo66.crawler.kemono.KemonoContents.KEMONO_HOST;
+
 /**
  * @author dazo66(sundazhong.sdz)
  * @date 2022/10/21 15:47
@@ -36,7 +38,7 @@ public class TestKemono {
     @Test
     public void testLogin() throws URISyntaxException, IOException {
         CloseableHttpClient client = HttpClientBuilder.create().build();
-        HttpPost httpPost = new HttpPost(new URI("https://kemono.su/account/login"));
+        HttpPost httpPost = new HttpPost(new URI(KEMONO_HOST + "account/login"));
         List<NameValuePair> form = new ArrayList<>();
         form.add(new BasicNameValuePair("username", "dazo66"));
         form.add(new BasicNameValuePair("password", "123456"));
@@ -80,7 +82,7 @@ public class TestKemono {
                     "Mozilla/5.0 (Windows NT 10.0; " + "Win64; x64) " + "AppleWebKit/537.36 (KHTML, " + "like Gecko) Chrome/100.0.4896.127 " + "Safari/537.36");
             CloseableHttpClient httpClient =
                     httpClientBuilder.setDefaultHeaders(Lists.newArrayList(cookieHeader, agentHeader)).setDefaultRequestConfig(clientConfig).setRedirectStrategy(new DefaultRedirectStrategy()).setConnectionManager(syncConnectionManager).build();
-            String url = "https://kemono.su/data/22/1b/221ba4c04c4e328ea32adc5108cc66e4aff90ce107ca69243dd353c6711b77bf.gif?f=2addebe9-6a7f-4149-86f0-a1473b98b5d8.gif";
+        String url = KEMONO_HOST + "data/22/1b/221ba4c04c4e328ea32adc5108cc66e4aff90ce107ca69243dd353c6711b77bf.gif?f=2addebe9-6a7f-4149-86f0-a1473b98b5d8.gif";
         new MultiThreadHttpDownloader(new OkHttpClient(), url, "D:/ls-lR.gif", 5, 5000).get();
 
     }

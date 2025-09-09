@@ -5,11 +5,12 @@ import com.geccocrawler.gecco.annotation.RequestParameter;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
+import static com.dazo66.crawler.kemono.KemonoContents.KEMONO_HOST;
 /**
  * @author Dazo66
  */
 @EqualsAndHashCode(callSuper = true)
-@Gecco(matchUrl = "https://kemono.su/api/v1/{type}/user/{artistId}/posts-legacy?o={offset}", pipelines = {
+@Gecco(matchUrl = KEMONO_HOST + "api/v1/{type}/user/{artistId}/posts?o={offset}", pipelines = {
         "consolePipeline", "kemonoPostJsonPipeline"}, downloader = "kemonoDownloader")
 @Data
 public class KemonoNextPageJsonUser extends KemonoJsonUser {

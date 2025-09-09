@@ -10,6 +10,7 @@ import com.geccocrawler.gecco.downloader.proxy.Proxys;
 import com.geccocrawler.gecco.request.HttpGetRequest;
 import com.geccocrawler.gecco.request.HttpRequest;
 import com.geccocrawler.gecco.scheduler.UniqueSpiderScheduler;
+import com.geccocrawler.gecco.spider.SpiderBeanFactory;
 import com.geccocrawler.gecco.spring.SpringPipelineFactory;
 import com.google.common.collect.Lists;
 import net.coobird.thumbnailator.util.ThumbnailatorUtils;
@@ -28,12 +29,15 @@ import java.io.IOException;
 import java.util.List;
 import java.util.stream.Collectors;
 
+import static com.dazo66.crawler.kemono.KemonoContents.KEMONO_HOST;
+
+
 @SpringBootTest
 @ActiveProfiles("test")
 public class TestGecco {
 
     @Autowired
-    private SpringPipelineFactory springPipelineFactory;
+    private SpiderBeanFactory spiderBeanFactory;
 
     @Test
     public void thumbnailator() throws IOException {
@@ -66,9 +70,9 @@ public class TestGecco {
         GeccoEngine.create()
                 // post__attachment-link
                 //工程的包路径
-                .classpath("com.dazo66")
+                .spiderBeanFactory(spiderBeanFactory)
                 //开始抓取的页面地址
-                .start("https://kemono.su/fanbox/user/79281725").pipelineFactory(name -> {
+                .start(KEMONO_HOST + "fanbox/user/79281725").pipelineFactory(name -> {
             if (name.equals("consolePipeline")) {
                 return new ConsolePipeline();
             }
@@ -88,11 +92,11 @@ public class TestGecco {
 
     @Test
     public void test() {
-        testKemono("https://kemono.su/api/v1/fanbox/user/18209583/post/4646634");
-        testKemono("https://kemono.su/api/v1/fanbox/user/4606746/post/7262836");
-        testKemono("https://kemono.su/api/v1/fanbox/user/26654959/post/7225710");
-        // testKemono("https://kemono.su/fanbox/user/55386946/post/6402569");
-        // testKemono("https://kemono.su/fanbox/user/4217586/post/4397914");
+        testKemono(KEMONO_HOST + "api/v1/fanbox/user/18209583/post/4646634");
+        testKemono(KEMONO_HOST + "api/v1/fanbox/user/4606746/post/7262836");
+        testKemono(KEMONO_HOST + "api/v1/fanbox/user/26654959/post/7225710");
+        // testKemono(KEMONO_HOST + "fanbox/user/55386946/post/6402569");
+        // testKemono(KEMONO_HOST + "fanbox/user/4217586/post/4397914");
         /*        testOne("https://api.fanbox.cc/post.info?postId=7866421");*/
     }
 
@@ -114,12 +118,10 @@ public class TestGecco {
 
         UniqueSpiderScheduler scheduler = new UniqueSpiderScheduler();
         GeccoEngine.create()
-                // post__attachment-link
-                //工程的包路径
-                .classpath("com.dazo66")
+                .spiderBeanFactory(spiderBeanFactory)
                 //开始抓取的页面地址
                 .start(httpRequests)
-                .pipelineFactory(springPipelineFactory)
+
                 .scheduler(scheduler)
                 .proxy(true)
                 .proxysLoader(new Proxys() {
@@ -166,20 +168,17 @@ public class TestGecco {
         List<HttpRequest> httpRequests = Lists.newArrayList(url).stream().map(s -> {
             HttpGetRequest httpGetRequest = new HttpGetRequest(s);
             httpGetRequest.setCookies(cookieConfig.getFanboxCookie());
-            httpGetRequest.addHeader("Referer", "https://www.fanbox.cc/");
+            httpGetRequest.addHeader("Referer", "https://www.fanbox.cr/");
             httpGetRequest.addHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/117.0.0.0 Safari/537.36");
-            httpGetRequest.addHeader("Origin", "https://www.fanbox.cc");
+            httpGetRequest.addHeader("Origin", "https://www.fanbox.cr");
             return httpGetRequest;
         }).collect(Collectors.toList());
 
         UniqueSpiderScheduler scheduler = new UniqueSpiderScheduler();
         GeccoEngine.create()
-                // post__attachment-link
-                //工程的包路径
-                .classpath("com.dazo66")
+                .spiderBeanFactory(spiderBeanFactory)
                 //开始抓取的页面地址
                 .start(httpRequests)
-                .pipelineFactory(springPipelineFactory)
                 .scheduler(scheduler)
                 .proxy(true)
                 .proxysLoader(new Proxys() {
@@ -222,15 +221,19 @@ public class TestGecco {
 
     @Test
     public void testFav() {
+        List<HttpRequest> httpRequests = Lists.newArrayList(KEMONO_HOST + "api/v1/account/favorites?type=artist").stream().map(s -> {
+            HttpGetRequest httpGetRequest = new HttpGetRequest(s);
+            httpGetRequest.setCookies(cookieConfig.getCookie());
+            return httpGetRequest;
+        }).collect(Collectors.toList());
         System.out.println(ThumbnailatorUtils.getSupportedOutputFormats());
         UniqueSpiderScheduler scheduler = new UniqueSpiderScheduler();
         SpringPipelineFactory springPipelineFactory = SpringContextUtils.getBean(SpringPipelineFactory.class);
         GeccoEngine.create()
-                // post__attachment-link
-                //工程的包路径
-                .classpath("com.dazo66")
+                .spiderBeanFactory(spiderBeanFactory)
                 //开始抓取的页面地址
-                .start("https://kemono.su/favorites").pipelineFactory(springPipelineFactory).scheduler(scheduler)
+                .start(httpRequests)
+                .scheduler(scheduler)
                 //开启几个爬虫线程
                 .thread(5)
                 //单个爬虫每次抓取完一个请求后的间隔时间

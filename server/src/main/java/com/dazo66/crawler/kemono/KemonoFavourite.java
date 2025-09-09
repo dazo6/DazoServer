@@ -11,9 +11,10 @@ import lombok.EqualsAndHashCode;
 
 import java.util.List;
 
+import static com.dazo66.crawler.kemono.KemonoContents.KEMONO_HOST;
 @EqualsAndHashCode
-@Gecco(matchUrl = "https://kemono.su/favorites", pipelines = {
-        "consolePipeline", "kemonoFavouritePipeline"}, downloader = "myHttpDownloader")
+@Gecco(matchUrl = KEMONO_HOST + "favorites", pipelines = {
+        "consolePipeline", "kemonoFavouritePipeline"}, downloader = "kemonoDownloader")
 @Data
 public class KemonoFavourite implements HtmlBean {
 

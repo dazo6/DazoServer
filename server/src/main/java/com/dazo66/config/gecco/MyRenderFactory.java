@@ -22,6 +22,7 @@ import java.lang.reflect.Array;
 import java.lang.reflect.Field;
 import java.lang.reflect.Type;
 import java.util.*;
+import java.util.stream.Collectors;
 
 /**
  * @author dazo
@@ -38,7 +39,7 @@ public class MyRenderFactory extends MonitorRenderFactory {
 
     @Override
     public com.geccocrawler.gecco.spider.render.json.JsonRender createJsonRender() {
-        return super.createJsonRender();
+        return new JsonRender();
     }
 
     private static class JsonRender extends com.geccocrawler.gecco.spider.render.json.JsonRender {
@@ -163,8 +164,13 @@ public class MyRenderFactory extends MonitorRenderFactory {
                     FieldRenderException.log(field, jsonPath + " not found in : " + json);
                 }
                 try {
-                    if (json instanceof JSONObject) {
-                        return JSONObject.toJavaObject((JSONObject) json, clazz);
+                    if (src instanceof JSONArray && !((JSONArray) src).isEmpty()) {
+                        if (((JSONArray) src).get(0) instanceof JSONObject) {
+                            return ((JSONArray) src).stream().map(o -> JSONObject.parseObject(((JSONObject) o).toJSONString(), clazz)).collect(Collectors.toList());
+                        }
+                    }
+                    if (src instanceof JSONObject) {
+                        return JSONObject.parseObject(((JSONObject) src).toJSONString(), clazz);
                     }
                     return Conversion.getValue(field.getType(), src);
                 } catch (Exception ex) {

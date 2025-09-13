@@ -136,6 +136,32 @@ public class KemonoScheduler {
                 .start(httpGetRequestList).scheduler(new UniqueSpiderScheduler())
                 //开启几个爬虫线程
                 .thread(6)
+                .proxysLoader(new Proxys() {
+                    @Override
+                    public HttpHost getProxy() {
+                        return new HttpHost("127.0.0.1", 1080);
+                    }
+
+                    @Override
+                    public boolean addProxy(String host, int port) {
+                        return false;
+                    }
+
+                    @Override
+                    public boolean addProxy(String host, int port, String src) {
+                        return false;
+                    }
+
+                    @Override
+                    public void failure(String host, int port) {
+
+                    }
+
+                    @Override
+                    public void success(String host, int port) {
+
+                    }
+                })
                 .retry(3)
                 //单个爬虫每次抓取完一个请求后的间隔时间
                 .interval(2000)

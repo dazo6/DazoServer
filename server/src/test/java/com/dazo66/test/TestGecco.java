@@ -92,7 +92,7 @@ public class TestGecco {
 
     @Test
     public void test() {
-        testKemono(KEMONO_HOST + "api/v1/fanbox/user/2929877/posts");
+        testKemono(KEMONO_HOST + "api/v1/fanbox/user/96843491/posts");
         testKemono(KEMONO_HOST + "api/v1/fanbox/user/4606746/post/7262836");
         testKemono(KEMONO_HOST + "api/v1/fanbox/user/26654959/post/7225710");
         // testKemono(KEMONO_HOST + "fanbox/user/55386946/post/6402569");

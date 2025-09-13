@@ -95,7 +95,9 @@ public class Ja3ProxyHttpDownloader extends AbstractDownloader {
             reqObj.header("X-User-Agent", fanboxHttpClientConfig.getJa3ProxyUserAgent());
             if (proxys != null && isProxy) {
                 proxy = proxys.getProxy();
-                reqObj.header("X-Proxy", "http://" + proxy.getHostName() + ":" + proxy.getPort());
+                if (proxy != null) {
+                    reqObj.header("X-Proxy", "http://" + proxy.getHostName() + ":" + proxy.getPort());
+                }
             }
         } else {
             boolean isMobile = SpiderThreadLocal.get().getEngine().isMobile();

@@ -34,7 +34,7 @@ public class KemonoJsonUser implements JsonBean {
     @RequestParameter
     private String type;
 
-    @JSONPath("$.results")
+    @JSONPath("$")
     private List<JSONObject> results;
 
     public List<Result> getResults() {

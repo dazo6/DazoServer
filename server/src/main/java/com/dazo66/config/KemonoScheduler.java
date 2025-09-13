@@ -79,6 +79,7 @@ public class KemonoScheduler {
                 .loop(false)
                 //使用pc端userAgent
                 .mobile(false)
+                .debug(true)
                 //阻塞方式运行
                 .run();
     }
@@ -140,6 +141,7 @@ public class KemonoScheduler {
                 .interval(2000)
                 //循环抓取
                 .loop(false)
+                .debug(true)
                 //使用pc端userAgent
                 .mobile(false);
     }

@@ -19,7 +19,7 @@ import java.util.stream.Collectors;
  **/
 @EqualsAndHashCode
 @Gecco(matchUrl = "https://api.fanbox.cc/post.listCreator?creatorId={userName}&limit={limit}", pipelines = {
-        "fanboxPostListPipeline"}, downloader = "myHttpDownloader")
+        "fanboxPostListPipeline"}, downloader = "ja3ProxyHttpDownloader")
 public class FanboxPostList implements JsonBean {
 
     @Setter

@@ -14,7 +14,7 @@ import java.util.List;
  * @date 2023/11/5 12:42
  **/
 @Gecco(matchUrl = "https://api.fanbox.cc/post.paginateCreator?creatorId={userName}", pipelines = {
-        "consolePipeline", "fanboxPaginatePipeline"}, downloader = "myHttpDownloader")
+        "consolePipeline", "fanboxPaginatePipeline"}, downloader = "ja3ProxyHttpDownloader")
 public class FanboxPageinate implements JsonBean {
     @Setter
     @Getter

@@ -10,7 +10,7 @@ import lombok.Setter;
  * @date 2023/11/5 12:42
  **/
 @Gecco(matchUrl = "https://api.fanbox.cc/post.listCreator?creatorId={userName}&maxPublishedDatetime={maxPublishedDatetime}&maxId={maxId}&limit={limit}", pipelines = {
-        "consolePipeline", "fanboxPostListPipeline"}, downloader = "myHttpDownloader")
+        "consolePipeline", "fanboxPostListPipeline"}, downloader = "ja3ProxyHttpDownloader")
 public class FanboxPostNextList extends FanboxPostList {
     @Getter
     @Setter

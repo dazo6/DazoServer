@@ -24,7 +24,7 @@ import java.util.stream.Collectors;
  * @author dazo66(sundazhong.sdz)
  * @date 2023/11/6 0:01
  **/
-@Gecco(matchUrl = "https://api.fanbox.cc/post.info?postId={postId}", pipelines = {"fanboxPostDetailPipeline"}, downloader = "myHttpDownloader")
+@Gecco(matchUrl = "https://api.fanbox.cc/post.info?postId={postId}", pipelines = {"fanboxPostDetailPipeline"}, downloader = "ja3ProxyHttpDownloader")
 @Slf4j
 public class FanboxPostDetail implements JsonBean {
 

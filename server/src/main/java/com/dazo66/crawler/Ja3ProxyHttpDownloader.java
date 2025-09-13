@@ -2,6 +2,7 @@ package com.dazo66.crawler;
 
 
 import com.alibaba.fastjson.JSONObject;
+import com.dazo66.config.FanboxHttpClientConfig;
 import com.dazo66.util.SpringContextUtils;
 import com.geccocrawler.gecco.annotation.Downloader;
 import com.geccocrawler.gecco.downloader.AbstractDownloader;
@@ -23,28 +24,34 @@ import org.apache.http.util.CharArrayBuffer;
 import java.io.*;
 import java.net.InetSocketAddress;
 import java.net.Proxy;
+import java.security.KeyManagementException;
+import java.security.NoSuchAlgorithmException;
 import java.util.Map;
 
+import static com.dazo66.config.FanboxHttpClientConfig.getUnsafeOkHttpClient;
 import static java.net.Proxy.Type.HTTP;
 
-@Downloader("myHttpDownloader")
+@Downloader("ja3ProxyHttpDownloader")
 @Slf4j
-public class MyHttpDownloader extends AbstractDownloader {
+public class Ja3ProxyHttpDownloader extends AbstractDownloader {
 
 
     private OkHttpClient httpClient;
 
     private boolean isSpringHttpClient = false;
 
-    public MyHttpDownloader() {
+    private FanboxHttpClientConfig fanboxHttpClientConfig = null;
+
+    public Ja3ProxyHttpDownloader() throws NoSuchAlgorithmException, KeyManagementException {
 
         OkHttpClient fanboxHttpClient = SpringContextUtils.getBean("fanboxOkHttpClient");
+        fanboxHttpClientConfig = SpringContextUtils.getBean(FanboxHttpClientConfig.class);
         if (fanboxHttpClient != null) {
             log.info("gecco use spring http client!");
             httpClient = fanboxHttpClient;
             isSpringHttpClient = true;
         } else {
-            httpClient = new OkHttpClient();
+            httpClient = getUnsafeOkHttpClient();
         }
     }
 
@@ -77,22 +84,32 @@ public class MyHttpDownloader extends AbstractDownloader {
         } else {//get
             reqObj = new Request.Builder().url(request.getUrl()).get();
         }
-        //header
-        boolean isMobile = SpiderThreadLocal.get().getEngine().isMobile();
-        reqObj.header("User-Agent", UserAgent.getUserAgent(isMobile));
-        for (Map.Entry<String, String> entry : request.getHeaders().entrySet()) {
-            reqObj.header(entry.getKey(), entry.getValue());
-        }
-        //proxy
         HttpHost proxy = null;
         Proxys proxys = ProxysContext.get();
         boolean isProxy = ProxysContext.isEnableProxy();
-        if (proxys != null && isProxy) {
-            proxy = proxys.getProxy();
-            if (proxy != null) {
-                log.debug("proxy:" + proxy.getHostName() + ":" + proxy.getPort());
-                httpClient.setProxy(new Proxy(HTTP, new InetSocketAddress(proxy.getHostName(), proxy.getPort())));
+        //header
+        if (fanboxHttpClientConfig != null && fanboxHttpClientConfig.isJa3ProxyEnable()) {
+            reqObj.url(fanboxHttpClientConfig.getJa3Address());
+            reqObj.header("X-Target-Url", request.getUrl());
+            reqObj.header("X-JA3-Fingerprint", fanboxHttpClientConfig.getJa3ProxyJa3());
+            reqObj.header("X-User-Agent", fanboxHttpClientConfig.getJa3ProxyUserAgent());
+            if (proxys != null && isProxy) {
+                proxy = proxys.getProxy();
+                reqObj.header("X-Proxy", "http://" + proxy.getHostName() + ":" + proxy.getPort());
             }
+        } else {
+            boolean isMobile = SpiderThreadLocal.get().getEngine().isMobile();
+            reqObj.header("User-Agent", UserAgent.getUserAgent(isMobile));
+            if (proxys != null && isProxy) {
+                proxy = proxys.getProxy();
+                if (proxy != null) {
+                    log.debug("proxy:" + proxy.getHostName() + ":" + proxy.getPort());
+                    httpClient.setProxy(new Proxy(HTTP, new InetSocketAddress(proxy.getHostName(), proxy.getPort())));
+                }
+            }
+        }
+        for (Map.Entry<String, String> entry : request.getHeaders().entrySet()) {
+            reqObj.header(entry.getKey(), entry.getValue());
         }
         //request and response
         try {

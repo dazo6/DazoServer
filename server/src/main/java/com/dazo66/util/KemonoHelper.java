@@ -2,6 +2,7 @@ package com.dazo66.util;
 
 import lombok.extern.slf4j.Slf4j;
 import org.apache.http.Header;
+import org.apache.http.client.config.RequestConfig;
 import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.client.methods.HttpPost;
 import org.apache.http.entity.StringEntity;
@@ -13,6 +14,7 @@ import java.net.URI;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 import static com.dazo66.crawler.kemono.KemonoContents.KEMONO_HOST;
 
@@ -25,10 +27,18 @@ public class KemonoHelper {
 
 
     public static Map<String, String> loginAndGetCookie(String username, String password) {
-        try {
-            CloseableHttpClient client = HttpClientBuilder.create().build();
+        try (CloseableHttpClient client = HttpClientBuilder
+                .create()
+                .setConnectionTimeToLive(180, TimeUnit.SECONDS)
+                .build()) {
             HttpPost httpPost = new HttpPost(new URI(KEMONO_HOST + "api/v1/authentication/login"));
             httpPost.addHeader("Content-Type", "application/json");
+            RequestConfig requestConfig = RequestConfig.custom()
+                    .setConnectTimeout(180 * 1000)
+                    .setSocketTimeout(180 * 1000)
+                    .setConnectionRequestTimeout(180 * 1000)
+                    .build();
+            httpPost.setConfig(requestConfig);
             Map<String, String> map = new HashMap<>();
             map.put("username", username);
             map.put("password", password);

@@ -26,6 +26,7 @@
     <security:http pattern="/update/**" security="none"/>
     <security:http pattern="/cboard*" security="none"/>
     <security:http pattern="/cboard/**" security="none"/>
+    <security:http pattern="/bot/**" security="none"/>
     <security:http auto-config="true">
         <security:intercept-url pattern="/login**" access="permitAll"/>
 

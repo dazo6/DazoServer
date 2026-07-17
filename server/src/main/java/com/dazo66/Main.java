@@ -13,7 +13,7 @@ import org.springframework.transaction.annotation.EnableTransactionManagement;
  * @author Dazo66
  */
 @SpringBootApplication(scanBasePackages = {"com.dazo66", "org.cboard"})
-@MapperScans({@MapperScan("com.dazo66.mapper"), @MapperScan("org.cboard.dao")})
+@MapperScans({@MapperScan("com.dazo66.mapper"), @MapperScan("com.dazo66.qqbot.mapper"), @MapperScan("org.cboard.dao")})
 @EnableScheduling
 @EnableAspectJAutoProxy(proxyTargetClass = true)
 @EnableTransactionManagement

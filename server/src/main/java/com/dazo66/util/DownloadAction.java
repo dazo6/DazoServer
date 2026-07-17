@@ -110,7 +110,11 @@ public class DownloadAction implements Callable<Boolean> {
                         if (ImageUtils.needCompression(image, contentLength)) {
                             quality = 0.9d;
                         }
-                        ImageUtils.zipImageFile(image, new File(localPath), quality);
+                        try {
+                            ImageUtils.zipImageFile(image, new File(localPath), quality);
+                        } catch (Exception e) {
+                            log.error("解压异常 可能是加密了：" + localPath);
+                        }
                     } else {
                         OutputStream output = Files.newOutputStream(file.toPath(), CREATE_NEW);
                         IOUtils.copy(inputStream, output);
@@ -161,7 +165,6 @@ public class DownloadAction implements Callable<Boolean> {
             }
         } finally {
             if (response != null) {
-
                 if (inputStream != null) {
                     try {
                         inputStream.close();
@@ -169,7 +172,6 @@ public class DownloadAction implements Callable<Boolean> {
                         // ignore
                     }
                 }
-
             }
         }
     }

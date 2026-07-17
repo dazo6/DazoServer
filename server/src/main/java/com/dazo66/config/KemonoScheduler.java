@@ -9,7 +9,6 @@ import com.dazo66.entity.CrawlerRequest;
 import com.dazo66.service.CrawlerRequestService;
 import com.dazo66.service.KemonoArtistService;
 import com.dazo66.util.FanboxHelper;
-import com.dazo66.util.SpringContextUtils;
 import com.dazo66.util.StringUtil;
 import com.geccocrawler.gecco.GeccoEngine;
 import com.geccocrawler.gecco.downloader.proxy.Proxys;
@@ -17,14 +16,15 @@ import com.geccocrawler.gecco.request.HttpGetRequest;
 import com.geccocrawler.gecco.request.HttpRequest;
 import com.geccocrawler.gecco.scheduler.UniqueSpiderScheduler;
 import com.geccocrawler.gecco.spider.SpiderBeanFactory;
-import com.geccocrawler.gecco.spring.SpringPipelineFactory;
 import com.google.common.collect.Lists;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.http.HttpHost;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.AutoConfigureAfter;
+import org.springframework.context.annotation.Bean;
 import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 import org.springframework.stereotype.Service;
 
 import java.io.File;
@@ -57,6 +57,18 @@ public class KemonoScheduler {
 
     // @Scheduled(initialDelay = 0, fixedDelay = 20, timeUnit = TimeUnit.MINUTES)
     public void fixData() {
+    }
+
+    @Bean
+    public ThreadPoolTaskScheduler taskScheduler() {
+        ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();
+        scheduler.setPoolSize(5); // 核心线程数，根据任务数量调整
+        scheduler.setThreadNamePrefix("scheduled-task-");
+        // 任务拒绝策略（默认是丢弃，可根据需求调整）
+        scheduler.setRejectedExecutionHandler((r, executor) ->
+                System.err.println("定时任务被拒绝执行：" + r.toString()));
+        scheduler.initialize();
+        return scheduler;
     }
 
     @Scheduled(initialDelay = 0, fixedDelay = 20, timeUnit = TimeUnit.MINUTES)
@@ -207,14 +219,26 @@ public class KemonoScheduler {
     }
 
     public GeccoEngine buildImageGecco() {
-        SpringPipelineFactory springPipelineFactory =
-                SpringContextUtils.getBean(SpringPipelineFactory.class);
-        LambdaQueryWrapper<CrawlerRequest> queryChainWrapper = new QueryWrapper<CrawlerRequest>().orderByAsc("rand()")
+        LambdaQueryWrapper<CrawlerRequest> queryChainWrapper1 = new QueryWrapper<CrawlerRequest>().orderByAsc("rand()")
                 .lambda()
                 .eq(CrawlerRequest::getIsDone, false)
                 .le(CrawlerRequest::getErrorCount, 50);
-        Page<CrawlerRequest> crawlerRequestByPage = crawlerRequestService.getPage(new Page<>(1, 20), queryChainWrapper);
-        if (crawlerRequestByPage.getRecords().isEmpty()) {
+        Page<CrawlerRequest> crawlerRequestByPage1 = crawlerRequestService.getPage(new Page<>(1, 20), queryChainWrapper1);
+        LambdaQueryWrapper<CrawlerRequest> queryChainWrapper2 = new QueryWrapper<CrawlerRequest>().orderByAsc("rand()")
+                .lambda()
+                .eq(CrawlerRequest::getIsDone, false)
+                .like(CrawlerRequest::getUrl, "%" + KEMONO_HOST + "%")
+                .le(CrawlerRequest::getErrorCount, 50);
+
+        if (!crawlerRequestByPage1.getRecords().isEmpty()) {
+            queryChainWrapper2.notIn(CrawlerRequest::getId, crawlerRequestByPage1.getRecords().stream().map(CrawlerRequest::getId).collect(Collectors.toList()));
+        }
+        Page<CrawlerRequest> crawlerRequestByPage2 = crawlerRequestService.getPage(new Page<>(1, 50), queryChainWrapper2);
+
+        List<CrawlerRequest> list = new ArrayList<>();
+        list.addAll(crawlerRequestByPage1.getRecords());
+        list.addAll(crawlerRequestByPage2.getRecords());
+        if (list.isEmpty()) {
             log.info("爬取队列为空，不需要爬取");
             return null;
         }
@@ -222,7 +246,7 @@ public class KemonoScheduler {
         return GeccoEngine.create()
                 .spiderBeanFactory(spiderBeanFactory)
                 //开始抓取的页面地址
-                .start(buildImageRequest(crawlerRequestByPage.getRecords()))
+                .start(buildImageRequest(list))
                 .scheduler(new UniqueSpiderScheduler())
                 .debug(true)
                 .proxysLoader(new Proxys() {

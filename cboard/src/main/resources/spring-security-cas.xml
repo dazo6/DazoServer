@@ -19,6 +19,7 @@
     <security:http pattern="/plugins/**" security="none"/>
     <security:http pattern="/bootstrap/**" security="none"/>
     <security:http pattern="/js/**" security="none"/>
+    <security:http pattern="/bot/**" security="none"/>
 
     <security:http use-expressions="true" entry-point-ref="casAuthenticationEntryPoint"
                    auto-config="true">

@@ -1,0 +1,493 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light">
+    <title>Fanbox Crawl Dashboard</title>
+    <link rel="stylesheet" href="https://unpkg.com/element-plus@2.14.5/dist/index.css">
+    <link rel="stylesheet" href="/dashboard/dashboard.css">
+</head>
+<body>
+<div id="app" v-cloak>
+    <el-container class="app-layout">
+        <el-aside class="app-sidebar" width="230px">
+            <router-link class="brand" to="/" aria-label="返回仪表盘首页">
+                <span class="brand-mark">F</span>
+                <span>
+                    <strong>Fanbox Admin</strong>
+                    <small>Crawler Console</small>
+                </span>
+            </router-link>
+            <nav class="app-nav" aria-label="主导航">
+                <p class="nav-group-title">总览</p>
+                <el-menu router :default-active="$route.path">
+                    <el-menu-item index="/">仪表盘</el-menu-item>
+                    <el-menu-item-group title="管理">
+                        <el-menu-item index="/manage/artists">画师管理</el-menu-item>
+                        <el-menu-item index="/manage/history">历史爬取记录</el-menu-item>
+                    </el-menu-item-group>
+                </el-menu>
+            </nav>
+            <button class="logout-button" type="button" @click="logout">退出登录</button>
+        </el-aside>
+        <el-main class="dashboard-shell">
+            <router-view></router-view>
+        </el-main>
+    </el-container>
+</div>
+
+<template id="dashboard-home-template">
+    <div>
+        <el-alert v-if="errorMessage" class="dashboard-alert" :title="errorMessage" type="error"
+                  show-icon :closable="false"></el-alert>
+
+        <el-card class="dashboard-card timeline-card" shadow="never" aria-labelledby="timeline-title">
+            <template #header>
+                <div class="card-heading">
+                    <div>
+                        <p class="section-kicker">HOURLY ACTIVITY</p>
+                        <h2 id="timeline-title">Fanbox Crawler Done With Time Line</h2>
+                    </div>
+                    <div class="metric">
+                        <span>150 小时总计</span>
+                        <strong>{{ formattedTimelineTotal }}</strong>
+                        <small class="refresh-status" :class="{ active: refreshing }">
+                            <i aria-hidden="true"></i>{{ refreshing ? '正在更新' : '每分钟自动更新' }}
+                            <template v-if="lastUpdated"> · {{ lastUpdated }}</template>
+                        </small>
+                    </div>
+                </div>
+            </template>
+            <div ref="timelineChart" class="timeline-chart" :class="{ skeleton: loading && !hourlyCounts.length }"
+                 aria-label="按小时统计的抓取请求折线图"></div>
+        </el-card>
+
+        <div class="lower-grid">
+            <el-card class="dashboard-card status-card" shadow="never" aria-labelledby="status-title">
+                <template #header>
+                    <div class="card-heading">
+                        <div>
+                            <p class="section-kicker">REQUEST STATUS</p>
+                            <h2 id="status-title">Fanbox Crawler Done Percent</h2>
+                        </div>
+                    </div>
+                </template>
+                <div ref="statusChart" class="status-chart" :class="{ skeleton: loading && !statusTotal }"
+                     role="img" :aria-label="statusAriaLabel"></div>
+            </el-card>
+
+            <el-card class="dashboard-card artists-card" shadow="never" aria-labelledby="artists-title">
+                <template #header>
+                    <div class="card-heading artists-heading">
+                        <div>
+                            <p class="section-kicker">LATEST UPDATES</p>
+                            <h2 id="artists-title">Last Update Artist</h2>
+                        </div>
+                        <el-input v-model.trim="searchKeyword" class="artist-search" clearable
+                                  placeholder="搜索名称或 ID"></el-input>
+                    </div>
+                </template>
+                <el-table class="responsive-desktop-table" :data="pagedArtists" stripe table-layout="fixed"
+                          empty-text="没有匹配的艺术家"
+                          v-loading="loading && !artists.length">
+                    <el-table-column label="name" min-width="260">
+                        <template #default="scope">
+                            <div class="artist-cell dashboard-artist-cell" :class="{ 'has-banner': scope.row.banner }">
+                                <img v-if="scope.row.banner" class="artist-banner" :src="scope.row.banner"
+                                     alt="" aria-hidden="true" @error="hideBrokenArtistImage(scope.row, 'banner')">
+                                <el-avatar :size="36" :src="scope.row.icon" :alt="scope.row.name"
+                                           @error="hideBrokenArtistImage(scope.row, 'icon')">
+                                    {{ scope.row.name ? scope.row.name.slice(0, 1) : '?' }}
+                                </el-avatar>
+                                <span class="dashboard-artist-name">{{ scope.row.name }}</span>
+                            </div>
+                        </template>
+                    </el-table-column>
+                    <el-table-column prop="last" label="last" width="180" align="right"></el-table-column>
+                </el-table>
+                <div class="responsive-mobile-list dashboard-mobile-artists"
+                     v-loading="loading && !artists.length">
+                    <div v-if="!loading && !pagedArtists.length" class="mobile-empty">没有匹配的艺术家</div>
+                    <article v-for="row in pagedArtists" :key="row.name + ':' + row.last"
+                             class="mobile-dashboard-artist">
+                        <div class="artist-cell dashboard-artist-cell" :class="{ 'has-banner': row.banner }">
+                            <img v-if="row.banner" class="artist-banner" :src="row.banner"
+                                 alt="" aria-hidden="true" @error="hideBrokenArtistImage(row, 'banner')">
+                            <el-avatar :size="40" :src="row.icon" :alt="row.name"
+                                       @error="hideBrokenArtistImage(row, 'icon')">
+                                {{ row.name ? row.name.slice(0, 1) : '?' }}
+                            </el-avatar>
+                            <span class="dashboard-artist-name">{{ row.name }}</span>
+                        </div>
+                        <time class="mobile-dashboard-last">上次更新 {{ row.last || '—' }}</time>
+                    </article>
+                </div>
+                <div class="table-footer">
+                    <span>{{ artistInfo }}</span>
+                    <el-pagination v-model:current-page="currentPage" background layout="prev, pager, next"
+                                   :page-size="pageSize" :total="filteredArtistCount"></el-pagination>
+                </div>
+            </el-card>
+        </div>
+    </div>
+</template>
+
+<template id="artist-management-template">
+    <el-card class="dashboard-card management-card" shadow="never">
+        <template #header>
+            <div class="management-heading">
+                <div>
+                    <p class="section-kicker">MANAGEMENT</p>
+                    <h2>画师管理</h2>
+                </div>
+                <el-button type="primary" @click="openCreateDialog">新增画师</el-button>
+            </div>
+        </template>
+
+        <el-form class="filter-form" :inline="true" @submit.prevent="loadArtists(1)">
+            <el-form-item label="关键字">
+                <el-input v-model.trim="filters.keyword" clearable placeholder="画师名称"
+                          @keyup.enter="loadArtists(1)"></el-input>
+            </el-form-item>
+            <el-form-item label="状态">
+                <el-select v-model="filters.enabled" clearable placeholder="全部状态" style="width: 130px">
+                    <el-option label="已启用" :value="true"></el-option>
+                    <el-option label="已停用" :value="false"></el-option>
+                </el-select>
+            </el-form-item>
+            <el-form-item label="更新时间">
+                <el-select v-model="filters.lastUpdateOrder" style="width: 140px">
+                    <el-option label="最新在前" value="desc"></el-option>
+                    <el-option label="最早在前" value="asc"></el-option>
+                </el-select>
+            </el-form-item>
+            <el-form-item>
+                <el-button type="primary" native-type="submit">查询</el-button>
+                <el-button @click="resetFilters">重置</el-button>
+            </el-form-item>
+        </el-form>
+
+        <el-table class="artist-management-table responsive-desktop-table" :data="rows" row-key="id" stripe
+                  table-layout="fixed" empty-text="没有匹配的画师"
+                  v-loading="loading">
+            <el-table-column label="名称" min-width="680">
+                <template #default="scope">
+                    <div class="artist-cell artist-gallery-link" :class="{ 'has-banner': scope.row.banner }"
+                         role="link" tabindex="0" :aria-label="'查看 ' + scope.row.name + ' 的图库'"
+                         @click="openGallery(scope.row)"
+                         @keydown.enter.prevent="openGallery(scope.row)"
+                         @keydown.space.prevent="openGallery(scope.row)">
+                        <img v-if="scope.row.banner" class="artist-banner" :src="scope.row.banner"
+                             alt="" aria-hidden="true" @error="hideBrokenImage(scope.row, 'banner')">
+                        <a class="artist-avatar-link" :href="scope.row.url" target="_blank"
+                           rel="noopener noreferrer" :aria-label="'打开 ' + scope.row.name + ' 作者主页'"
+                           @click.stop>
+                            <el-avatar :size="48" :src="scope.row.icon" :alt="scope.row.name"
+                                       @error="hideBrokenImage(scope.row, 'icon')">
+                                {{ scope.row.name ? scope.row.name.slice(0, 1) : '?' }}
+                            </el-avatar>
+                        </a>
+                        <a class="artist-link" :href="scope.row.url" target="_blank" rel="noopener noreferrer"
+                           @click.stop>{{ scope.row.name }}</a>
+                    </div>
+                </template>
+            </el-table-column>
+            <el-table-column prop="type" label="类型" width="180"></el-table-column>
+            <el-table-column prop="lastUpdate" label="上次更新" width="180"></el-table-column>
+            <el-table-column label="压缩" width="100" align="center">
+                <template #default="scope">
+                    <el-button class="compression-toggle" size="small" plain
+                               :type="scope.row.compression ? 'success' : 'info'"
+                               :loading="updatingKeys.has(`${scope.row.id}:compression`)"
+                               @click="toggleCompression(scope.row)">
+                        {{ scope.row.compression ? '开启' : '关闭' }}
+                    </el-button>
+                </template>
+            </el-table-column>
+            <el-table-column label="启用" width="100" align="center">
+                <template #default="scope">
+                    <el-switch v-model="scope.row.enable" :loading="updatingKeys.has(`${scope.row.id}:status`)"
+                               @change="updateStatus(scope.row)"></el-switch>
+                </template>
+            </el-table-column>
+        </el-table>
+
+        <div class="responsive-mobile-list mobile-artist-list" v-loading="loading">
+            <div v-if="!loading && !rows.length" class="mobile-empty">没有匹配的画师</div>
+            <article v-for="row in rows" :key="row.id" class="mobile-artist-row">
+                <div class="artist-cell mobile-artist-hero artist-gallery-link"
+                     :class="{ 'has-banner': row.banner }" role="link" tabindex="0"
+                     :aria-label="'查看 ' + row.name + ' 的图库'"
+                     @click="openGallery(row)"
+                     @keydown.enter.prevent="openGallery(row)"
+                     @keydown.space.prevent="openGallery(row)">
+                    <img v-if="row.banner" class="artist-banner" :src="row.banner"
+                         alt="" aria-hidden="true" @error="hideBrokenImage(row, 'banner')">
+                    <a class="artist-avatar-link" :href="row.url" target="_blank"
+                       rel="noopener noreferrer" :aria-label="'打开 ' + row.name + ' 作者主页'"
+                       @click.stop @keydown.stop>
+                        <el-avatar :size="52" :src="row.icon" :alt="row.name"
+                                   @error="hideBrokenImage(row, 'icon')">
+                            {{ row.name ? row.name.slice(0, 1) : '?' }}
+                        </el-avatar>
+                    </a>
+                    <a class="artist-link" :href="row.url" target="_blank"
+                       rel="noopener noreferrer" @click.stop @keydown.stop>{{ row.name }}</a>
+                    <button class="mobile-artist-expand" :class="{ 'is-expanded': isRowExpanded(row) }"
+                            type="button" :aria-label="isRowExpanded(row) ? '收起画师信息' : '展开画师信息'"
+                            :aria-expanded="String(isRowExpanded(row))"
+                            :aria-controls="'mobile-artist-details-' + row.id"
+                            @click.stop="toggleRowDetails(row)" @keydown.stop>
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                            <path d="m6 9 6 6 6-6" fill="none" stroke="currentColor"
+                                  stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+                        </svg>
+                    </button>
+                </div>
+                <transition name="artist-details">
+                    <div v-if="isRowExpanded(row)" :id="'mobile-artist-details-' + row.id"
+                         class="mobile-artist-details">
+                        <div class="mobile-data-field">
+                            <small>类型</small><span>{{ row.type || '—' }}</span>
+                        </div>
+                        <div class="mobile-data-field mobile-update-field">
+                            <small>上次更新</small>
+                            <time>{{ row.lastUpdate || '—' }}</time>
+                        </div>
+                        <div class="mobile-setting-field">
+                            <span>压缩</span>
+                            <el-button class="compression-toggle" size="small" plain
+                                       :type="row.compression ? 'success' : 'info'"
+                                       :loading="updatingKeys.has(`${row.id}:compression`)"
+                                       @click="toggleCompression(row)">
+                                {{ row.compression ? '开启' : '关闭' }}
+                            </el-button>
+                        </div>
+                        <div class="mobile-setting-field">
+                            <span>启用</span>
+                            <el-switch v-model="row.enable"
+                                       :loading="updatingKeys.has(`${row.id}:status`)"
+                                       @change="updateStatus(row)"></el-switch>
+                        </div>
+                    </div>
+                </transition>
+            </article>
+        </div>
+
+        <div class="management-footer">
+            <span>共 {{ total }} 条</span>
+            <el-pagination v-model:current-page="page" v-model:page-size="pageSize" background
+                           layout="sizes, prev, pager, next" :page-sizes="[10, 20, 50, 100]" :total="total"
+                           @current-change="loadArtists" @size-change="changePageSize"></el-pagination>
+        </div>
+
+        <el-dialog v-model="createDialogVisible" title="新增画师" width="min(520px, 92vw)" destroy-on-close>
+            <el-form label-position="top">
+                <el-form-item label="画师主页 URL" required>
+                    <el-input v-model.trim="createForm.url" maxlength="1000"
+                              placeholder="https://name.fanbox.cc/ 或 Kemono 画师页"></el-input>
+                    <div class="form-help">支持 Fanbox 主页，以及当前 Kemono 站点的 /服务/user/画师ID 地址。</div>
+                </el-form-item>
+                <el-form-item label="名称（选填）">
+                    <el-input v-model.trim="createForm.name" maxlength="256"
+                              placeholder="不填写时从 URL 生成"></el-input>
+                </el-form-item>
+                <el-form-item label="下载图片时压缩">
+                    <el-switch v-model="createForm.compression"></el-switch>
+                </el-form-item>
+            </el-form>
+            <template #footer>
+                <el-button @click="createDialogVisible = false">取消</el-button>
+                <el-button type="primary" :loading="creating" @click="createArtist">创建</el-button>
+            </template>
+        </el-dialog>
+    </el-card>
+</template>
+
+<template id="artist-gallery-template">
+    <el-card class="dashboard-card management-card gallery-card" shadow="never">
+        <template #header>
+            <div class="management-heading gallery-heading">
+                <div class="gallery-artist-profile">
+                    <img v-if="artist.banner" class="gallery-header-banner" :src="artist.banner"
+                         alt="" aria-hidden="true" @error="hideArtistImage('banner')">
+                    <a class="artist-avatar-link gallery-avatar-link" :href="artist.url || undefined"
+                       target="_blank" rel="noopener noreferrer"
+                       :aria-label="'打开 ' + artistName + ' 作者主页'">
+                        <el-avatar :size="64" :src="artist.icon" :alt="artistName"
+                                   @error="hideArtistImage('icon')">
+                            {{ artistName ? artistName.slice(0, 1) : '?' }}
+                        </el-avatar>
+                    </a>
+                    <div class="gallery-artist-title">
+                        <p class="section-kicker">ARTIST GALLERY</p>
+                        <a class="gallery-artist-name" :href="artist.url || undefined" target="_blank"
+                           rel="noopener noreferrer">{{ artistName }}</a>
+                    </div>
+                </div>
+                <div class="gallery-actions">
+                    <el-select v-model="sort.field" style="width: 130px" @change="loadGallery">
+                        <el-option label="套图排序" value="album"></el-option>
+                        <el-option label="创建时间" value="created"></el-option>
+                        <el-option label="文件名称" value="name"></el-option>
+                    </el-select>
+                    <el-select v-model="sort.order" style="width: 130px" @change="loadGallery">
+                        <el-option label="倒序" value="desc"></el-option>
+                        <el-option label="正序" value="asc"></el-option>
+                    </el-select>
+                    <el-button @click="goBack">返回</el-button>
+                </div>
+            </div>
+        </template>
+
+        <el-alert v-if="errorMessage" class="dashboard-alert" :title="errorMessage" type="error"
+                  show-icon :closable="false"></el-alert>
+        <div v-if="!loading && !images.length" class="gallery-empty">当前画师还没有下载图片</div>
+        <div ref="galleryGrid" v-loading="loading" class="gallery-grid">
+            <button v-for="(image, index) in images" :key="image.url" class="gallery-item" type="button"
+                    :class="{ 'is-loaded': image.loaded }"
+                    @click="openViewer(index)">
+                <el-skeleton v-if="!image.loaded" class="gallery-image-skeleton" animated>
+                    <template #template>
+                        <el-skeleton-item variant="image"></el-skeleton-item>
+                    </template>
+                </el-skeleton>
+                <img :class="{ 'is-loading': !image.loaded }" :src="image.thumbnailUrl || image.url" :alt="image.name"
+                     loading="lazy" @load="markImageLoaded(image)" @error="hideBrokenImage(image)">
+            </button>
+        </div>
+
+        <teleport to="body">
+            <transition name="cinema" @after-leave="handleViewerAfterLeave">
+                <div v-if="viewerVisible && currentImage" ref="viewerRoot" class="cinema-viewer"
+                     role="dialog" aria-modal="true" aria-label="图片预览" tabindex="-1"
+                     @click="handleViewerClick" @dblclick.stop.prevent="toggleViewerZoom"
+                     @touchstart.prevent="handleViewerTouchStart"
+                     @touchmove.prevent="handleViewerTouchMove"
+                     @touchend.prevent="handleViewerTouchEnd"
+                     @touchcancel.prevent="handleViewerTouchEnd"
+                     @contextmenu.prevent>
+                    <div class="cinema-viewer-track" :style="viewerTrackStyle"
+                         @transitionend.self="handleViewerTrackTransitionEnd">
+                        <div v-for="(slide, slideIndex) in viewerSlides" :key="slide.id"
+                             class="cinema-viewer-slide" :aria-hidden="slideIndex === 1 ? undefined : 'true'">
+                            <div class="cinema-viewer-media">
+                                <img v-if="slide.image" class="cinema-viewer-image"
+                                     :class="{ 'cinema-viewer-preview': slideIndex !== 1 }"
+                                     :src="slide.image.url" :alt="slideIndex === 1 ? slide.image.name : ''"
+                                     :style="slideIndex === 1 ? viewerImageStyle : undefined"
+                                     :decoding="slideIndex === 1 ? 'sync' : 'async'" draggable="false"
+                                     @load="slideIndex === 1 && handleViewerImageLoad()"
+                                     @error="handleViewerSlideError($event, slideIndex)">
+                            </div>
+                        </div>
+                    </div>
+                    <button class="cinema-viewer-nav cinema-viewer-prev" type="button" aria-label="上一张"
+                            @click.stop="previousViewerImage" @dblclick.stop @touchstart.stop>‹
+                    </button>
+                    <button class="cinema-viewer-nav cinema-viewer-next" type="button" aria-label="下一张"
+                            @click.stop="nextViewerImage" @dblclick.stop @touchstart.stop>›
+                    </button>
+                </div>
+            </transition>
+        </teleport>
+    </el-card>
+</template>
+
+<template id="crawl-history-template">
+    <el-card class="dashboard-card management-card" shadow="never">
+        <template #header>
+            <div class="management-heading">
+                <div>
+                    <p class="section-kicker">CRAWL HISTORY</p>
+                    <h2>历史爬取记录</h2>
+                </div>
+                <el-button :loading="loading" @click="loadHistory(page)">刷新</el-button>
+            </div>
+        </template>
+
+        <el-form class="filter-form history-filter" :inline="true" @submit.prevent="loadHistory(1)">
+            <el-form-item label="URL">
+                <el-input v-model.trim="filters.keyword" clearable placeholder="URL 关键字"
+                          @keyup.enter="loadHistory(1)"></el-input>
+            </el-form-item>
+            <el-form-item label="状态">
+                <el-select v-model="filters.done" clearable placeholder="全部状态" style="width: 130px">
+                    <el-option label="已完成" :value="true"></el-option>
+                    <el-option label="未完成" :value="false"></el-option>
+                </el-select>
+            </el-form-item>
+            <el-form-item label="创建时间">
+                <el-date-picker v-model="filters.dateRange" type="datetimerange" range-separator="至"
+                                start-placeholder="开始时间" end-placeholder="结束时间"
+                                value-format="YYYY-MM-DD HH:mm:ss"></el-date-picker>
+            </el-form-item>
+            <el-form-item>
+                <el-button type="primary" native-type="submit">查询</el-button>
+                <el-button @click="resetFilters">重置</el-button>
+            </el-form-item>
+        </el-form>
+
+        <el-table class="responsive-desktop-table" :data="rows" row-key="id" stripe table-layout="fixed"
+                  empty-text="没有匹配的爬取记录"
+                  v-loading="loading">
+            <el-table-column prop="id" label="ID" width="90"></el-table-column>
+            <el-table-column label="URL" min-width="420">
+                <template #default="scope">
+                    <el-link class="url-link" :href="scope.row.url" :title="scope.row.url"
+                             target="_blank" type="primary">
+                        {{ scope.row.url }}
+                    </el-link>
+                </template>
+            </el-table-column>
+            <el-table-column prop="gmtCreate" label="创建时间" width="180"></el-table-column>
+            <el-table-column label="状态" width="100" align="center">
+                <template #default="scope">
+                    <el-tag :type="scope.row.isDone ? 'success' : 'warning'" effect="light">
+                        {{ scope.row.isDone ? '已完成' : '未完成' }}
+                    </el-tag>
+                </template>
+            </el-table-column>
+            <el-table-column prop="errorCount" label="错误次数" width="100" align="right"></el-table-column>
+        </el-table>
+
+        <div class="responsive-mobile-list mobile-history-list" v-loading="loading">
+            <div v-if="!loading && !rows.length" class="mobile-empty">没有匹配的爬取记录</div>
+            <article v-for="row in rows" :key="row.id" class="mobile-history-row">
+                <header>
+                    <strong>#{{ row.id }}</strong>
+                    <el-tag :type="row.isDone ? 'success' : 'warning'" effect="light" size="small">
+                        {{ row.isDone ? '已完成' : '未完成' }}
+                    </el-tag>
+                </header>
+                <a class="mobile-history-url" :href="row.url" target="_blank"
+                   rel="noopener noreferrer">{{ row.url }}</a>
+                <footer>
+                    <time>{{ row.gmtCreate || '—' }}</time>
+                    <span>错误 {{ row.errorCount || 0 }} 次</span>
+                </footer>
+            </article>
+        </div>
+
+        <div class="management-footer">
+            <span>共 {{ total }} 条</span>
+            <el-pagination v-model:current-page="page" v-model:page-size="pageSize" background
+                           layout="sizes, prev, pager, next" :page-sizes="[10, 20, 50, 100]" :total="total"
+                           @current-change="loadHistory" @size-change="changePageSize"></el-pagination>
+        </div>
+    </el-card>
+</template>
+
+<noscript>此管理页面需要启用 JavaScript。</noscript>
+<script src="https://unpkg.com/vue@3.5.42/dist/vue.global.prod.js" defer></script>
+<script src="https://unpkg.com/vue-router@5.3.1/dist/vue-router.global.prod.js" defer></script>
+<script src="https://unpkg.com/element-plus@2.14.5/dist/index.full.min.js" defer></script>
+<script src="https://unpkg.com/echarts@6.1.0/dist/echarts.min.js" defer></script>
+<script src="/dashboard/pages/dashboard-home.js" defer></script>
+<script src="/dashboard/pages/artist-management.js" defer></script>
+<script src="/dashboard/pages/artist-gallery.js" defer></script>
+<script src="/dashboard/pages/crawl-history.js" defer></script>
+<script src="/dashboard/app.js" defer></script>
+</body>
+</html>

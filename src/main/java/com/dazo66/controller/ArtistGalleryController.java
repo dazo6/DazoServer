@@ -34,7 +34,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Serves downloaded images for an individual artist's gallery.
+ * Serves downloaded images and videos for an individual artist's gallery.
  */
 @RestController
 @RequestMapping("api/fanbox")
@@ -43,6 +43,9 @@ public class ArtistGalleryController {
     private static final Logger LOGGER = LoggerFactory.getLogger(ArtistGalleryController.class);
     private static final Set<String> IMAGE_EXTENSIONS = new HashSet<>(Arrays.asList(
             "jpg", "jpeg", "png", "gif", "webp", "bmp", "avif", "heic", "heif", "jfif"
+    ));
+    private static final Set<String> VIDEO_EXTENSIONS = new HashSet<>(Arrays.asList(
+            "mp4", "webm", "mov", "m4v", "ogv", "ogg", "mkv", "avi"
     ));
     private static final Object[] THUMBNAIL_LOCKS = thumbnailLocks();
     private static final int THUMBNAIL_MAX_WIDTH = 600;
@@ -124,12 +127,12 @@ public class ArtistGalleryController {
         if (directory == null || !Files.isDirectory(directory)) {
             return ResponseEntity.notFound().build();
         }
-        Path requested = resolveImage(directory, path);
+        Path requested = resolveMedia(directory, path);
         if (requested == null) {
             return ResponseEntity.notFound().build();
         }
         Path servedFile = requested;
-        if (thumbnail) {
+        if (thumbnail && isImage(requested)) {
             try {
                 servedFile = cachedThumbnail(requested, artistDirectory);
             } catch (IOException | RuntimeException exception) {
@@ -138,10 +141,10 @@ public class ArtistGalleryController {
             }
         }
         FileSystemResource resource = new FileSystemResource(servedFile);
-        MediaType mediaType = MediaTypeFactory.getMediaType(servedFile.getFileName().toString())
-                .orElse(MediaType.APPLICATION_OCTET_STREAM);
+        MediaType mediaType = mediaType(servedFile);
         ResponseEntity.BodyBuilder response = ResponseEntity.ok()
                 .contentType(mediaType)
+                .header("Accept-Ranges", "bytes")
                 .cacheControl(CacheControl.maxAge(10, TimeUnit.MINUTES).cachePrivate());
         try {
             response.contentLength(resource.contentLength());
@@ -206,7 +209,9 @@ public class ArtistGalleryController {
                 .replace("+", "%20");
         String url = "/api/fanbox/gallery/file?artistDirectory=" + encodedDirectory
                 + "&path=" + encodedPath;
-        return new ArtistGalleryItem(image.getName(), url, url + "&thumbnail=true", image.getCreatedAt());
+        String type = "video".equals(image.getType()) ? "video" : "image";
+        String thumbnailUrl = "image".equals(type) ? url + "&thumbnail=true" : null;
+        return new ArtistGalleryItem(image.getName(), url, thumbnailUrl, type, image.getCreatedAt());
     }
 
     private String artistDirectoryName(Artist artist) {
@@ -233,7 +238,7 @@ public class ArtistGalleryController {
         }
     }
 
-    private Path resolveImage(Path artistDirectory, String fileName) {
+    private Path resolveMedia(Path artistDirectory, String fileName) {
         try {
             Path relative = Paths.get(fileName);
             if (relative.isAbsolute() || relative.getNameCount() != 1) {
@@ -241,7 +246,7 @@ public class ArtistGalleryController {
             }
             Path requested = artistDirectory.resolve(relative).normalize();
             return artistDirectory.equals(requested.getParent())
-                    && Files.isRegularFile(requested) && isImage(requested) ? requested : null;
+                    && Files.isRegularFile(requested) && isSupportedMedia(requested) ? requested : null;
         } catch (InvalidPathException exception) {
             return null;
         }
@@ -307,8 +312,40 @@ public class ArtistGalleryController {
     }
 
     private boolean isImage(Path path) {
+        return IMAGE_EXTENSIONS.contains(extension(path));
+    }
+
+    private boolean isSupportedMedia(Path path) {
+        String extension = extension(path);
+        return IMAGE_EXTENSIONS.contains(extension) || VIDEO_EXTENSIONS.contains(extension);
+    }
+
+    private String extension(Path path) {
         String fileName = path.getFileName().toString();
         int dot = fileName.lastIndexOf('.');
-        return dot > 0 && IMAGE_EXTENSIONS.contains(fileName.substring(dot + 1).toLowerCase(Locale.ROOT));
+        return dot > 0 ? fileName.substring(dot + 1).toLowerCase(Locale.ROOT) : "";
+    }
+
+    private MediaType mediaType(Path path) {
+        switch (extension(path)) {
+            case "mp4":
+                return MediaType.parseMediaType("video/mp4");
+            case "webm":
+                return MediaType.parseMediaType("video/webm");
+            case "ogv":
+            case "ogg":
+                return MediaType.parseMediaType("video/ogg");
+            case "mov":
+                return MediaType.parseMediaType("video/quicktime");
+            case "m4v":
+                return MediaType.parseMediaType("video/x-m4v");
+            case "mkv":
+                return MediaType.parseMediaType("video/x-matroska");
+            case "avi":
+                return MediaType.parseMediaType("video/x-msvideo");
+            default:
+                return MediaTypeFactory.getMediaType(path.getFileName().toString())
+                        .orElse(MediaType.APPLICATION_OCTET_STREAM);
+        }
     }
 }

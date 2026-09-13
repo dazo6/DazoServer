@@ -11,22 +11,9 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
-import java.nio.file.AtomicMoveNotSupportedException;
-import java.nio.file.DirectoryStream;
-import java.nio.file.Files;
-import java.nio.file.InvalidPathException;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.nio.file.StandardCopyOption;
+import java.nio.file.*;
 import java.nio.file.attribute.BasicFileAttributes;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Comparator;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Locale;
-import java.util.Objects;
-import java.util.Set;
+import java.util.*;
 
 /**
  * Stores one compact, on-disk JSON gallery index per artist.
@@ -35,9 +22,12 @@ import java.util.Set;
 public class ArtistGalleryCache {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(ArtistGalleryCache.class);
-    private static final int CACHE_VERSION = 1;
+    private static final int CACHE_VERSION = 2;
     private static final Set<String> IMAGE_EXTENSIONS = new HashSet<>(Arrays.asList(
             "jpg", "jpeg", "png", "gif", "webp", "bmp", "avif", "heic", "heif", "jfif"
+    ));
+    private static final Set<String> VIDEO_EXTENSIONS = new HashSet<>(Arrays.asList(
+            "mp4", "webm", "mov", "m4v", "ogv", "ogg", "mkv", "avi"
     ));
     private static final Object[] CACHE_LOCKS = cacheLocks();
 
@@ -111,13 +101,14 @@ public class ArtistGalleryCache {
         List<CachedImage> images = new ArrayList<>();
         try (DirectoryStream<Path> files = Files.newDirectoryStream(directory)) {
             for (Path file : files) {
-                if (!isImage(file)) {
+                String type = mediaType(file);
+                if (type == null) {
                     continue;
                 }
                 try {
                     BasicFileAttributes attributes = Files.readAttributes(file, BasicFileAttributes.class);
                     if (attributes.isRegularFile()) {
-                        images.add(new CachedImage(file.getFileName().toString(),
+                        images.add(new CachedImage(file.getFileName().toString(), type,
                                 attributes.creationTime().toMillis()));
                     }
                 } catch (IOException exception) {
@@ -175,10 +166,17 @@ public class ArtistGalleryCache {
         }
     }
 
-    private boolean isImage(Path path) {
+    private String mediaType(Path path) {
         String fileName = path.getFileName().toString();
         int dot = fileName.lastIndexOf('.');
-        return dot > 0 && IMAGE_EXTENSIONS.contains(fileName.substring(dot + 1).toLowerCase(Locale.ROOT));
+        if (dot <= 0) {
+            return null;
+        }
+        String extension = fileName.substring(dot + 1).toLowerCase(Locale.ROOT);
+        if (IMAGE_EXTENSIONS.contains(extension)) {
+            return "image";
+        }
+        return VIDEO_EXTENSIONS.contains(extension) ? "video" : null;
     }
 
     private Object cacheLock(Artist artist) {
@@ -196,13 +194,19 @@ public class ArtistGalleryCache {
 
     public static final class CachedImage {
         private String name;
+        private String type;
         private long createdAt;
 
         public CachedImage() {
         }
 
         public CachedImage(String name, long createdAt) {
+            this(name, "image", createdAt);
+        }
+
+        public CachedImage(String name, String type, long createdAt) {
             this.name = name;
+            this.type = type;
             this.createdAt = createdAt;
         }
 
@@ -214,6 +218,16 @@ public class ArtistGalleryCache {
         @JsonProperty("n")
         public void setName(String name) {
             this.name = name;
+        }
+
+        @JsonProperty("m")
+        public String getType() {
+            return type;
+        }
+
+        @JsonProperty("m")
+        public void setType(String type) {
+            this.type = type;
         }
 
         @JsonProperty("t")

@@ -24,6 +24,7 @@ class ArtistGalleryCacheTest {
         Path cacheRoot = temporaryDirectory.resolve("cache").resolve("gallery-indexes");
         Files.createDirectories(artistDirectory);
         Files.write(artistDirectory.resolve("first.png"), new byte[]{1});
+        Files.write(artistDirectory.resolve("clip.mp4"), new byte[]{3});
         Files.write(artistDirectory.resolve("ignored.txt"), new byte[]{2});
 
         Artist artist = new Artist().setId(42).setName("artist-one").setArtistId("creator-one");
@@ -33,14 +34,18 @@ class ArtistGalleryCacheTest {
         Path cacheFile = cacheRoot.resolve("artist-42.json");
         String json = new String(Files.readAllBytes(cacheFile), StandardCharsets.UTF_8);
 
-        assertThat(first).extracting(ArtistGalleryCache.CachedImage::getName).containsExactly("first.png");
-        assertThat(json).doesNotContain("\n").contains("\"v\":1", "\"i\":", "\"n\":\"first.png\"");
+        assertThat(first).extracting(ArtistGalleryCache.CachedImage::getName)
+                .containsExactly("clip.mp4", "first.png");
+        assertThat(first).extracting(ArtistGalleryCache.CachedImage::getType)
+                .containsExactly("video", "image");
+        assertThat(json).doesNotContain("\n").contains("\"v\":2", "\"i\":", "\"m\":\"video\"");
 
         Files.delete(artistDirectory.resolve("first.png"));
+        Files.delete(artistDirectory.resolve("clip.mp4"));
         Files.write(artistDirectory.resolve("second.jpg"), new byte[]{3});
 
         assertThat(cache.getOrBuild(artist)).extracting(ArtistGalleryCache.CachedImage::getName)
-                .containsExactly("first.png");
+                .containsExactly("clip.mp4", "first.png");
         assertThat(cache.rebuild(artist)).extracting(ArtistGalleryCache.CachedImage::getName)
                 .containsExactly("second.jpg");
     }
@@ -61,6 +66,6 @@ class ArtistGalleryCacheTest {
         assertThat(cache.getOrBuild(artist)).extracting(ArtistGalleryCache.CachedImage::getName)
                 .containsExactly("valid.webp");
         assertThat(new String(Files.readAllBytes(cacheRoot.resolve("artist-7.json")), StandardCharsets.UTF_8))
-                .startsWith("{\"v\":1");
+                .startsWith("{\"v\":2");
     }
 }

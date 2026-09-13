@@ -3,7 +3,7 @@ package com.dazo66.dashboard;
 import java.util.List;
 
 /**
- * Artist metadata and downloaded images returned by one gallery query.
+ * Artist metadata and downloaded media returned by one gallery query.
  */
 public class ArtistGalleryData {
 

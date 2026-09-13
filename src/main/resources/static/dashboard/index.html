@@ -343,11 +343,11 @@
 
         <el-alert v-if="errorMessage" class="dashboard-alert" :title="errorMessage" type="error"
                   show-icon :closable="false"></el-alert>
-        <div v-if="!loading && !images.length" class="gallery-empty">当前画师还没有下载图片</div>
+        <div v-if="!loading && !images.length" class="gallery-empty">当前画师还没有下载图片或视频</div>
         <div ref="galleryGrid" v-loading="loading" class="gallery-grid">
             <button v-for="(image, index) in visibleImages" :key="image.url" class="gallery-item" type="button"
                      :data-gallery-index="index"
-                     :class="{ 'is-loaded': image.loaded }"
+                    :class="{ 'is-loaded': image.loaded, 'is-video': image.type === 'video' }"
                      @click="handleGalleryItemClick(index)"
                      @pointerdown="startGalleryImageLongPress($event, image)"
                      @pointermove="trackGalleryImageLongPress"
@@ -360,9 +360,19 @@
                         <el-skeleton-item variant="image"></el-skeleton-item>
                     </template>
                 </el-skeleton>
-                <img :class="{ 'is-loading': !image.loaded }" :src="image.thumbnailUrl || image.url" :alt="image.name"
-                     loading="eager" decoding="async" draggable="false" @load="markImageLoaded($event, image)"
-                     @error="handleGalleryImageError($event, image)">
+                <video v-if="image.type === 'video'" :class="{ 'is-loading': !image.loaded }"
+                       :src="image.url" preload="metadata" muted playsinline disablepictureinpicture
+                       @loadedmetadata="markVideoLoaded($event, image)" @error="handleGalleryVideoError(image)"></video>
+                <img v-else :class="{ 'is-loading': !image.loaded }" :src="image.thumbnailUrl || image.url"
+                     :alt="image.name" loading="eager" decoding="async" draggable="false"
+                     @load="markImageLoaded($event, image)" @error="handleGalleryImageError($event, image)">
+                <span v-if="image.type === 'video'" class="gallery-video-badge" aria-hidden="true">
+                    <span class="gallery-video-play">▶</span>
+                    <small>{{ image.durationText || '视频' }}</small>
+                </span>
+                <span v-if="image.type === 'video' && image.loadError" class="gallery-video-error">
+                    当前浏览器无法预览
+                </span>
             </button>
         </div>
         <div v-if="visibleImages.length < images.length" class="gallery-load-more" aria-live="polite">
@@ -377,7 +387,7 @@
                         <span class="gallery-resume-icon" aria-hidden="true">↥</span>
                         <span>
                             <strong>回到上次浏览位置</strong>
-                            <small>继续查看第 {{ resumePosition.index + 1 }} 张附近</small>
+                            <small>继续查看第 {{ resumePosition.index + 1 }} 项附近</small>
                         </span>
                     </button>
                     <button class="gallery-resume-close" type="button" aria-label="关闭位置提示"
@@ -389,28 +399,29 @@
         <teleport to="body">
             <transition name="cinema" @after-leave="handleViewerAfterLeave">
                 <div v-if="viewerVisible && currentImage" ref="viewerRoot" class="cinema-viewer"
-                     role="dialog" aria-modal="true" aria-label="图片预览" tabindex="-1"
+                     :class="{ 'is-video': currentImage.type === 'video' }"
+                     role="dialog" aria-modal="true" aria-label="媒体预览" tabindex="-1"
                      @click="handleViewerClick" @dblclick.stop.prevent="toggleViewerZoom"
                      @pointerdown="startViewerMouseLongPress"
                      @pointermove="trackViewerMouseLongPress"
                      @pointerup="finishViewerMouseLongPress"
                      @pointercancel="clearViewerMouseLongPress"
                      @pointerleave="clearViewerMouseLongPress"
-                     @touchstart.prevent="handleViewerTouchStart"
-                     @touchmove.prevent="handleViewerTouchMove"
-                     @touchend.prevent="handleViewerTouchEnd"
-                     @touchcancel.prevent="handleViewerTouchEnd"
+                     @touchstart="handleViewerTouchStart"
+                     @touchmove="handleViewerTouchMove"
+                     @touchend="handleViewerTouchEnd"
+                     @touchcancel="handleViewerTouchEnd"
                      @contextmenu.prevent>
                     <div class="cinema-viewer-track" :style="viewerTrackStyle"
                          @transitionend.self="handleViewerTrackTransitionEnd">
                         <div v-for="(slide, slideIndex) in viewerSlides" :key="slide.id"
                              class="cinema-viewer-slide" :aria-hidden="slideIndex === 1 ? undefined : 'true'">
                             <div class="cinema-viewer-media">
-                                <img v-if="slide.image && slide.image.thumbnailUrl"
+                                <img v-if="slide.image && slide.image.type !== 'video' && slide.image.thumbnailUrl"
                                      class="cinema-viewer-placeholder"
                                      :src="slide.image.thumbnailUrl" alt="" aria-hidden="true"
                                      decoding="async" draggable="false" @error="hideViewerPreview">
-                                <img v-if="slide.image" class="cinema-viewer-image"
+                                <img v-if="slide.image && slide.image.type !== 'video'" class="cinema-viewer-image"
                                      :class="{
                                          'cinema-viewer-preview': slideIndex !== 1,
                                          'is-pending': slide.originalRequested && !slide.originalReady
@@ -419,17 +430,36 @@
                                           ? slide.image.url : (slide.image.thumbnailUrl || slide.image.url)"
                                       :alt="slideIndex === 1 ? slide.image.name : ''"
                                       :style="slideIndex === 1 ? viewerImageStyle : undefined"
-                                      decoding="async" draggable="false"
+                                     decoding="async" draggable="false"
                                      @load="handleViewerSlideLoad($event, slide, slideIndex)"
                                      @error="handleViewerSlideError($event, slideIndex)">
+                                <video v-else-if="slide.image && slide.originalRequested"
+                                       class="cinema-viewer-video" :class="{ 'has-error': slide.loadError }"
+                                       :src="slide.image.url" :controls="slideIndex === 1"
+                                       :preload="slideIndex === 1 ? 'metadata' : 'none'" playsinline
+                                       @loadedmetadata="handleViewerVideoMetadata($event, slide)"
+                                       @error="handleViewerVideoError(slide)"
+                                       @click.stop @dblclick.stop></video>
+                                <div v-if="slide.image && slide.image.type === 'video' && !slide.originalReady && !slide.loadError"
+                                     class="cinema-viewer-video-preview" aria-hidden="true">▶
+                                </div>
+                                <div v-if="slide.image && slide.image.type === 'video' && slide.loadError"
+                                     class="cinema-viewer-video-error">
+                                    <strong>无法播放此视频</strong>
+                                    <small>当前浏览器可能不支持该视频格式</small>
+                                </div>
                             </div>
                         </div>
                     </div>
-                    <button class="cinema-viewer-nav cinema-viewer-prev" type="button" aria-label="上一张"
+                    <button class="cinema-viewer-nav cinema-viewer-prev" type="button" aria-label="上一项"
                             @click.stop="previousViewerImage" @dblclick.stop @touchstart.stop>‹
                     </button>
-                    <button class="cinema-viewer-nav cinema-viewer-next" type="button" aria-label="下一张"
+                    <button class="cinema-viewer-nav cinema-viewer-next" type="button" aria-label="下一项"
                             @click.stop="nextViewerImage" @dblclick.stop @touchstart.stop>›
+                    </button>
+                    <button v-if="currentImage.type === 'video'" class="cinema-viewer-close" type="button"
+                            aria-label="关闭视频预览" @click.stop="closeViewer" @dblclick.stop
+                            @touchstart.stop>×
                     </button>
                 </div>
             </transition>
@@ -438,11 +468,11 @@
         <teleport to="body">
             <transition name="image-info">
                 <div v-if="imageInfoVisible" class="image-info-backdrop" role="dialog" aria-modal="true"
-                     aria-label="图片信息" @click.self="closeImageInfo">
+                     aria-label="文件信息" @click.self="closeImageInfo">
                     <section class="image-info-card">
                         <header>
-                            <strong>图片信息</strong>
-                            <button type="button" aria-label="关闭图片信息" @click="closeImageInfo">×</button>
+                            <strong>{{ imageInfo.typeText }}信息</strong>
+                            <button type="button" aria-label="关闭文件信息" @click="closeImageInfo">×</button>
                         </header>
                         <dl>
                             <div>
@@ -458,6 +488,10 @@
                             <div v-if="imageInfo.dimensionsText">
                                 <dt>{{ imageInfo.dimensionsLabel }}</dt>
                                 <dd>{{ imageInfo.dimensionsText }}</dd>
+                            </div>
+                            <div v-if="imageInfo.durationText">
+                                <dt>视频时长</dt>
+                                <dd>{{ imageInfo.durationText }}</dd>
                             </div>
                         </dl>
                     </section>

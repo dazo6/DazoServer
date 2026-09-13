@@ -51,10 +51,12 @@
             const imageInfoVisible = ref(false);
             const imageInfo = reactive({
                 name: "",
+                typeText: "图片",
                 sizeText: "读取中…",
                 sizeBytes: 0,
                 dimensionsLabel: "",
-                dimensionsText: ""
+                dimensionsText: "",
+                durationText: ""
             });
             const artistName = computed(() => artist.name || route.query.name || "画师图库");
             const currentImage = computed(() => images.value[viewerIndex.value] || null);
@@ -93,6 +95,7 @@
             let viewerScrollY = 0;
             let previousBodyStyles = null;
             let viewerHistoryEntry = false;
+            let viewerOpeningVisibleUrls = new Set();
             let viewerSlideTimer = 0;
             let pendingViewerDirection = 0;
             let viewerSlideId = 0;
@@ -120,7 +123,12 @@
                         artist.artistDirectory = data.artist.artistDirectory || "";
                     }
                     images.value = data && Array.isArray(data.images)
-                        ? data.images.map(image => ({...image, loaded: false}))
+                        ? data.images.map(image => ({
+                            ...image,
+                            type: image.type === "video" ? "video" : "image",
+                            loaded: false,
+                            aspectRatio: image.type === "video" ? 16 / 9 : image.aspectRatio
+                        }))
                         : [];
                     renderedImageCount.value = Math.min(GALLERY_BATCH_SIZE, images.value.length);
                     viewerIndex.value = Math.min(viewerIndex.value, Math.max(images.value.length - 1, 0));
@@ -136,6 +144,7 @@
 
             function openViewer(index) {
                 if (!images.value.length) return;
+                viewerOpeningVisibleUrls = captureVisibleGalleryUrls();
                 saveGalleryPosition();
                 clearViewerCloseTimer();
                 viewerIndex.value = normalizeViewerIndex(index);
@@ -169,7 +178,8 @@
             function startGalleryImageLongPress(event, image) {
                 if (!event || !event.isPrimary || event.button !== 0) return;
                 clearImageLongPressTimer();
-                const element = event.currentTarget ? event.currentTarget.querySelector("img") : null;
+                const element = event.currentTarget
+                    ? event.currentTarget.querySelector("img, video") : null;
                 galleryLongPressState = {
                     pointerId: event.pointerId,
                     startX: event.clientX,
@@ -220,18 +230,25 @@
             function showImageInfo(image, element, originalDimensions) {
                 if (!image) return;
                 const requestId = ++imageInfoRequestId;
+                const video = image.type === "video";
                 imageInfo.name = imageDisplayName(image);
+                imageInfo.typeText = video ? "视频" : "图片";
                 imageInfo.sizeText = "读取中…";
                 imageInfo.sizeBytes = 0;
-                if (element && element.naturalWidth > 0 && element.naturalHeight > 0) {
-                    imageInfo.dimensionsLabel = originalDimensions ? "原图分辨率" : "预览分辨率";
-                    imageInfo.dimensionsText = `${element.naturalWidth} × ${element.naturalHeight} px`;
+                imageInfo.durationText = video && element && Number.isFinite(element.duration)
+                    ? formatDuration(element.duration) : "";
+                const width = video ? element && element.videoWidth : element && element.naturalWidth;
+                const height = video ? element && element.videoHeight : element && element.naturalHeight;
+                if (width > 0 && height > 0) {
+                    imageInfo.dimensionsLabel = video
+                        ? "视频分辨率" : originalDimensions ? "原图分辨率" : "预览分辨率";
+                    imageInfo.dimensionsText = `${width} × ${height} px`;
                 } else {
                     imageInfo.dimensionsLabel = "";
                     imageInfo.dimensionsText = "";
                 }
                 imageInfoVisible.value = true;
-                readBrowserImageSize(image.url).then(size => {
+                readBrowserImageSize(image.url, video).then(size => {
                     if (requestId !== imageInfoRequestId || !imageInfoVisible.value) return;
                     imageInfo.sizeBytes = size || 0;
                     imageInfo.sizeText = size ? formatFileSize(size) : "浏览器无法读取";
@@ -248,14 +265,27 @@
                 try {
                     const url = new URL(image.url, window.location.href);
                     const pathName = url.searchParams.get("path");
-                    return pathName || decodeURIComponent(url.pathname.split("/").pop()) || "未命名图片";
+                    return pathName || decodeURIComponent(url.pathname.split("/").pop()) || "未命名文件";
                 } catch (error) {
-                    return "未命名图片";
+                    return "未命名文件";
                 }
             }
 
-            async function readBrowserImageSize(url) {
-                const timingSize = readResourceTimingSize(url);
+            function formatDuration(seconds) {
+                if (!Number.isFinite(seconds) || seconds < 0) return "";
+                const totalSeconds = Math.round(seconds);
+                const hours = Math.floor(totalSeconds / 3600);
+                const minutes = Math.floor(totalSeconds % 3600 / 60);
+                const remainingSeconds = totalSeconds % 60;
+                return hours > 0
+                    ? `${hours}:${String(minutes).padStart(2, "0")}:${String(remainingSeconds).padStart(2, "0")}`
+                    : `${minutes}:${String(remainingSeconds).padStart(2, "0")}`;
+            }
+
+            async function readBrowserImageSize(url, requireFullLength = false) {
+                // Video metadata is normally fetched with a byte range, so its Resource
+                // Timing size is only the downloaded prefix rather than the full file.
+                const timingSize = requireFullLength ? 0 : readResourceTimingSize(url);
                 if (timingSize > 0) return timingSize;
                 try {
                     const response = await fetch(url, {
@@ -309,6 +339,7 @@
                 prepareViewerGalleryReturn();
                 closeImageInfo();
                 clearViewerMouseLongPress();
+                pauseViewerVideos();
                 clearViewerCloseTimer();
                 clearViewerSlideTimer();
                 const removeViewerHistory = viewerHistoryEntry && !fromHistory;
@@ -332,6 +363,10 @@
                     pendingViewerGalleryReturn = null;
                     return;
                 }
+                if (viewerOpeningVisibleUrls.has(image.url)) {
+                    pendingViewerGalleryReturn = null;
+                    return;
+                }
                 const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
                 pendingViewerGalleryReturn = {
                     imageUrl: image.url,
@@ -342,6 +377,25 @@
                     Math.min(images.value.length, index + GALLERY_BATCH_SIZE));
             }
 
+            function captureVisibleGalleryUrls() {
+                const urls = new Set();
+                const grid = galleryGrid.value;
+                if (!grid) return urls;
+                const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
+                const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+                grid.querySelectorAll(".gallery-item").forEach(element => {
+                    const rect = element.getBoundingClientRect();
+                    if (rect.width <= 0 || rect.height <= 0 || rect.right <= 0
+                        || rect.left >= viewportWidth || rect.bottom <= 0 || rect.top >= viewportHeight) {
+                        return;
+                    }
+                    const index = Number.parseInt(element.dataset.galleryIndex, 10);
+                    const image = images.value[index];
+                    if (image && image.url) urls.add(image.url);
+                });
+                return urls;
+            }
+
             function handleViewerPopstate() {
                 if (viewerVisible.value && viewerHistoryEntry) closeViewer(true);
             }
@@ -350,6 +404,7 @@
                 viewerSlides.value = [];
                 const returnPosition = pendingViewerGalleryReturn;
                 pendingViewerGalleryReturn = null;
+                viewerOpeningVisibleUrls = new Set();
                 unlockViewerScroll(!returnPosition);
                 resetViewerTransform(false);
                 resetViewerTrack(false);
@@ -373,14 +428,23 @@
                     top: bodyStyle.top,
                     left: bodyStyle.left,
                     right: bodyStyle.right,
-                    width: bodyStyle.width
+                    width: bodyStyle.width,
+                    boxSizing: bodyStyle.boxSizing,
+                    paddingRight: bodyStyle.paddingRight
                 };
-                bodyStyle.overflow = "hidden";
+                const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
+                const layoutWidth = document.documentElement.clientWidth || viewportWidth;
+                const scrollbarWidth = Math.max(0, viewportWidth - layoutWidth);
+                const computedPaddingRight = Number.parseFloat(
+                    window.getComputedStyle(document.body).paddingRight) || 0;
                 bodyStyle.position = "fixed";
                 bodyStyle.top = `-${viewerScrollY}px`;
                 bodyStyle.left = `-${viewerScrollX}px`;
                 bodyStyle.right = "0";
+                bodyStyle.boxSizing = "border-box";
+                bodyStyle.paddingRight = `${computedPaddingRight + scrollbarWidth}px`;
                 bodyStyle.width = "100%";
+                bodyStyle.overflow = "hidden";
                 viewerScrollLocked = true;
             }
 
@@ -394,6 +458,8 @@
                 bodyStyle.left = savedStyles.left || "";
                 bodyStyle.right = savedStyles.right || "";
                 bodyStyle.width = savedStyles.width || "";
+                bodyStyle.boxSizing = savedStyles.boxSizing || "";
+                bodyStyle.paddingRight = savedStyles.paddingRight || "";
                 viewerScrollLocked = false;
                 previousBodyStyles = null;
                 if (!restoreSavedPosition) return;
@@ -433,7 +499,8 @@
                     id: viewerSlideId,
                     image,
                     originalRequested,
-                    originalReady: false
+                    originalReady: false,
+                    loadError: false
                 };
             }
 
@@ -471,6 +538,7 @@
             function startViewerSlide(direction) {
                 if (images.value.length < 2 || viewerSlideAnimating.value) return;
                 clearViewerCloseTimer();
+                pauseViewerVideos();
                 resetViewerTransform(true);
                 pendingViewerDirection = direction < 0 ? -1 : 1;
                 requestViewerSlideOriginal(pendingViewerDirection);
@@ -578,6 +646,7 @@
 
             function toggleViewerZoom() {
                 clearViewerCloseTimer();
+                if (!currentImage.value || currentImage.value.type === "video") return;
                 viewerTransition.value = true;
                 if (viewerScale.value > 1.05) {
                     resetViewerTransform(true);
@@ -609,6 +678,9 @@
 
             function handleViewerTouchStart(event) {
                 if (viewerSlideAnimating.value) return;
+                if (event.target && typeof event.target.closest === "function"
+                    && event.target.closest(".cinema-viewer-video")) return;
+                if (event.cancelable) event.preventDefault();
                 clearViewerCloseTimer();
                 clearImageLongPressTimer();
                 viewerTransition.value = false;
@@ -661,7 +733,7 @@
             function startViewerMouseLongPress(event) {
                 if (!event || event.pointerType !== "mouse" || !event.isPrimary || event.button !== 0) return;
                 if (event.target && typeof event.target.closest === "function"
-                    && event.target.closest(".cinema-viewer-nav")) return;
+                    && event.target.closest(".cinema-viewer-nav, .cinema-viewer-video")) return;
                 clearViewerMouseLongPress();
                 const element = event.currentTarget
                     ? event.currentTarget.querySelector(".cinema-viewer-slide:nth-child(2) .cinema-viewer-image")
@@ -710,6 +782,7 @@
 
             function handleViewerTouchMove(event) {
                 if (!touchState) return;
+                if (event.cancelable) event.preventDefault();
                 if (event.touches.length >= 2) {
                     clearImageLongPressTimer();
                     if (touchState.mode !== "pinch") {
@@ -745,6 +818,8 @@
             }
 
             function handleViewerTouchEnd(event) {
+                if (!touchState) return;
+                if (event.cancelable) event.preventDefault();
                 clearImageLongPressTimer();
                 if (event.touches && event.touches.length) {
                     if (event.touches.length === 1 && touchState && touchState.mode === "pinch") {
@@ -763,7 +838,6 @@
                     }
                     return;
                 }
-                if (!touchState) return;
                 const completedTouch = touchState;
                 touchState = null;
                 viewerTransition.value = true;
@@ -853,6 +927,29 @@
                 if (slideIndex === 1) handleViewerImageLoad();
             }
 
+            function handleViewerVideoMetadata(event, slide) {
+                if (!slide) return;
+                const element = event && event.currentTarget;
+                if (slide.image && element && element.videoWidth > 0 && element.videoHeight > 0) {
+                    slide.image.aspectRatio = element.videoWidth / element.videoHeight;
+                }
+                slide.originalReady = true;
+                slide.loadError = false;
+            }
+
+            function handleViewerVideoError(slide) {
+                if (!slide) return;
+                slide.originalReady = false;
+                slide.loadError = true;
+            }
+
+            function pauseViewerVideos() {
+                if (!viewerRoot.value) return;
+                viewerRoot.value.querySelectorAll(".cinema-viewer-video").forEach(video => {
+                    if (typeof video.pause === "function") video.pause();
+                });
+            }
+
             function handleViewerImageError(event) {
                 const failedImage = currentImage.value;
                 const element = event && event.currentTarget;
@@ -888,7 +985,7 @@
             }
 
             function preloadViewerImages(startIndex) {
-                const urls = images.value.map(image => image.url).filter(Boolean);
+                const urls = images.value.map(image => image.type === "video" ? null : image.url);
                 if (!urls.length) return;
                 const order = [];
                 const visited = new Set();
@@ -896,7 +993,7 @@
                     const normalized = ((index % urls.length) + urls.length) % urls.length;
                     if (visited.has(normalized)) return;
                     visited.add(normalized);
-                    order.push(urls[normalized]);
+                    if (urls[normalized]) order.push(urls[normalized]);
                 };
                 // The current image is loaded by the viewer itself. Preload only the
                 // next 10 images; the old implementation walked the whole gallery.
@@ -920,6 +1017,26 @@
                     return;
                 }
                 hideBrokenImage(image);
+            }
+
+            function markVideoLoaded(event, video) {
+                if (!video) return;
+                const element = event && event.currentTarget;
+                if (element && element.videoWidth > 0 && element.videoHeight > 0) {
+                    video.aspectRatio = element.videoWidth / element.videoHeight;
+                }
+                video.durationText = element && Number.isFinite(element.duration)
+                    ? formatDuration(element.duration) : "";
+                video.loadError = false;
+                video.loaded = true;
+                scheduleGalleryLayout();
+            }
+
+            function handleGalleryVideoError(video) {
+                if (!video) return;
+                video.loadError = true;
+                video.loaded = true;
+                scheduleGalleryLayout();
             }
 
             function pumpPreloadQueue() {
@@ -1242,14 +1359,17 @@
                 const rowHeight = Number.parseFloat(styles.gridAutoRows) || 8;
                 const rowGap = Number.parseFloat(styles.rowGap) || 16;
                 grid.querySelectorAll(".gallery-item").forEach((item) => {
-                    const image = item.querySelector("img");
+                    const image = item.querySelector("img, video");
                     const width = item.getBoundingClientRect().width;
                     const index = Number.parseInt(item.dataset.galleryIndex, 10);
                     const galleryImage = images.value[index];
+                    const isVideo = galleryImage && galleryImage.type === "video";
+                    const mediaWidth = isVideo ? image && image.videoWidth : image && image.naturalWidth;
+                    const mediaHeight = isVideo ? image && image.videoHeight : image && image.naturalHeight;
                     const imageLoaded = image && !image.classList.contains("is-loading")
-                        && image.naturalWidth > 0 && image.naturalHeight > 0;
+                        && mediaWidth > 0 && mediaHeight > 0;
                     const height = imageLoaded
-                        ? Math.ceil(width * image.naturalHeight / image.naturalWidth)
+                        ? Math.ceil(width * mediaHeight / mediaWidth)
                         : galleryImage && Number.isFinite(galleryImage.aspectRatio)
                             && galleryImage.aspectRatio > 0
                             ? Math.ceil(width / galleryImage.aspectRatio) : 210;
@@ -1292,6 +1412,7 @@
                 dismissResumePrompt();
                 stopGalleryPositionRestore(false);
                 pendingViewerGalleryReturn = null;
+                viewerOpeningVisibleUrls = new Set();
                 cancelGalleryImageLongPress();
                 clearViewerMouseLongPress();
                 closeImageInfo();
@@ -1317,6 +1438,7 @@
                 galleryGrid,
                 handleGalleryItemClick,
                 handleGalleryImageError,
+                handleGalleryVideoError,
                 handleViewerClick,
                 handleViewerAfterLeave,
                 handleViewerImageError,
@@ -1324,6 +1446,8 @@
                 handleViewerPopstate,
                 handleViewerSlideError,
                 handleViewerSlideLoad,
+                handleViewerVideoError,
+                handleViewerVideoMetadata,
                 handleViewerTrackTransitionEnd,
                 handleViewerTouchEnd,
                 handleViewerTouchMove,
@@ -1344,6 +1468,7 @@
                 loadGallery,
                 loading,
                 markImageLoaded,
+                markVideoLoaded,
                 openViewer,
                 goBack,
                 nextViewerImage,

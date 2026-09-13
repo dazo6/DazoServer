@@ -11,20 +11,20 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.core.io.Resource;
 import org.springframework.http.ResponseEntity;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 import javax.imageio.ImageIO;
-import java.awt.Color;
-import java.awt.Graphics2D;
+import java.awt.*;
 import java.awt.image.BufferedImage;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.times;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 class ArtistGalleryControllerTest {
 
@@ -38,6 +38,7 @@ class ArtistGalleryControllerTest {
         Files.createDirectories(artistDirectory);
         Path source = artistDirectory.resolve("sample.png");
         writeImage(source);
+        Files.write(artistDirectory.resolve("sample.mp4"), new byte[]{0, 0, 0, 24, 102, 116, 121, 112});
 
         Artist artist = new Artist().setId(7).setName("artist-one").setArtistId("creator-one")
                 .setType("fanbox");
@@ -58,12 +59,17 @@ class ArtistGalleryControllerTest {
         List<ArtistGalleryItem> images = gallery.getImages();
 
         assertThat(gallery.getArtist().getArtistDirectory()).isEqualTo("artist-one");
-        assertThat(images).hasSize(1);
-        assertThat(images.get(0).getThumbnailUrl()).endsWith("&thumbnail=true");
+        assertThat(images).hasSize(2);
+        ArtistGalleryItem image = images.stream().filter(item -> "image".equals(item.getType())).findFirst().get();
+        ArtistGalleryItem video = images.stream().filter(item -> "video".equals(item.getType())).findFirst().get();
+        assertThat(image.getThumbnailUrl()).endsWith("&thumbnail=true");
+        assertThat(video.getThumbnailUrl()).isNull();
+        assertThat(video.getUrl()).contains("sample.mp4");
         verify(artistService, times(1)).getById(7);
 
         ResponseEntity<Resource> first = controller.getGalleryFile("artist-one", "sample.png", true);
         ResponseEntity<Resource> second = controller.getGalleryFile("artist-one", "sample.png", true);
+        ResponseEntity<Resource> videoResponse = controller.getGalleryFile("artist-one", "sample.mp4", false);
 
         assertThat(first.getStatusCodeValue()).isEqualTo(200);
         assertThat(first.getHeaders().getContentType().toString()).isEqualTo("image/jpeg");
@@ -71,6 +77,10 @@ class ArtistGalleryControllerTest {
         assertThat(first.getBody().getFile()).exists();
         assertThat(first.getBody().getFile().toPath()).startsWith(cacheRoot);
         assertThat(second.getBody().getFile()).isEqualTo(first.getBody().getFile());
+        assertThat(videoResponse.getStatusCodeValue()).isEqualTo(200);
+        assertThat(videoResponse.getHeaders().getContentType().toString()).isEqualTo("video/mp4");
+        assertThat(videoResponse.getHeaders().getFirst("Accept-Ranges")).isEqualTo("bytes");
+        assertThat(videoResponse.getBody().getFile().toPath()).isEqualTo(artistDirectory.resolve("sample.mp4"));
         try (java.util.stream.Stream<Path> cachedFiles = Files.walk(cacheRoot)) {
             assertThat(cachedFiles.filter(Files::isRegularFile).count()).isEqualTo(1);
         }
@@ -114,6 +124,29 @@ class ArtistGalleryControllerTest {
                 "2026-07-23-set-02.png",
                 "without-date.png"
         );
+    }
+
+    @Test
+    void servesVideoByteRangesForSeeking() throws Exception {
+        Path downloadRoot = temporaryDirectory.resolve("video-downloads");
+        Path artistDirectory = downloadRoot.resolve("video-artist");
+        Files.createDirectories(artistDirectory);
+        byte[] videoBytes = new byte[]{0, 0, 0, 24, 102, 116, 121, 112};
+        Files.write(artistDirectory.resolve("clip.mp4"), videoBytes);
+
+        ArtistGalleryController controller = new ArtistGalleryController(
+                mock(KemonoArtistService.class), mock(ArtistManagementService.class),
+                downloadRoot.toString(), temporaryDirectory.resolve("video-cache"));
+        MockMvc mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
+
+        mockMvc.perform(get("/api/fanbox/gallery/file")
+                        .param("artistDirectory", "video-artist")
+                        .param("path", "clip.mp4")
+                        .header("Range", "bytes=2-5"))
+                .andExpect(status().isPartialContent())
+                .andExpect(header().string("Content-Range", "bytes 2-5/8"))
+                .andExpect(header().string("Accept-Ranges", "bytes"))
+                .andExpect(content().bytes(new byte[]{0, 24, 102, 116}));
     }
 
     private void writeImage(Path path) throws Exception {

@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="light">
     <title>Fanbox Crawl Dashboard</title>
-    <link rel="stylesheet" href="https://unpkg.com/element-plus@2.14.5/dist/index.css">
+    <link rel="stylesheet" href="/dashboard/vendor/element-plus.css">
     <link rel="stylesheet" href="/dashboard/dashboard.css">
 </head>
 <body>
@@ -327,12 +327,12 @@
                     </div>
                 </div>
                 <div class="gallery-actions">
-                    <el-select v-model="sort.field" style="width: 130px" @change="loadGallery">
+                    <el-select v-model="sort.field" style="width: 130px" @change="handleSortChange">
                         <el-option label="套图排序" value="album"></el-option>
                         <el-option label="创建时间" value="created"></el-option>
                         <el-option label="文件名称" value="name"></el-option>
                     </el-select>
-                    <el-select v-model="sort.order" style="width: 130px" @change="loadGallery">
+                    <el-select v-model="sort.order" style="width: 130px" @change="handleSortChange">
                         <el-option label="倒序" value="desc"></el-option>
                         <el-option label="正序" value="asc"></el-option>
                     </el-select>
@@ -345,24 +345,57 @@
                   show-icon :closable="false"></el-alert>
         <div v-if="!loading && !images.length" class="gallery-empty">当前画师还没有下载图片</div>
         <div ref="galleryGrid" v-loading="loading" class="gallery-grid">
-            <button v-for="(image, index) in images" :key="image.url" class="gallery-item" type="button"
-                    :class="{ 'is-loaded': image.loaded }"
-                    @click="openViewer(index)">
+            <button v-for="(image, index) in visibleImages" :key="image.url" class="gallery-item" type="button"
+                     :data-gallery-index="index"
+                     :class="{ 'is-loaded': image.loaded }"
+                     @click="handleGalleryItemClick(index)"
+                     @pointerdown="startGalleryImageLongPress($event, image)"
+                     @pointermove="trackGalleryImageLongPress"
+                     @pointerup="finishGalleryImageLongPress"
+                     @pointercancel="cancelGalleryImageLongPress"
+                     @pointerleave="cancelGalleryImageLongPress"
+                     @contextmenu.prevent>
                 <el-skeleton v-if="!image.loaded" class="gallery-image-skeleton" animated>
                     <template #template>
                         <el-skeleton-item variant="image"></el-skeleton-item>
                     </template>
                 </el-skeleton>
                 <img :class="{ 'is-loading': !image.loaded }" :src="image.thumbnailUrl || image.url" :alt="image.name"
-                     loading="lazy" @load="markImageLoaded(image)" @error="hideBrokenImage(image)">
+                     loading="eager" decoding="async" draggable="false" @load="markImageLoaded($event, image)"
+                     @error="handleGalleryImageError($event, image)">
             </button>
         </div>
+        <div v-if="visibleImages.length < images.length" class="gallery-load-more" aria-live="polite">
+            下滑加载更多（已显示 {{ visibleImages.length }} / {{ images.length }}）
+        </div>
+
+        <teleport to="body">
+            <transition name="gallery-resume">
+                <div v-if="resumePromptVisible && resumePosition" class="gallery-resume-toast"
+                     role="status" aria-live="polite">
+                    <button class="gallery-resume-action" type="button" @click="restoreSavedGalleryPosition">
+                        <span class="gallery-resume-icon" aria-hidden="true">↥</span>
+                        <span>
+                            <strong>回到上次浏览位置</strong>
+                            <small>继续查看第 {{ resumePosition.index + 1 }} 张附近</small>
+                        </span>
+                    </button>
+                    <button class="gallery-resume-close" type="button" aria-label="关闭位置提示"
+                            @click="dismissResumePrompt">×</button>
+                </div>
+            </transition>
+        </teleport>
 
         <teleport to="body">
             <transition name="cinema" @after-leave="handleViewerAfterLeave">
                 <div v-if="viewerVisible && currentImage" ref="viewerRoot" class="cinema-viewer"
                      role="dialog" aria-modal="true" aria-label="图片预览" tabindex="-1"
                      @click="handleViewerClick" @dblclick.stop.prevent="toggleViewerZoom"
+                     @pointerdown="startViewerMouseLongPress"
+                     @pointermove="trackViewerMouseLongPress"
+                     @pointerup="finishViewerMouseLongPress"
+                     @pointercancel="clearViewerMouseLongPress"
+                     @pointerleave="clearViewerMouseLongPress"
                      @touchstart.prevent="handleViewerTouchStart"
                      @touchmove.prevent="handleViewerTouchMove"
                      @touchend.prevent="handleViewerTouchEnd"
@@ -373,12 +406,21 @@
                         <div v-for="(slide, slideIndex) in viewerSlides" :key="slide.id"
                              class="cinema-viewer-slide" :aria-hidden="slideIndex === 1 ? undefined : 'true'">
                             <div class="cinema-viewer-media">
+                                <img v-if="slide.image && slide.image.thumbnailUrl"
+                                     class="cinema-viewer-placeholder"
+                                     :src="slide.image.thumbnailUrl" alt="" aria-hidden="true"
+                                     decoding="async" draggable="false" @error="hideViewerPreview">
                                 <img v-if="slide.image" class="cinema-viewer-image"
-                                     :class="{ 'cinema-viewer-preview': slideIndex !== 1 }"
-                                     :src="slide.image.url" :alt="slideIndex === 1 ? slide.image.name : ''"
-                                     :style="slideIndex === 1 ? viewerImageStyle : undefined"
-                                     :decoding="slideIndex === 1 ? 'sync' : 'async'" draggable="false"
-                                     @load="slideIndex === 1 && handleViewerImageLoad()"
+                                     :class="{
+                                         'cinema-viewer-preview': slideIndex !== 1,
+                                         'is-pending': slide.originalRequested && !slide.originalReady
+                                     }"
+                                      :src="slide.originalRequested
+                                          ? slide.image.url : (slide.image.thumbnailUrl || slide.image.url)"
+                                      :alt="slideIndex === 1 ? slide.image.name : ''"
+                                      :style="slideIndex === 1 ? viewerImageStyle : undefined"
+                                      decoding="async" draggable="false"
+                                     @load="handleViewerSlideLoad($event, slide, slideIndex)"
                                      @error="handleViewerSlideError($event, slideIndex)">
                             </div>
                         </div>
@@ -389,6 +431,36 @@
                     <button class="cinema-viewer-nav cinema-viewer-next" type="button" aria-label="下一张"
                             @click.stop="nextViewerImage" @dblclick.stop @touchstart.stop>›
                     </button>
+                </div>
+            </transition>
+        </teleport>
+
+        <teleport to="body">
+            <transition name="image-info">
+                <div v-if="imageInfoVisible" class="image-info-backdrop" role="dialog" aria-modal="true"
+                     aria-label="图片信息" @click.self="closeImageInfo">
+                    <section class="image-info-card">
+                        <header>
+                            <strong>图片信息</strong>
+                            <button type="button" aria-label="关闭图片信息" @click="closeImageInfo">×</button>
+                        </header>
+                        <dl>
+                            <div>
+                                <dt>文件名</dt>
+                                <dd>{{ imageInfo.name }}</dd>
+                            </div>
+                            <div>
+                                <dt>文件大小</dt>
+                                <dd :title="imageInfo.sizeBytes ? imageInfo.sizeBytes.toLocaleString() + ' bytes' : ''">
+                                    {{ imageInfo.sizeText }}
+                                </dd>
+                            </div>
+                            <div v-if="imageInfo.dimensionsText">
+                                <dt>{{ imageInfo.dimensionsLabel }}</dt>
+                                <dd>{{ imageInfo.dimensionsText }}</dd>
+                            </div>
+                        </dl>
+                    </section>
                 </div>
             </transition>
         </teleport>
@@ -480,10 +552,10 @@
 </template>
 
 <noscript>此管理页面需要启用 JavaScript。</noscript>
-<script src="https://unpkg.com/vue@3.5.42/dist/vue.global.prod.js" defer></script>
-<script src="https://unpkg.com/vue-router@5.3.1/dist/vue-router.global.prod.js" defer></script>
-<script src="https://unpkg.com/element-plus@2.14.5/dist/index.full.min.js" defer></script>
-<script src="https://unpkg.com/echarts@6.1.0/dist/echarts.min.js" defer></script>
+<script src="/dashboard/vendor/vue.global.prod.js" defer></script>
+<script src="/dashboard/vendor/vue-router.global.prod.js" defer></script>
+<script src="/dashboard/vendor/element-plus.full.min.js" defer></script>
+<script src="/dashboard/vendor/echarts.min.js" defer></script>
 <script src="/dashboard/pages/dashboard-home.js" defer></script>
 <script src="/dashboard/pages/artist-management.js" defer></script>
 <script src="/dashboard/pages/artist-gallery.js" defer></script>

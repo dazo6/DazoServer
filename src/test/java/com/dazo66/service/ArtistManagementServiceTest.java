@@ -29,7 +29,7 @@ class ArtistManagementServiceTest {
         ArtistCreateRequest request = request("https://takk.fanbox.cc/posts/123", null, false);
 
         Artist artist = service.parse(request);
-        artist.setIcon("https://img.example/takk.jpg");
+        artist.setIcon("artist-7-icon-0123456789abcdef0123456789abcdef.jpg");
         ArtistManagementItem item = service.toItem(artist);
 
         assertThat(artist.getArtistId()).isEqualTo("takk");
@@ -37,7 +37,8 @@ class ArtistManagementServiceTest {
         assertThat(artist.getType()).isEqualTo("fanbox");
         assertThat(artist.getCompression()).isFalse();
         assertThat(item.getName()).isEqualTo("takk");
-        assertThat(item.getIcon()).isEqualTo("https://img.example/takk.jpg");
+        assertThat(item.getIcon()).isEqualTo(
+                "/api/fanbox/artist-image/artist-7-icon-0123456789abcdef0123456789abcdef.jpg");
         assertThat(item.getUrl()).isEqualTo("https://www.fanbox.cc/@takk");
     }
 
@@ -59,8 +60,8 @@ class ArtistManagementServiceTest {
         assertThat(artist.getArtistId()).isEqualTo("14429315");
         assertThat(artist.getType()).isEqualTo("fanbox");
         assertThat(artist.getDomain()).isEqualTo(ArtistDomainEnum.KEMONO);
-        assertThat(artist.getIcon()).isEqualTo("https://pawchive.pw/icons/fanbox/14429315");
-        assertThat(artist.getBanner()).isEqualTo("https://pawchive.pw/banners/fanbox/14429315");
+        assertThat(artist.getIcon()).isNull();
+        assertThat(artist.getBanner()).isNull();
         assertThat(artist.getCompression()).isTrue();
         assertThat(item.getName()).isEqualTo("Some Artist");
         assertThat(item.getType()).isEqualTo("kemono-fanbox");

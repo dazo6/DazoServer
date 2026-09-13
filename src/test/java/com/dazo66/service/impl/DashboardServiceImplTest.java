@@ -40,9 +40,10 @@ class DashboardServiceImplTest {
                 new HourlyCount("2026-09-12 12:00", 7)
         ));
         when(mapper.selectStatusCounts()).thenReturn(Collections.singletonList(new StatusCount(true, 10)));
-        when(mapper.selectArtistUpdates()).thenReturn(Collections.singletonList(
-                new ArtistUpdate("Artist (123)", "2026-09-12 12:30")
-        ));
+        ArtistUpdate artistUpdate = new ArtistUpdate("Artist (123)", "2026-09-12 12:30");
+        artistUpdate.setIcon("artist-7-icon-0123456789abcdef0123456789abcdef.jpg");
+        artistUpdate.setBanner("https://external.example/banner.jpg");
+        when(mapper.selectArtistUpdates()).thenReturn(Collections.singletonList(artistUpdate));
         Clock clock = Clock.fixed(Instant.parse("2026-09-12T04:34:00Z"), ZoneId.of("Asia/Shanghai"));
 
         DashboardData data = new DashboardServiceImpl(mapper, clock).getDashboardData();
@@ -58,6 +59,9 @@ class DashboardServiceImplTest {
                         org.assertj.core.groups.Tuple.tuple(true, 10L)
                 );
         assertThat(data.getArtistUpdates()).hasSize(1);
+        assertThat(data.getArtistUpdates().get(0).getIcon()).isEqualTo(
+                "/api/fanbox/artist-image/artist-7-icon-0123456789abcdef0123456789abcdef.jpg");
+        assertThat(data.getArtistUpdates().get(0).getBanner()).isNull();
     }
 
     @Test

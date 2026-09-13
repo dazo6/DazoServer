@@ -2,6 +2,7 @@ package com.dazo66.config;
 
 import com.dazo66.entity.Artist;
 import com.dazo66.entity.ArtistDomainEnum;
+import com.dazo66.service.ArtistImageCache;
 import com.dazo66.service.ArtistManagementService;
 import com.dazo66.service.KemonoArtistService;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
@@ -13,33 +14,50 @@ import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
 
-import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.eq;
 
 class ArtistIconSchedulerTest {
 
     @Test
-    void buildsKemonoImagesWithConfiguredHostEvenInJsonMode() {
+    void downloadsKemonoImagesAndStoresOnlyCacheFileNames() throws Exception {
         KemonoProperties properties = new KemonoProperties();
         properties.setMode(KemonoProperties.Mode.JSON);
         properties.setBaseUrl("https://pawchive.pw/");
         ArtistManagementService managementService = mock(ArtistManagementService.class);
         when(managementService.effectiveDomain(org.mockito.ArgumentMatchers.any(Artist.class)))
                 .thenReturn(ArtistDomainEnum.KEMONO);
+        Artist artist = new Artist().setId(7).setType("patreon").setArtistId("84167799");
+        Page<Artist> page = new Page<>();
+        page.setRecords(Collections.singletonList(artist));
+        KemonoArtistService artistService = mock(KemonoArtistService.class);
+        when(artistService.getArtistByPage(anyInt(), anyInt(), any(Wrapper.class))).thenReturn(page);
+        OkHttpClient client = mock(OkHttpClient.class);
+        ArtistImageCache imageCache = mock(ArtistImageCache.class);
+        String iconFile = "artist-7-icon-0123456789abcdef0123456789abcdef.jpg";
+        String bannerFile = "artist-7-banner-fedcba9876543210fedcba9876543210.webp";
+        when(imageCache.download(eq(client), any(com.squareup.okhttp.Request.class), eq(7), eq("icon")))
+                .thenReturn(iconFile);
+        when(imageCache.download(eq(client), any(com.squareup.okhttp.Request.class), eq(7), eq("banner")))
+                .thenReturn(bannerFile);
         ArtistIconScheduler scheduler = new ArtistIconScheduler(
-                mock(KemonoArtistService.class), managementService, properties,
-                mock(CookieConfig.class), mock(OkHttpClient.class));
+                artistService, managementService, properties, mock(CookieConfig.class), client, imageCache);
 
-        String icon = scheduler.resolveIcon(new Artist().setType("patreon").setArtistId("84167799"));
-        String banner = scheduler.resolveBanner(new Artist().setType("patreon").setArtistId("84167799"));
+        scheduler.refreshIcons();
 
-        assertThat(icon).isEqualTo("https://pawchive.pw/icons/patreon/84167799");
-        assertThat(banner).isEqualTo("https://pawchive.pw/banners/patreon/84167799");
+        verify(imageCache).download(eq(client), org.mockito.ArgumentMatchers.argThat(request ->
+                "https://pawchive.pw/icons/patreon/84167799".equals(request.urlString())),
+                eq(7), eq("icon"));
+        verify(imageCache).download(eq(client), org.mockito.ArgumentMatchers.argThat(request ->
+                "https://pawchive.pw/banners/patreon/84167799".equals(request.urlString())),
+                eq(7), eq("banner"));
+        verify(artistService).updateById(org.mockito.ArgumentMatchers.argThat(updated ->
+                iconFile.equals(updated.getIcon()) && bannerFile.equals(updated.getBanner())));
     }
 
     @Test
@@ -69,14 +87,20 @@ class ArtistIconSchedulerTest {
         when(call.execute()).thenReturn(response);
         OkHttpClient client = mock(OkHttpClient.class);
         when(client.newCall(any(com.squareup.okhttp.Request.class))).thenReturn(call);
+        ArtistImageCache imageCache = mock(ArtistImageCache.class);
+        String iconFile = "artist-7-icon-0123456789abcdef0123456789abcdef.jpg";
+        String bannerFile = "artist-7-banner-fedcba9876543210fedcba9876543210.jpg";
+        when(imageCache.download(eq(client), any(com.squareup.okhttp.Request.class), eq(7), eq("icon")))
+                .thenReturn(iconFile);
+        when(imageCache.download(eq(client), any(com.squareup.okhttp.Request.class), eq(7), eq("banner")))
+                .thenReturn(bannerFile);
 
         ArtistIconScheduler scheduler = new ArtistIconScheduler(
-                artistService, managementService, properties, mock(CookieConfig.class), client);
+                artistService, managementService, properties, mock(CookieConfig.class), client, imageCache);
         scheduler.refreshIcons();
 
         verify(client, times(1)).newCall(any(com.squareup.okhttp.Request.class));
         verify(artistService).updateById(org.mockito.ArgumentMatchers.argThat(updated ->
-                "https://img/icon.jpg".equals(updated.getIcon())
-                        && "https://img/banner.jpg".equals(updated.getBanner())));
+                iconFile.equals(updated.getIcon()) && bannerFile.equals(updated.getBanner())));
     }
 }

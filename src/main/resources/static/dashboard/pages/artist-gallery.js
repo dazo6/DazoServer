@@ -4,6 +4,11 @@
     const {computed, nextTick, onBeforeUnmount, onMounted, reactive, ref} = Vue;
     const {useRoute, useRouter} = VueRouter;
     window.DazoAdminPages = window.DazoAdminPages || {};
+    const GALLERY_POSITION_STORAGE_PREFIX = "dazo-gallery-position-v1:";
+    const GALLERY_RESUME_PROMPT_MS = 20000;
+    const GALLERY_RESTORE_STABILIZE_MS = 20000;
+    const IMAGE_LONG_PRESS_MS = 550;
+    const IMAGE_LONG_PRESS_MOVE_PX = 10;
 
     window.DazoAdminPages.ArtistGallery = {
         template: "#artist-gallery-template",
@@ -19,6 +24,8 @@
             });
             const galleryGrid = ref(null);
             const images = ref([]);
+            const renderedImageCount = ref(0);
+            const visibleImages = computed(() => images.value.slice(0, renderedImageCount.value));
             const loading = ref(false);
             const errorMessage = ref("");
             const viewerVisible = ref(false);
@@ -32,33 +39,74 @@
             const viewerSwipeTransition = ref(false);
             const viewerSwipeDuration = ref(260);
             const viewerSlideAnimating = ref(false);
-            const sort = reactive({field: "album", order: "desc"});
+            let savedGalleryPosition = readGalleryPosition();
+            const sort = reactive({
+                field: savedGalleryPosition && ["album", "created", "name"].includes(savedGalleryPosition.sortField)
+                    ? savedGalleryPosition.sortField : "album",
+                order: savedGalleryPosition && ["asc", "desc"].includes(savedGalleryPosition.sortOrder)
+                    ? savedGalleryPosition.sortOrder : "desc"
+            });
+            const resumePromptVisible = ref(false);
+            const resumePosition = ref(null);
+            const imageInfoVisible = ref(false);
+            const imageInfo = reactive({
+                name: "",
+                sizeText: "读取中…",
+                sizeBytes: 0,
+                dimensionsLabel: "",
+                dimensionsText: ""
+            });
             const artistName = computed(() => artist.name || route.query.name || "画师图库");
             const currentImage = computed(() => images.value[viewerIndex.value] || null);
             const viewerImageStyle = computed(() => ({
-                transform: `translate3d(${viewerOffset.x}px, ${viewerOffset.y}px, 0) scale(${viewerScale.value})`,
-                transition: viewerTransition.value ? "transform .22s ease-out" : "none"
+                transform: `translate(${viewerOffset.x}px, ${viewerOffset.y}px) scale(${viewerScale.value})`,
+                transition: viewerTransition.value
+                    ? "transform .22s ease-out, opacity .14s ease"
+                    : "opacity .14s ease"
             }));
             const viewerTrackStyle = computed(() => ({
-                transform: `translate3d(calc(-100vw + ${viewerSwipeOffset.value}px), 0, 0)`,
+                transform: `translateX(calc(-100vw + ${viewerSwipeOffset.value}px))`,
                 transition: viewerSwipeTransition.value
                     ? `transform ${viewerSwipeDuration.value}ms cubic-bezier(.22, .61, .36, 1)` : "none"
             }));
 
             let layoutFrame = 0;
+            let galleryBatchFrame = 0;
+            let positionSaveTimer = 0;
+            let resumePromptTimer = 0;
+            let restoreDeadlineTimer = 0;
+            let restoreStableTimer = 0;
+            let activeRestorePosition = null;
+            let pendingViewerGalleryReturn = null;
+            let resumeOfferConsumed = false;
+            let imageLongPressTimer = 0;
+            let galleryLongPressState = null;
+            let viewerMouseLongPressState = null;
+            let suppressGalleryClickUntil = 0;
+            let imageInfoRequestId = 0;
             let viewerCloseTimer = 0;
             let lastTouchTapAt = 0;
             let suppressMouseClickUntil = 0;
             let touchState = null;
-            let previousBodyOverflow = "";
-            let preloadGeneration = 0;
+            let viewerScrollLocked = false;
+            let viewerScrollX = 0;
+            let viewerScrollY = 0;
+            let previousBodyStyles = null;
+            let viewerHistoryEntry = false;
             let viewerSlideTimer = 0;
             let pendingViewerDirection = 0;
             let viewerSlideId = 0;
             let viewerCompletingSlide = false;
+            const MAX_FORWARD_PRELOAD = 10;
+            const PRELOAD_CONCURRENCY = 3;
             const preloadPromises = new Map();
+            let preloadQueue = [];
+            let preloadWindowUrls = new Set();
+            let preloadActiveCount = 0;
+            const GALLERY_BATCH_SIZE = 30;
+            const GALLERY_LOAD_AHEAD_PX = 900;
 
-            async function loadGallery() {
+            async function loadGallery(offerResume = true) {
                 loading.value = true;
                 errorMessage.value = "";
                 try {
@@ -74,8 +122,11 @@
                     images.value = data && Array.isArray(data.images)
                         ? data.images.map(image => ({...image, loaded: false}))
                         : [];
+                    renderedImageCount.value = Math.min(GALLERY_BATCH_SIZE, images.value.length);
                     viewerIndex.value = Math.min(viewerIndex.value, Math.max(images.value.length - 1, 0));
                     scheduleGalleryLayout();
+                    scheduleGalleryBatchCheck();
+                    if (offerResume) nextTick(offerSavedGalleryPosition);
                 } catch (error) {
                     errorMessage.value = `图库加载失败：${error.message}`;
                 } finally {
@@ -85,14 +136,22 @@
 
             function openViewer(index) {
                 if (!images.value.length) return;
+                saveGalleryPosition();
                 clearViewerCloseTimer();
                 viewerIndex.value = normalizeViewerIndex(index);
                 rebuildViewerSlides();
                 resetViewerTransform(false);
                 resetViewerTrack(false);
+                if (!viewerHistoryEntry) {
+                    window.history.pushState(
+                        {...(window.history.state || {}), dazoViewer: true},
+                        "",
+                        window.location.href
+                    );
+                    viewerHistoryEntry = true;
+                }
                 viewerVisible.value = true;
-                previousBodyOverflow = document.body.style.overflow;
-                document.body.style.overflow = "hidden";
+                lockViewerScroll();
                 nextTick(() => {
                     if (viewerRoot.value) viewerRoot.value.focus({preventScroll: true});
                     window.requestAnimationFrame(() => {
@@ -102,19 +161,248 @@
                 preloadViewerImages(viewerIndex.value);
             }
 
-            function closeViewer() {
+            function handleGalleryItemClick(index) {
+                if (Date.now() < suppressGalleryClickUntil) return;
+                openViewer(index);
+            }
+
+            function startGalleryImageLongPress(event, image) {
+                if (!event || !event.isPrimary || event.button !== 0) return;
+                clearImageLongPressTimer();
+                const element = event.currentTarget ? event.currentTarget.querySelector("img") : null;
+                galleryLongPressState = {
+                    pointerId: event.pointerId,
+                    startX: event.clientX,
+                    startY: event.clientY,
+                    longPressed: false
+                };
+                const state = galleryLongPressState;
+                imageLongPressTimer = window.setTimeout(() => {
+                    imageLongPressTimer = 0;
+                    if (galleryLongPressState !== state) return;
+                    state.longPressed = true;
+                    suppressGalleryClickUntil = Date.now() + 900;
+                    showImageInfo(image, element, false);
+                }, IMAGE_LONG_PRESS_MS);
+            }
+
+            function trackGalleryImageLongPress(event) {
+                const state = galleryLongPressState;
+                if (!state || state.pointerId !== event.pointerId || state.longPressed) return;
+                if (Math.hypot(event.clientX - state.startX, event.clientY - state.startY)
+                    > IMAGE_LONG_PRESS_MOVE_PX) {
+                    cancelGalleryImageLongPress();
+                }
+            }
+
+            function finishGalleryImageLongPress(event) {
+                const state = galleryLongPressState;
+                if (!state || state.pointerId !== event.pointerId) return;
+                const longPressed = state.longPressed;
+                cancelGalleryImageLongPress();
+                if (longPressed) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                }
+            }
+
+            function cancelGalleryImageLongPress() {
+                clearImageLongPressTimer();
+                galleryLongPressState = null;
+            }
+
+            function clearImageLongPressTimer() {
+                if (!imageLongPressTimer) return;
+                window.clearTimeout(imageLongPressTimer);
+                imageLongPressTimer = 0;
+            }
+
+            function showImageInfo(image, element, originalDimensions) {
+                if (!image) return;
+                const requestId = ++imageInfoRequestId;
+                imageInfo.name = imageDisplayName(image);
+                imageInfo.sizeText = "读取中…";
+                imageInfo.sizeBytes = 0;
+                if (element && element.naturalWidth > 0 && element.naturalHeight > 0) {
+                    imageInfo.dimensionsLabel = originalDimensions ? "原图分辨率" : "预览分辨率";
+                    imageInfo.dimensionsText = `${element.naturalWidth} × ${element.naturalHeight} px`;
+                } else {
+                    imageInfo.dimensionsLabel = "";
+                    imageInfo.dimensionsText = "";
+                }
+                imageInfoVisible.value = true;
+                readBrowserImageSize(image.url).then(size => {
+                    if (requestId !== imageInfoRequestId || !imageInfoVisible.value) return;
+                    imageInfo.sizeBytes = size || 0;
+                    imageInfo.sizeText = size ? formatFileSize(size) : "浏览器无法读取";
+                });
+            }
+
+            function closeImageInfo() {
+                imageInfoRequestId += 1;
+                imageInfoVisible.value = false;
+            }
+
+            function imageDisplayName(image) {
+                if (image.name) return image.name;
+                try {
+                    const url = new URL(image.url, window.location.href);
+                    const pathName = url.searchParams.get("path");
+                    return pathName || decodeURIComponent(url.pathname.split("/").pop()) || "未命名图片";
+                } catch (error) {
+                    return "未命名图片";
+                }
+            }
+
+            async function readBrowserImageSize(url) {
+                const timingSize = readResourceTimingSize(url);
+                if (timingSize > 0) return timingSize;
+                try {
+                    const response = await fetch(url, {
+                        method: "HEAD",
+                        credentials: "same-origin",
+                        cache: "no-store"
+                    });
+                    if (!response.ok) return 0;
+                    const contentLength = Number.parseInt(response.headers.get("Content-Length"), 10);
+                    return Number.isFinite(contentLength) && contentLength > 0 ? contentLength : 0;
+                } catch (error) {
+                    return 0;
+                }
+            }
+
+            function readResourceTimingSize(url) {
+                if (!window.performance || typeof window.performance.getEntriesByName !== "function") return 0;
+                try {
+                    const absoluteUrl = new URL(url, window.location.href).href;
+                    const entries = window.performance.getEntriesByName(absoluteUrl);
+                    for (let index = entries.length - 1; index >= 0; index -= 1) {
+                        const entry = entries[index];
+                        if (Number(entry.responseStatus) > 0
+                            && (Number(entry.responseStatus) < 200 || Number(entry.responseStatus) >= 300)) {
+                            continue;
+                        }
+                        const size = Number(entry.decodedBodySize) || Number(entry.encodedBodySize) || 0;
+                        if (size > 0) return size;
+                    }
+                } catch (error) {
+                    return 0;
+                }
+                return 0;
+            }
+
+            function formatFileSize(bytes) {
+                if (!Number.isFinite(bytes) || bytes <= 0) return "浏览器无法读取";
+                const units = ["B", "KB", "MB", "GB"];
+                let value = bytes;
+                let unitIndex = 0;
+                while (value >= 1024 && unitIndex < units.length - 1) {
+                    value /= 1024;
+                    unitIndex += 1;
+                }
+                const digits = unitIndex === 0 || value >= 100 ? 0 : value >= 10 ? 1 : 2;
+                return `${value.toFixed(digits)} ${units[unitIndex]}`;
+            }
+
+            function closeViewer(fromHistory = false) {
                 if (!viewerVisible.value) return;
+                prepareViewerGalleryReturn();
+                closeImageInfo();
+                clearViewerMouseLongPress();
                 clearViewerCloseTimer();
                 clearViewerSlideTimer();
+                const removeViewerHistory = viewerHistoryEntry && !fromHistory;
+                viewerHistoryEntry = false;
+                preloadQueue = [];
+                preloadWindowUrls = new Set();
+                prunePreloadEntries(new Set());
                 viewerVisible.value = false;
                 touchState = null;
+                if (removeViewerHistory) window.history.back();
+            }
+
+            function prepareViewerGalleryReturn() {
+                const image = currentImage.value;
+                if (!image) {
+                    pendingViewerGalleryReturn = null;
+                    return;
+                }
+                const index = images.value.indexOf(image);
+                if (index < 0) {
+                    pendingViewerGalleryReturn = null;
+                    return;
+                }
+                const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+                pendingViewerGalleryReturn = {
+                    imageUrl: image.url,
+                    index,
+                    offsetTop: Math.min(140, Math.max(72, viewportHeight * .18))
+                };
+                renderedImageCount.value = Math.max(renderedImageCount.value,
+                    Math.min(images.value.length, index + GALLERY_BATCH_SIZE));
+            }
+
+            function handleViewerPopstate() {
+                if (viewerVisible.value && viewerHistoryEntry) closeViewer(true);
             }
 
             function handleViewerAfterLeave() {
                 viewerSlides.value = [];
-                document.body.style.overflow = previousBodyOverflow;
+                const returnPosition = pendingViewerGalleryReturn;
+                pendingViewerGalleryReturn = null;
+                unlockViewerScroll(!returnPosition);
                 resetViewerTransform(false);
                 resetViewerTrack(false);
+                if (returnPosition) {
+                    stopGalleryPositionRestore(false);
+                    activeRestorePosition = returnPosition;
+                    layoutGalleryItems();
+                    restoreDeadlineTimer = window.setTimeout(
+                        () => stopGalleryPositionRestore(true), GALLERY_RESTORE_STABILIZE_MS);
+                }
+            }
+
+            function lockViewerScroll() {
+                if (viewerScrollLocked) return;
+                const bodyStyle = document.body.style;
+                viewerScrollX = window.scrollX || document.documentElement.scrollLeft || 0;
+                viewerScrollY = window.scrollY || document.documentElement.scrollTop || 0;
+                previousBodyStyles = {
+                    overflow: bodyStyle.overflow,
+                    position: bodyStyle.position,
+                    top: bodyStyle.top,
+                    left: bodyStyle.left,
+                    right: bodyStyle.right,
+                    width: bodyStyle.width
+                };
+                bodyStyle.overflow = "hidden";
+                bodyStyle.position = "fixed";
+                bodyStyle.top = `-${viewerScrollY}px`;
+                bodyStyle.left = `-${viewerScrollX}px`;
+                bodyStyle.right = "0";
+                bodyStyle.width = "100%";
+                viewerScrollLocked = true;
+            }
+
+            function unlockViewerScroll(restoreSavedPosition = true) {
+                if (!viewerScrollLocked) return;
+                const bodyStyle = document.body.style;
+                const savedStyles = previousBodyStyles || {};
+                bodyStyle.overflow = savedStyles.overflow || "";
+                bodyStyle.position = savedStyles.position || "";
+                bodyStyle.top = savedStyles.top || "";
+                bodyStyle.left = savedStyles.left || "";
+                bodyStyle.right = savedStyles.right || "";
+                bodyStyle.width = savedStyles.width || "";
+                viewerScrollLocked = false;
+                previousBodyStyles = null;
+                if (!restoreSavedPosition) return;
+                window.scrollTo(viewerScrollX, viewerScrollY);
+                // Safari can apply its history scroll restoration after popstate.
+                // Re-assert the saved position once the current frame has settled.
+                window.requestAnimationFrame(() => {
+                    if (!viewerVisible.value) window.scrollTo(viewerScrollX, viewerScrollY);
+                });
             }
 
             function normalizeViewerIndex(index) {
@@ -139,9 +427,14 @@
                 return images.value.length ? images.value[normalizeViewerIndex(index)] : null;
             }
 
-            function createViewerSlide(image) {
+            function createViewerSlide(image, originalRequested = false) {
                 viewerSlideId += 1;
-                return {id: viewerSlideId, image};
+                return {
+                    id: viewerSlideId,
+                    image,
+                    originalRequested,
+                    originalReady: false
+                };
             }
 
             function rebuildViewerSlides() {
@@ -151,9 +444,18 @@
                 }
                 viewerSlides.value = [
                     createViewerSlide(imageAt(viewerIndex.value - 1)),
-                    createViewerSlide(imageAt(viewerIndex.value)),
+                    createViewerSlide(imageAt(viewerIndex.value), true),
                     createViewerSlide(imageAt(viewerIndex.value + 1))
                 ];
+            }
+
+            function requestViewerSlideOriginal(direction) {
+                const slides = viewerSlides.value;
+                if (slides.length !== 3) return;
+                const slide = direction < 0 ? slides[0] : slides[2];
+                if (!slide || !slide.image || slide.originalRequested) return;
+                slide.originalRequested = true;
+                slide.originalReady = false;
             }
 
             function resetViewerTrack(enableTransition = true) {
@@ -171,6 +473,7 @@
                 clearViewerCloseTimer();
                 resetViewerTransform(true);
                 pendingViewerDirection = direction < 0 ? -1 : 1;
+                requestViewerSlideOriginal(pendingViewerDirection);
                 viewerSlideAnimating.value = true;
                 const width = viewportWidth();
                 const remainingRatio = Math.max(0, width - Math.abs(viewerSwipeOffset.value)) / width;
@@ -307,6 +610,7 @@
             function handleViewerTouchStart(event) {
                 if (viewerSlideAnimating.value) return;
                 clearViewerCloseTimer();
+                clearImageLongPressTimer();
                 viewerTransition.value = false;
                 viewerSwipeTransition.value = false;
                 if (event.touches.length >= 2) {
@@ -332,11 +636,82 @@
                     startedAt: Date.now(),
                     moved: false
                 };
+                armViewerImageLongPress();
+            }
+
+            function armViewerImageLongPress() {
+                const state = touchState;
+                const image = currentImage.value;
+                if (!state || !image) return;
+                const element = viewerRoot.value
+                    ? viewerRoot.value.querySelector(".cinema-viewer-slide:nth-child(2) .cinema-viewer-image")
+                    : null;
+                imageLongPressTimer = window.setTimeout(() => {
+                    imageLongPressTimer = 0;
+                    if (touchState !== state || state.moved) return;
+                    state.longPressed = true;
+                    state.moved = true;
+                    viewerSwipeOffset.value = 0;
+                    suppressMouseClickUntil = Date.now() + 900;
+                    showImageInfo(image, element,
+                        !(element && element.dataset.thumbnailFallback === "true"));
+                }, IMAGE_LONG_PRESS_MS);
+            }
+
+            function startViewerMouseLongPress(event) {
+                if (!event || event.pointerType !== "mouse" || !event.isPrimary || event.button !== 0) return;
+                if (event.target && typeof event.target.closest === "function"
+                    && event.target.closest(".cinema-viewer-nav")) return;
+                clearViewerMouseLongPress();
+                const element = event.currentTarget
+                    ? event.currentTarget.querySelector(".cinema-viewer-slide:nth-child(2) .cinema-viewer-image")
+                    : null;
+                viewerMouseLongPressState = {
+                    pointerId: event.pointerId,
+                    startX: event.clientX,
+                    startY: event.clientY,
+                    longPressed: false
+                };
+                const state = viewerMouseLongPressState;
+                imageLongPressTimer = window.setTimeout(() => {
+                    imageLongPressTimer = 0;
+                    if (viewerMouseLongPressState !== state || !currentImage.value) return;
+                    state.longPressed = true;
+                    suppressMouseClickUntil = Date.now() + 900;
+                    showImageInfo(currentImage.value, element,
+                        !(element && element.dataset.thumbnailFallback === "true"));
+                }, IMAGE_LONG_PRESS_MS);
+            }
+
+            function trackViewerMouseLongPress(event) {
+                const state = viewerMouseLongPressState;
+                if (!state || state.pointerId !== event.pointerId || state.longPressed) return;
+                if (Math.hypot(event.clientX - state.startX, event.clientY - state.startY)
+                    > IMAGE_LONG_PRESS_MOVE_PX) {
+                    clearViewerMouseLongPress();
+                }
+            }
+
+            function finishViewerMouseLongPress(event) {
+                const state = viewerMouseLongPressState;
+                if (!state || state.pointerId !== event.pointerId) return;
+                const longPressed = state.longPressed;
+                clearViewerMouseLongPress();
+                if (longPressed) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                }
+            }
+
+            function clearViewerMouseLongPress() {
+                clearImageLongPressTimer();
+                viewerMouseLongPressState = null;
             }
 
             function handleViewerTouchMove(event) {
                 if (!touchState) return;
                 if (event.touches.length >= 2) {
+                    clearImageLongPressTimer();
                     if (touchState.mode !== "pinch") {
                         viewerSwipeOffset.value = 0;
                         touchState = {
@@ -356,7 +731,10 @@
                 const deltaY = touch.clientY - touchState.startY;
                 touchState.lastX = touch.clientX;
                 touchState.lastY = touch.clientY;
-                if (Math.hypot(deltaX, deltaY) > 6) touchState.moved = true;
+                if (Math.hypot(deltaX, deltaY) > 6) {
+                    touchState.moved = true;
+                    clearImageLongPressTimer();
+                }
                 if (touchState.mode === "pan" || viewerScale.value > 1.05) {
                     viewerOffset.x = touchState.startOffsetX + deltaX;
                     viewerOffset.y = touchState.startOffsetY + deltaY;
@@ -367,6 +745,7 @@
             }
 
             function handleViewerTouchEnd(event) {
+                clearImageLongPressTimer();
                 if (event.touches && event.touches.length) {
                     if (event.touches.length === 1 && touchState && touchState.mode === "pinch") {
                         const touch = event.touches[0];
@@ -388,6 +767,13 @@
                 const completedTouch = touchState;
                 touchState = null;
                 viewerTransition.value = true;
+
+                if (completedTouch.longPressed) {
+                    suppressMouseClickUntil = Date.now() + 900;
+                    viewerSwipeOffset.value = 0;
+                    viewerSwipeTransition.value = true;
+                    return;
+                }
 
                 if (completedTouch.mode === "pinch") {
                     if (viewerScale.value <= 1.05) resetViewerTransform(true);
@@ -457,8 +843,27 @@
                 clampViewerOffset();
             }
 
-            function handleViewerImageError() {
+            function handleViewerSlideLoad(event, slide, slideIndex) {
+                if (!slide || !slide.originalRequested) return;
+                const element = event && event.currentTarget;
+                if (slide.image && element && element.naturalWidth > 0 && element.naturalHeight > 0) {
+                    slide.image.aspectRatio = element.naturalWidth / element.naturalHeight;
+                }
+                slide.originalReady = true;
+                if (slideIndex === 1) handleViewerImageLoad();
+            }
+
+            function handleViewerImageError(event) {
                 const failedImage = currentImage.value;
+                const element = event && event.currentTarget;
+                if (failedImage && element && failedImage.thumbnailUrl
+                    && element.dataset.thumbnailFallback !== "true") {
+                    // A mobile browser may reject a very large original image. Keep
+                    // the viewer usable by falling back to the generated thumbnail.
+                    element.dataset.thumbnailFallback = "true";
+                    element.src = failedImage.thumbnailUrl;
+                    return;
+                }
                 if (failedImage) hideBrokenImage(failedImage);
                 if (!images.value.length) {
                     closeViewer();
@@ -478,7 +883,7 @@
             }
 
             function handleViewerSlideError(event, slideIndex) {
-                if (slideIndex === 1) handleViewerImageError();
+                if (slideIndex === 1) handleViewerImageError(event);
                 else hideViewerPreview(event);
             }
 
@@ -493,39 +898,87 @@
                     visited.add(normalized);
                     order.push(urls[normalized]);
                 };
-                add(startIndex);
-                for (let distance = 1; order.length < urls.length; distance += 1) {
+                // The current image is loaded by the viewer itself. Preload only the
+                // next 10 images; the old implementation walked the whole gallery.
+                for (let distance = 1; distance <= MAX_FORWARD_PRELOAD; distance += 1) {
                     add(startIndex + distance);
-                    add(startIndex - distance);
                 }
-                const generation = ++preloadGeneration;
-                preloadSequentially(order, generation);
+                preloadQueue = order;
+                preloadWindowUrls = new Set(order);
+                prunePreloadEntries(preloadWindowUrls);
+                pumpPreloadQueue();
             }
 
-            async function preloadSequentially(urls, generation) {
-                for (const url of urls) {
-                    if (generation !== preloadGeneration) return;
-                    await preloadOriginalImage(url);
+            function handleGalleryImageError(event, image) {
+                if (!image) return;
+                const retryCount = image.thumbnailRetryCount || 0;
+                if (event && event.currentTarget && retryCount < 2) {
+                    image.thumbnailRetryCount = retryCount + 1;
+                    image.loaded = false;
+                    const baseUrl = (image.thumbnailUrl || image.url).split("&retry=")[0];
+                    image.thumbnailUrl = `${baseUrl}&retry=${image.thumbnailRetryCount}`;
+                    return;
+                }
+                hideBrokenImage(image);
+            }
+
+            function pumpPreloadQueue() {
+                while (preloadActiveCount < PRELOAD_CONCURRENCY && preloadQueue.length) {
+                    const url = preloadQueue.shift();
+                    if (preloadPromises.has(url)) continue;
+                    preloadActiveCount += 1;
+                    preloadOriginalImage(url).finally(() => {
+                        preloadActiveCount -= 1;
+                        prunePreloadEntries(preloadWindowUrls);
+                        pumpPreloadQueue();
+                    });
                 }
             }
 
             function preloadOriginalImage(url) {
-                if (preloadPromises.has(url)) return preloadPromises.get(url);
-                const promise = new Promise((resolve) => {
+                const existing = preloadPromises.get(url);
+                if (existing) return existing.promise;
+                const entry = {image: null, pending: true, promise: null};
+                entry.promise = new Promise((resolve) => {
                     const image = new Image();
-                    image.onload = () => {
-                        if (typeof image.decode === "function") image.decode().catch(() => {
-                        }).then(resolve);
-                        else resolve();
+                    entry.image = image;
+                    const finish = () => {
+                        if (!entry.pending) return;
+                        const decoded = typeof image.decode === "function"
+                            ? image.decode().catch(() => undefined)
+                            : Promise.resolve();
+                        decoded.then(() => {
+                            if (!entry.pending) return;
+                            entry.pending = false;
+                            image.onload = null;
+                            image.onerror = null;
+                            entry.image = null;
+                            resolve();
+                        });
                     };
-                    image.onerror = resolve;
+                    image.onload = finish;
+                    image.onerror = () => {
+                        if (!entry.pending) return;
+                        entry.pending = false;
+                        image.onload = null;
+                        image.onerror = null;
+                        entry.image = null;
+                        resolve();
+                    };
                     image.src = url;
                 });
-                preloadPromises.set(url, promise);
-                return promise;
+                preloadPromises.set(url, entry);
+                return entry.promise;
+            }
+
+            function prunePreloadEntries(keepUrls) {
+                preloadPromises.forEach((entry, url) => {
+                    if (!entry.pending && !keepUrls.has(url)) preloadPromises.delete(url);
+                });
             }
 
             function handleViewerKeydown(event) {
+                if (activeRestorePosition) stopGalleryPositionRestore(true);
                 if (!viewerVisible.value) return;
                 if (event.key === "Escape") closeViewer();
                 else if (event.key === "ArrowLeft") previousViewerImage();
@@ -534,8 +987,16 @@
                 event.preventDefault();
             }
 
-            function markImageLoaded(image) {
+            function markImageLoaded(event, image) {
+                if (!image) {
+                    image = event;
+                    event = null;
+                }
                 if (image) {
+                    const element = event && event.currentTarget;
+                    if (element && element.naturalWidth > 0 && element.naturalHeight > 0) {
+                        image.aspectRatio = element.naturalWidth / element.naturalHeight;
+                    }
                     image.loaded = true;
                     scheduleGalleryLayout();
                 }
@@ -549,10 +1010,217 @@
                 const index = images.value.indexOf(image);
                 if (index < 0) return;
                 images.value.splice(index, 1);
+                renderedImageCount.value = Math.min(
+                    Math.max(renderedImageCount.value, GALLERY_BATCH_SIZE), images.value.length);
                 if (viewerIndex.value >= images.value.length) {
                     viewerIndex.value = Math.max(images.value.length - 1, 0);
                 }
                 scheduleGalleryLayout();
+                scheduleGalleryBatchCheck();
+            }
+
+            function galleryPositionStorageKey() {
+                return GALLERY_POSITION_STORAGE_PREFIX + String(route.params.id || "unknown");
+            }
+
+            function readGalleryPosition() {
+                try {
+                    const raw = window.localStorage.getItem(galleryPositionStorageKey());
+                    const value = raw ? JSON.parse(raw) : null;
+                    if (!value || typeof value !== "object" || !Number.isFinite(value.scrollY)
+                        || !Number.isFinite(value.offsetTop) || !Number.isInteger(value.index)) {
+                        return null;
+                    }
+                    return value;
+                } catch (error) {
+                    return null;
+                }
+            }
+
+            function offerSavedGalleryPosition() {
+                if (resumeOfferConsumed || !savedGalleryPosition || !images.value.length) return;
+                let index = images.value.findIndex(image => image.url === savedGalleryPosition.imageUrl);
+                const exactImageMatch = index >= 0;
+                if (index < 0 && savedGalleryPosition.index >= 0
+                    && savedGalleryPosition.index < images.value.length) {
+                    index = savedGalleryPosition.index;
+                }
+                if (index < 0 || (savedGalleryPosition.scrollY < 160 && index === 0)) {
+                    resumeOfferConsumed = true;
+                    return;
+                }
+                if (exactImageMatch && Number.isFinite(savedGalleryPosition.aspectRatio)
+                    && savedGalleryPosition.aspectRatio > 0) {
+                    images.value[index].aspectRatio = savedGalleryPosition.aspectRatio;
+                }
+                resumePosition.value = {...savedGalleryPosition, index};
+                resumePromptVisible.value = true;
+                if (resumePromptTimer) window.clearTimeout(resumePromptTimer);
+                resumePromptTimer = window.setTimeout(dismissResumePrompt, GALLERY_RESUME_PROMPT_MS);
+            }
+
+            function dismissResumePrompt() {
+                resumeOfferConsumed = true;
+                resumePromptVisible.value = false;
+                if (resumePromptTimer) {
+                    window.clearTimeout(resumePromptTimer);
+                    resumePromptTimer = 0;
+                }
+            }
+
+            function handleGalleryScroll() {
+                scheduleGalleryBatchCheck();
+                scheduleGalleryPositionSave();
+            }
+
+            function scheduleGalleryPositionSave() {
+                if (loading.value || viewerVisible.value || activeRestorePosition) return;
+                if (positionSaveTimer) window.clearTimeout(positionSaveTimer);
+                positionSaveTimer = window.setTimeout(() => {
+                    positionSaveTimer = 0;
+                    saveGalleryPosition();
+                }, 180);
+            }
+
+            function saveGalleryPosition() {
+                if (loading.value || activeRestorePosition) return;
+                const scrollY = window.scrollY || document.documentElement.scrollTop || 0;
+                if (scrollY < 120) {
+                    try {
+                        window.localStorage.removeItem(galleryPositionStorageKey());
+                    } catch (error) {
+                        // Storage may be disabled by the browser.
+                    }
+                    savedGalleryPosition = null;
+                    return;
+                }
+                const grid = galleryGrid.value;
+                if (!grid) return;
+                const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+                const referenceLine = Math.min(140, Math.max(72, viewportHeight * .18));
+                const candidates = Array.from(grid.querySelectorAll(".gallery-item"))
+                    .map(element => ({element, rect: element.getBoundingClientRect()}))
+                    .filter(candidate => candidate.rect.bottom > 0 && candidate.rect.top < viewportHeight);
+                if (!candidates.length) return;
+                candidates.sort((left, right) => {
+                    const leftDistance = left.rect.top <= referenceLine && left.rect.bottom >= referenceLine
+                        ? 0 : Math.abs(left.rect.top - referenceLine);
+                    const rightDistance = right.rect.top <= referenceLine && right.rect.bottom >= referenceLine
+                        ? 0 : Math.abs(right.rect.top - referenceLine);
+                    return leftDistance - rightDistance || left.rect.left - right.rect.left;
+                });
+                const anchor = candidates[0];
+                const index = Number.parseInt(anchor.element.dataset.galleryIndex, 10);
+                const image = images.value[index];
+                if (!image || !Number.isInteger(index)) return;
+                const position = {
+                    imageUrl: image.url,
+                    imageName: image.name,
+                    index,
+                    offsetTop: anchor.rect.top,
+                    aspectRatio: image.loaded && anchor.rect.width > 0 && anchor.rect.height > 0
+                        ? anchor.rect.width / anchor.rect.height : null,
+                    scrollY,
+                    sortField: sort.field,
+                    sortOrder: sort.order,
+                    savedAt: Date.now()
+                };
+                try {
+                    window.localStorage.setItem(galleryPositionStorageKey(), JSON.stringify(position));
+                    savedGalleryPosition = position;
+                } catch (error) {
+                    // A full or disabled localStorage must not affect gallery browsing.
+                }
+            }
+
+            async function restoreSavedGalleryPosition() {
+                const position = resumePosition.value;
+                if (!position || !images.value.length) return;
+                dismissResumePrompt();
+                stopGalleryPositionRestore(false);
+                let targetIndex = images.value.findIndex(image => image.url === position.imageUrl);
+                if (targetIndex < 0) {
+                    targetIndex = Math.min(Math.max(position.index, 0), images.value.length - 1);
+                }
+                activeRestorePosition = {...position, index: targetIndex};
+                renderedImageCount.value = Math.max(renderedImageCount.value,
+                    Math.min(images.value.length, targetIndex + GALLERY_BATCH_SIZE));
+                await nextTick();
+                if (!activeRestorePosition) return;
+                layoutGalleryItems();
+                restoreDeadlineTimer = window.setTimeout(
+                    () => stopGalleryPositionRestore(true), GALLERY_RESTORE_STABILIZE_MS);
+            }
+
+            function alignRestoredGalleryPosition() {
+                if (!activeRestorePosition || !galleryGrid.value) return;
+                let targetIndex = images.value.findIndex(
+                    image => image.url === activeRestorePosition.imageUrl);
+                if (targetIndex < 0) {
+                    targetIndex = Math.min(activeRestorePosition.index, images.value.length - 1);
+                }
+                const element = Array.from(galleryGrid.value.querySelectorAll(".gallery-item"))
+                    .find(item => Number.parseInt(item.dataset.galleryIndex, 10) === targetIndex);
+                if (!element) return;
+                const delta = element.getBoundingClientRect().top - activeRestorePosition.offsetTop;
+                if (Math.abs(delta) > .5) {
+                    const currentY = window.scrollY || document.documentElement.scrollTop || 0;
+                    window.scrollTo(window.scrollX || 0, Math.max(0, currentY + delta));
+                }
+                const stable = images.value.slice(0, targetIndex + 1).every(image => image.loaded);
+                if (stable && !restoreStableTimer) {
+                    restoreStableTimer = window.setTimeout(
+                        () => stopGalleryPositionRestore(true), 350);
+                } else if (!stable && restoreStableTimer) {
+                    window.clearTimeout(restoreStableTimer);
+                    restoreStableTimer = 0;
+                }
+            }
+
+            function stopGalleryPositionRestore(saveAfter = true) {
+                activeRestorePosition = null;
+                if (restoreDeadlineTimer) window.clearTimeout(restoreDeadlineTimer);
+                if (restoreStableTimer) window.clearTimeout(restoreStableTimer);
+                restoreDeadlineTimer = 0;
+                restoreStableTimer = 0;
+                if (saveAfter) scheduleGalleryPositionSave();
+            }
+
+            function cancelGalleryPositionRestore() {
+                if (activeRestorePosition) stopGalleryPositionRestore(true);
+            }
+
+            function handleSortChange() {
+                dismissResumePrompt();
+                stopGalleryPositionRestore(false);
+                savedGalleryPosition = null;
+                try {
+                    window.localStorage.removeItem(galleryPositionStorageKey());
+                } catch (error) {
+                    // Storage may be disabled by the browser.
+                }
+                loadGallery(false);
+            }
+
+            function scheduleGalleryBatchCheck() {
+                if (galleryBatchFrame) return;
+                galleryBatchFrame = window.requestAnimationFrame(() => {
+                    galleryBatchFrame = 0;
+                    maybeLoadMoreGalleryImages();
+                });
+            }
+
+            function maybeLoadMoreGalleryImages() {
+                if (renderedImageCount.value >= images.value.length) return;
+                const grid = galleryGrid.value;
+                if (!grid) return;
+                const viewportBottom = (window.innerHeight || document.documentElement.clientHeight || 0)
+                    + GALLERY_LOAD_AHEAD_PX;
+                if (grid.getBoundingClientRect().bottom > viewportBottom) return;
+                renderedImageCount.value = Math.min(
+                    renderedImageCount.value + GALLERY_BATCH_SIZE, images.value.length);
+                scheduleGalleryLayout();
+                nextTick(scheduleGalleryBatchCheck);
             }
 
             function goBack() {
@@ -576,52 +1244,103 @@
                 grid.querySelectorAll(".gallery-item").forEach((item) => {
                     const image = item.querySelector("img");
                     const width = item.getBoundingClientRect().width;
+                    const index = Number.parseInt(item.dataset.galleryIndex, 10);
+                    const galleryImage = images.value[index];
                     const imageLoaded = image && !image.classList.contains("is-loading")
                         && image.naturalWidth > 0 && image.naturalHeight > 0;
                     const height = imageLoaded
                         ? Math.ceil(width * image.naturalHeight / image.naturalWidth)
-                        : 210;
+                        : galleryImage && Number.isFinite(galleryImage.aspectRatio)
+                            && galleryImage.aspectRatio > 0
+                            ? Math.ceil(width / galleryImage.aspectRatio) : 210;
                     item.style.height = `${height}px`;
                     const span = Math.max(1, Math.ceil((height + rowGap) / (rowHeight + rowGap)));
                     item.style.gridRowEnd = `span ${span}`;
                 });
+                // Keep the saved item at the same viewport offset in this layout frame,
+                // before the browser paints height changes from newly loaded images.
+                if (activeRestorePosition) alignRestoredGalleryPosition();
             }
 
             onMounted(() => {
                 loadGallery();
                 window.addEventListener("resize", scheduleGalleryLayout);
+                window.addEventListener("resize", scheduleGalleryBatchCheck);
+                window.addEventListener("scroll", handleGalleryScroll, {passive: true});
+                window.addEventListener("pointerdown", cancelGalleryPositionRestore, {passive: true});
+                window.addEventListener("touchstart", cancelGalleryPositionRestore, {passive: true});
+                window.addEventListener("wheel", cancelGalleryPositionRestore, {passive: true});
                 window.addEventListener("keydown", handleViewerKeydown);
+                window.addEventListener("popstate", handleViewerPopstate);
             });
 
             onBeforeUnmount(() => {
                 window.removeEventListener("resize", scheduleGalleryLayout);
+                window.removeEventListener("resize", scheduleGalleryBatchCheck);
+                window.removeEventListener("scroll", handleGalleryScroll);
+                window.removeEventListener("pointerdown", cancelGalleryPositionRestore);
+                window.removeEventListener("touchstart", cancelGalleryPositionRestore);
+                window.removeEventListener("wheel", cancelGalleryPositionRestore);
                 window.removeEventListener("keydown", handleViewerKeydown);
+                window.removeEventListener("popstate", handleViewerPopstate);
+                if (!viewerVisible.value && !activeRestorePosition && !pendingViewerGalleryReturn) {
+                    saveGalleryPosition();
+                }
                 if (layoutFrame) window.cancelAnimationFrame(layoutFrame);
+                if (galleryBatchFrame) window.cancelAnimationFrame(galleryBatchFrame);
+                if (positionSaveTimer) window.clearTimeout(positionSaveTimer);
+                dismissResumePrompt();
+                stopGalleryPositionRestore(false);
+                pendingViewerGalleryReturn = null;
+                cancelGalleryImageLongPress();
+                clearViewerMouseLongPress();
+                closeImageInfo();
                 clearViewerCloseTimer();
                 clearViewerSlideTimer();
-                preloadGeneration += 1;
-                document.body.style.overflow = previousBodyOverflow;
+                preloadQueue = [];
+                preloadWindowUrls = new Set();
+                prunePreloadEntries(new Set());
+                unlockViewerScroll();
             });
 
             return {
                 artist,
                 artistName,
+                cancelGalleryImageLongPress,
+                clearViewerMouseLongPress,
+                closeImageInfo,
                 closeViewer,
                 currentImage,
                 errorMessage,
+                finishGalleryImageLongPress,
+                finishViewerMouseLongPress,
                 galleryGrid,
+                handleGalleryItemClick,
+                handleGalleryImageError,
                 handleViewerClick,
                 handleViewerAfterLeave,
                 handleViewerImageError,
                 handleViewerImageLoad,
+                handleViewerPopstate,
                 handleViewerSlideError,
+                handleViewerSlideLoad,
                 handleViewerTrackTransitionEnd,
                 handleViewerTouchEnd,
                 handleViewerTouchMove,
                 handleViewerTouchStart,
                 hideArtistImage,
                 hideBrokenImage,
+                hideViewerPreview,
+                imageInfo,
+                imageInfoVisible,
                 images,
+                dismissResumePrompt,
+                handleSortChange,
+                renderedImageCount,
+                resumePosition,
+                resumePromptVisible,
+                restoreSavedGalleryPosition,
+                visibleImages,
                 loadGallery,
                 loading,
                 markImageLoaded,
@@ -630,6 +1349,10 @@
                 nextViewerImage,
                 previousViewerImage,
                 sort,
+                startGalleryImageLongPress,
+                startViewerMouseLongPress,
+                trackGalleryImageLongPress,
+                trackViewerMouseLongPress,
                 toggleViewerZoom,
                 viewerImageStyle,
                 viewerIndex,

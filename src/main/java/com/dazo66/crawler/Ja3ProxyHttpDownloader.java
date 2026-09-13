@@ -114,13 +114,14 @@ public class Ja3ProxyHttpDownloader extends AbstractDownloader {
             reqObj.header(entry.getKey(), entry.getValue());
         }
         //request and response
+        Response response = null;
         try {
             StringBuilder cookieBuilder = new StringBuilder();
             for (Map.Entry<String, String> entry : request.getCookies().entrySet()) {
                 cookieBuilder.append(entry.getKey()).append("=").append(entry.getValue()).append(";");
             }
             reqObj.header("Cookie", cookieBuilder.toString());
-            Response response = httpClient.newCall(reqObj.build()).execute();
+            response = httpClient.newCall(reqObj.build()).execute();
             int status = response.code();
             HttpResponse resp = new HttpResponse();
             resp.setStatus(status);
@@ -155,6 +156,14 @@ public class Ja3ProxyHttpDownloader extends AbstractDownloader {
                 proxys.failure(proxy.getHostName(), proxy.getPort());
             }
             throw new DownloadException(e);
+        } finally {
+            if (response != null && response.body() != null) {
+                try {
+                    response.body().close();
+                } catch (IOException closeException) {
+                    log.debug("关闭 JA3 响应体失败", closeException);
+                }
+            }
         }
     }
 

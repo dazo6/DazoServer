@@ -134,16 +134,25 @@ public class MultiThreadHttpDownloader {
         Boolean resCode = null;
         Exception e1 = null;
         for (int i = 0; i < 10; i++) {
+            Response execute = null;
             try {
                 com.squareup.okhttp.Request.Builder builder = new Request.Builder().url(url);
                 builder.header("Range", "bytes=0-");
-                Response execute = setHeaderAndCookieThenExecute(httpClient, builder);
+                execute = setHeaderAndCookieThenExecute(httpClient, builder);
                 fileSize = (int) execute.body().contentLength();
                 resCode = execute.isSuccessful();
                 break;
             } catch (Exception e) {
                 e1 = e;
                 log.info(localFile + " Retry to connect due to connection problem.");
+            } finally {
+                if (execute != null && execute.body() != null) {
+                    try {
+                        execute.body().close();
+                    } catch (IOException closeException) {
+                        log.debug("关闭断点探测响应体失败", closeException);
+                    }
+                }
             }
         }
         if (resCode == null) {
@@ -343,7 +352,13 @@ public class MultiThreadHttpDownloader {
                 throwableAtomicReference.set(e);
                 return false;
             } finally {
-                // ignore
+                if (execute != null && execute.body() != null) {
+                    try {
+                        execute.body().close();
+                    } catch (IOException closeException) {
+                        log.debug("关闭分片下载响应体失败", closeException);
+                    }
+                }
             }
 
             return true;

@@ -5,6 +5,7 @@ import com.dazo66.dashboard.DashboardData;
 import com.dazo66.dashboard.HourlyCount;
 import com.dazo66.dashboard.StatusCount;
 import com.dazo66.mapper.DashboardMapper;
+import com.dazo66.service.ArtistImageCache;
 import com.dazo66.service.DashboardService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -40,6 +41,11 @@ public class DashboardServiceImpl implements DashboardService {
         List<ArtistUpdate> artistUpdates = dashboardMapper.selectArtistUpdates();
         if (artistUpdates == null) {
             artistUpdates = Collections.emptyList();
+        } else {
+            for (ArtistUpdate artist : artistUpdates) {
+                artist.setIcon(ArtistImageCache.publicUrl(artist.getIcon()));
+                artist.setBanner(ArtistImageCache.publicUrl(artist.getBanner()));
+            }
         }
         return new DashboardData(hourlyCounts, statusCounts, artistUpdates);
     }

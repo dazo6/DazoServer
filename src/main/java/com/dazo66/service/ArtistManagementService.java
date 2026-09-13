@@ -73,8 +73,8 @@ public class ArtistManagementService {
         ArtistManagementItem item = new ArtistManagementItem();
         item.setId(artist.getId());
         item.setName(name);
-        item.setIcon(artist.getIcon());
-        item.setBanner(artist.getBanner());
+        item.setIcon(ArtistImageCache.publicUrl(artist.getIcon()));
+        item.setBanner(ArtistImageCache.publicUrl(artist.getBanner()));
         item.setUrl(buildArtistUrl(artist, domain));
         item.setType(type);
         item.setEnable(Boolean.TRUE.equals(artist.getEnable()));
@@ -104,9 +104,7 @@ public class ArtistManagementService {
                 .setName(artistId)
                 .setArtistId(artistId)
                 .setType(type)
-                .setDomain(ArtistDomainEnum.KEMONO)
-                .setIcon(kemonoProperties.siteUrl("/icons/" + type + "/" + artistId))
-                .setBanner(kemonoProperties.siteUrl("/banners/" + type + "/" + artistId));
+                .setDomain(ArtistDomainEnum.KEMONO);
     }
 
     private Artist parseFanbox(URI uri) {

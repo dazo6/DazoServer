@@ -4,6 +4,7 @@ import com.dazo66.dashboard.ArtistGalleryData;
 import com.dazo66.dashboard.ArtistGalleryItem;
 import com.dazo66.dashboard.ArtistManagementItem;
 import com.dazo66.entity.Artist;
+import com.dazo66.service.ArtistGalleryCache;
 import com.dazo66.service.ArtistManagementService;
 import com.dazo66.service.KemonoArtistService;
 import com.dazo66.util.ResultEntity;
@@ -25,14 +26,12 @@ import java.io.IOException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
-import java.nio.file.attribute.BasicFileAttributes;
 import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import java.util.stream.Collectors;
 
 /**
  * Serves downloaded images for an individual artist's gallery.
@@ -52,23 +51,37 @@ public class ArtistGalleryController {
 
     private final KemonoArtistService artistService;
     private final ArtistManagementService artistManagementService;
+    private final ArtistGalleryCache galleryCache;
     private final Path downloadRoot;
     private final Path thumbnailCacheRoot;
 
     @Autowired
     public ArtistGalleryController(KemonoArtistService artistService,
                                    ArtistManagementService artistManagementService,
-                                   @Value("${fanbox.save.path}") String downloadPath) {
+                                   @Value("${fanbox.save.path}") String downloadPath,
+                                   ArtistGalleryCache galleryCache) {
         this(artistService, artistManagementService, downloadPath,
-                Paths.get("").toAbsolutePath().normalize().resolve("cache").resolve("gallery-thumbnails"));
+                Paths.get("").toAbsolutePath().normalize().resolve("cache").resolve("gallery-thumbnails"),
+                galleryCache);
     }
 
     ArtistGalleryController(KemonoArtistService artistService,
                             ArtistManagementService artistManagementService,
                             String downloadPath,
                             Path thumbnailCacheRoot) {
+        this(artistService, artistManagementService, downloadPath, thumbnailCacheRoot,
+                new ArtistGalleryCache(Paths.get(downloadPath),
+                        thumbnailCacheRoot.resolveSibling("gallery-indexes"), new com.fasterxml.jackson.databind.ObjectMapper()));
+    }
+
+    ArtistGalleryController(KemonoArtistService artistService,
+                            ArtistManagementService artistManagementService,
+                            String downloadPath,
+                            Path thumbnailCacheRoot,
+                            ArtistGalleryCache galleryCache) {
         this.artistService = artistService;
         this.artistManagementService = artistManagementService;
+        this.galleryCache = galleryCache;
         this.downloadRoot = Paths.get(downloadPath).toAbsolutePath().normalize();
         this.thumbnailCacheRoot = thumbnailCacheRoot.toAbsolutePath().normalize();
     }
@@ -85,18 +98,12 @@ public class ArtistGalleryController {
         String artistDirectoryName = artistDirectoryName(artist);
         ArtistManagementItem artistItem = artistManagementService.toItem(artist);
         artistItem.setArtistDirectory(artistDirectoryName);
-        Path artistDirectory = artistDirectory(artistDirectoryName);
-        if (artistDirectory == null || !Files.isDirectory(artistDirectory)) {
-            return galleryResponse(artistItem, new ArrayList<ArtistGalleryItem>());
-        }
         try {
-            List<ArtistGalleryItem> items;
-            try (java.util.stream.Stream<Path> files = Files.list(artistDirectory)) {
-                items = files.filter(Files::isRegularFile)
-                        .filter(this::isImage)
-                        .map(path -> toGalleryItem(path, artistDirectoryName))
-                        .filter(item -> item != null)
-                        .collect(Collectors.toList());
+            List<ArtistGalleryCache.CachedImage> cachedImages = galleryCache.getOrBuild(artist);
+            List<ArtistGalleryItem> items = new ArrayList<>(cachedImages.size());
+            String encodedDirectory = encode(artistDirectoryName);
+            for (ArtistGalleryCache.CachedImage cachedImage : cachedImages) {
+                items.add(toGalleryItem(cachedImage, encodedDirectory));
             }
             items.sort(galleryComparator(sortBy, order));
             return galleryResponse(artistItem, items);
@@ -193,19 +200,13 @@ public class ArtistGalleryController {
         }
     }
 
-    private ArtistGalleryItem toGalleryItem(Path path, String artistDirectoryName) {
-        try {
-            BasicFileAttributes attributes = Files.readAttributes(path, BasicFileAttributes.class);
-            String encodedDirectory = encode(artistDirectoryName);
-            String encodedPath = URLEncoder.encode(path.getFileName().toString(), StandardCharsets.UTF_8.name())
-                    .replace("+", "%20");
-            String url = "/api/fanbox/gallery/file?artistDirectory=" + encodedDirectory
-                    + "&path=" + encodedPath;
-            return new ArtistGalleryItem(path.getFileName().toString(), url, url + "&thumbnail=true",
-                    attributes.creationTime().toMillis());
-        } catch (IOException exception) {
-            return null;
-        }
+    private ArtistGalleryItem toGalleryItem(ArtistGalleryCache.CachedImage image, String encodedDirectory)
+            throws IOException {
+        String encodedPath = URLEncoder.encode(image.getName(), StandardCharsets.UTF_8.name())
+                .replace("+", "%20");
+        String url = "/api/fanbox/gallery/file?artistDirectory=" + encodedDirectory
+                + "&path=" + encodedPath;
+        return new ArtistGalleryItem(image.getName(), url, url + "&thumbnail=true", image.getCreatedAt());
     }
 
     private String artistDirectoryName(Artist artist) {

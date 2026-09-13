@@ -103,6 +103,7 @@ public class KemonoDownloader extends AbstractDownloader {
             }
         }
         //request and response
+        Response response = null;
         try {
             StringBuilder cookieBuilder = new StringBuilder();
             if (request.getCookies() != null) {
@@ -118,7 +119,7 @@ public class KemonoDownloader extends AbstractDownloader {
             }
             reqObj.header("accept", "text/html,application/json;q=0.9,*/*;q=0.8");
             reqObj.header("Cookie", cookieBuilder.toString());
-            Response response = httpClient.newCall(reqObj.build()).execute();
+            response = httpClient.newCall(reqObj.build()).execute();
             int status = response.code();
             HttpResponse resp = new HttpResponse();
             resp.setStatus(status);
@@ -197,6 +198,14 @@ public class KemonoDownloader extends AbstractDownloader {
                 proxys.failure(proxy.getHostName(), proxy.getPort());
             }
             throw new DownloadException(e);
+        } finally {
+            if (response != null && response.body() != null) {
+                try {
+                    response.body().close();
+                } catch (IOException closeException) {
+                    log.debug("关闭 Kemono 响应体失败", closeException);
+                }
+            }
         }
     }
 

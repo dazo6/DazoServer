@@ -47,54 +47,66 @@ public class FanboxPostDetail implements JsonBean {
     @JSONPath("$.body")
     private JSONObject body;
 
-    @Getter
-    @Setter
-    @JSONPath("$.body.imageForShare")
-    private String imageForShare;
+    private JSONObject post() {
+        return body == null ? null : body.getJSONObject("post") != null
+                ? body.getJSONObject("post") : body;
+    }
 
-    @Getter
-    @Setter
-    @JSONPath("$.body.publishedDatetime")
-    private String publishedDatetime;
-    @Getter
-    @Setter
-    @JSONPath("$.body.isRestricted")
-    private Boolean isRestricted;
+    public boolean hasPost() {
+        return post() != null;
+    }
 
+    public String getImageForShare() {
+        JSONObject post = post();
+        if (post == null) return null;
+        String image = post.getString("imageForShare");
+        return image == null ? post.getString("coverImageUrl") : image;
+    }
 
-    @Getter
-    @Setter
-    @JSONPath("$.body.creatorId")
-    private String artistId;
+    public String getPublishedDatetime() {
+        JSONObject post = post();
+        return post == null ? null : post.getString("publishedDatetime");
+    }
 
+    public Boolean getIsRestricted() {
+        JSONObject post = post();
+        return post == null ? null : post.getBoolean("isRestricted");
+    }
 
-    @Getter
-    @Setter
-    @JSONPath("$.body.title")
-    private String title;
+    public String getArtistId() {
+        JSONObject post = post();
+        return post == null ? null : post.getString("creatorId");
+    }
 
+    public String getTitle() {
+        JSONObject post = post();
+        return post == null ? null : post.getString("title");
+    }
 
-    @Getter
-    @Setter
-    @JSONPath("$.body.type")
-    private String type;
+    public String getType() {
+        JSONObject post = post();
+        return post == null ? null : post.getString("type");
+    }
 
 
     public List<? extends DownloadObject> getDownloadObject() {
-        if (body.getJSONObject("body") != null) {
-            if (type.equals(IMAGE)) {
-                return body.getJSONObject("body").getJSONArray("images").toJavaList(Image.class);
-            } else if (type.equals(ARTICLE)) {
-                return body.getJSONObject("body").getJSONObject("imageMap").values().stream().map(o -> JSONObject.toJavaObject((JSON) o, Image.class)).collect(Collectors.toList());
-            } else if (type.equals(FILE)) {
-                return body.getJSONObject("body").getJSONArray("files").toJavaList(File.class);
-            } else {
-                log.error("unknow fanbox post type: {}, {}", type, JSON.toJSONString(body));
-                return Collections.emptyList();
-            }
-        } else {
-            return Collections.emptyList();
+        JSONObject post = post();
+        JSONObject content = post == null ? null : post.getJSONObject("body");
+        if (content == null) return Collections.emptyList();
+        String type = getType();
+        if (IMAGE.equals(type)) {
+            return content.getJSONArray("images") == null ? Collections.emptyList()
+                    : content.getJSONArray("images").toJavaList(Image.class);
+        } else if (ARTICLE.equals(type)) {
+            JSONObject imageMap = content.getJSONObject("imageMap");
+            return imageMap == null ? Collections.emptyList() : imageMap.values().stream()
+                    .map(o -> JSONObject.toJavaObject((JSON) o, Image.class)).collect(Collectors.toList());
+        } else if (FILE.equals(type)) {
+            return content.getJSONArray("files") == null ? Collections.emptyList()
+                    : content.getJSONArray("files").toJavaList(File.class);
         }
+        log.warn("未知的 Fanbox 作品类型: postId={}, type={}", postId, type);
+        return Collections.emptyList();
     }
 
 

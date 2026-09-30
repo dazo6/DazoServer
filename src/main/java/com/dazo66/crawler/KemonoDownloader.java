@@ -5,6 +5,7 @@ import com.alibaba.fastjson.JSONObject;
 import com.dazo66.config.KemonoProperties;
 import com.dazo66.entity.CrawlerRequest;
 import com.dazo66.service.CrawlerRequestService;
+import com.dazo66.util.RemoteRequestGate;
 import com.dazo66.util.SpringContextUtils;
 import com.geccocrawler.gecco.annotation.Downloader;
 import com.geccocrawler.gecco.downloader.AbstractDownloader;
@@ -31,6 +32,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
+import static com.dazo66.util.RemoteRequestGate.KEMONO_GATE;
 import static java.net.Proxy.Type.HTTP;
 
 @Downloader("kemonoDownloader")
@@ -62,6 +64,7 @@ public class KemonoDownloader extends AbstractDownloader {
         if (log.isDebugEnabled()) {
             log.debug("downloading... {}", JSONObject.toJSONString(request));
         }
+        boolean needRetry = false;
         Request.Builder reqObj = null;
         if (request instanceof HttpPostRequest) {//post
             HttpPostRequest post = (HttpPostRequest) request;
@@ -104,7 +107,9 @@ public class KemonoDownloader extends AbstractDownloader {
         }
         //request and response
         Response response = null;
-        try {
+        String errorResponseBody = null;
+        KemonoProperties kemonoProperties = SpringContextUtils.getBean(KemonoProperties.class);
+        try (RemoteRequestGate.Permit requestPermit = KEMONO_GATE.acquire()) {
             StringBuilder cookieBuilder = new StringBuilder();
             if (request.getCookies() != null) {
                 for (Map.Entry<String, String> entry : request.getCookies().entrySet()) {
@@ -119,6 +124,10 @@ public class KemonoDownloader extends AbstractDownloader {
             }
             reqObj.header("accept", "text/html,application/json;q=0.9,*/*;q=0.8");
             reqObj.header("Cookie", cookieBuilder.toString());
+            if (requestPermit == null) {
+                throw new DownloadServerException("remote rate-limit cooldown is active");
+            }
+
             response = httpClient.newCall(reqObj.build()).execute();
             int status = response.code();
             HttpResponse resp = new HttpResponse();
@@ -137,11 +146,9 @@ public class KemonoDownloader extends AbstractDownloader {
                     resp.setContent(content);
                 }
             } else {
+                if (response.code() == 403) {
+                    errorResponseBody = response.body() == null ? "" : response.body().string();
 
-                KemonoProperties kemonoProperties = SpringContextUtils.getBean(KemonoProperties.class);
-                if (response.code() == 403 && kemonoProperties != null
-                        && kemonoProperties.isConfiguredOrigin(request.getUrl())) {
-                    boolean needRetry = false;
                     if (cookieMap.isEmpty()) {
                         needRetry = true;
                     }
@@ -152,8 +159,7 @@ public class KemonoDownloader extends AbstractDownloader {
                     }
                     log.error("403错误，可能是cookie失效，尝试刷新cookie");
                     List<String> headers = response.headers("Set-Cookie");
-                    if (headers != null && headers.size() > 0) {
-                        StringBuilder sb = new StringBuilder();
+                    if (headers != null && !headers.isEmpty()) {
                         for (String header : headers) {
                             List<HttpCookie> cookies = HttpCookie.parse(header);
                             log.info(cookies.toString());
@@ -169,15 +175,17 @@ public class KemonoDownloader extends AbstractDownloader {
                         }
 
                     }
-                    if (needRetry) return download(request, timeout);
-
                 }
 
                 //404，500等
                 if (proxy != null) {
                     proxys.failure(proxy.getHostName(), proxy.getPort());
                 }
-                log.debug("download error: {} , {}", response.code(), IOUtils.toString(response.body().byteStream()));
+                if (errorResponseBody == null) {
+                    errorResponseBody = response.body() == null
+                            ? "" : IOUtils.toString(response.body().byteStream());
+                }
+                log.debug("download error: {} , {}", response.code(), errorResponseBody);
                 if (response.code() == 400 && request.getUrl().contains("posts")) {
                     if (SpringContextUtils.getApplicationContext() != null) {
                         String storedUrl = kemonoProperties == null
@@ -186,7 +194,9 @@ public class KemonoDownloader extends AbstractDownloader {
                                 new CrawlerRequest().setUrl(storedUrl).setIsDone(true));
                     }
                 }
-                throw new DownloadServerException(" " + status);
+                if (needRetry) {
+                    throw new DownloadServerException(" " + status);
+                }
             }
             if (proxy != null) {
                 proxys.success(proxy.getHostName(), proxy.getPort());
@@ -197,7 +207,14 @@ public class KemonoDownloader extends AbstractDownloader {
             if (proxy != null) {
                 proxys.failure(proxy.getHostName(), proxy.getPort());
             }
-            throw new DownloadException(e);
+            if (!needRetry) {
+                throw new DownloadException(e);
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            if (!needRetry) {
+                throw new DownloadException(e);
+            }
         } finally {
             if (response != null && response.body() != null) {
                 try {
@@ -207,8 +224,11 @@ public class KemonoDownloader extends AbstractDownloader {
                 }
             }
         }
+        if (needRetry) {
+            return download(request, timeout);
+        }
+        return null;
     }
-
     @Override
     public void shutdown() {
     }

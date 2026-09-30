@@ -2,11 +2,12 @@ package com.dazo66.controller;
 
 import com.dazo66.dashboard.ArtistGalleryData;
 import com.dazo66.dashboard.ArtistGalleryItem;
-import com.dazo66.dashboard.ArtistManagementItem;
-import com.dazo66.entity.Artist;
-import com.dazo66.service.ArtistManagementService;
-import com.dazo66.service.KemonoArtistService;
+import com.dazo66.service.ArtistGalleryCache;
+import com.dazo66.service.FreeGalleryService;
 import com.dazo66.util.ResultEntity;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.bytedeco.javacv.FFmpegFrameRecorder;
+import org.bytedeco.javacv.Java2DFrameConverter;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.core.io.Resource;
@@ -17,12 +18,17 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import javax.imageio.ImageIO;
 import java.awt.*;
 import java.awt.image.BufferedImage;
+import java.io.IOException;
+import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.FileTime;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.*;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -32,6 +38,42 @@ class ArtistGalleryControllerTest {
     Path temporaryDirectory;
 
     @Test
+    void listsNewJpegFilesAndServesTheirThumbnailsAfterIndexWasCached() throws Exception {
+        Path downloadRoot = temporaryDirectory.resolve("jpeg-downloads");
+        Path directory = downloadRoot.resolve("artist");
+        Files.createDirectories(directory);
+        writeImage(directory.resolve("existing.png"));
+        ArtistGalleryController controller = new ArtistGalleryController(
+                downloadRoot.toString(), temporaryDirectory.resolve("jpeg-thumbnail-cache"));
+
+        assertThat(controller.getGallery(directory.toString(), "name", "asc")
+                .getBody().getData().getImages()).extracting(ArtistGalleryItem::getName)
+                .containsExactly("existing.png");
+
+        BufferedImage jpeg = new BufferedImage(64, 48, BufferedImage.TYPE_INT_RGB);
+        assertThat(ImageIO.write(jpeg, "jpeg", directory.resolve("new.JPEG").toFile())).isTrue();
+        assertThat(ImageIO.write(jpeg, "jpeg", directory.resolve("newer.jpeg").toFile())).isTrue();
+        Files.setLastModifiedTime(directory, FileTime.fromMillis(
+                Files.getLastModifiedTime(directory).toMillis() + 2000));
+
+        List<ArtistGalleryItem> images = controller.getGallery(directory.toString(), "name", "asc")
+                .getBody().getData().getImages();
+        assertThat(images).extracting(ArtistGalleryItem::getName)
+                .containsExactly("existing.png", "new.JPEG", "newer.jpeg");
+        assertThat(images).extracting(ArtistGalleryItem::getType)
+                .containsOnly("image");
+        ResponseEntity<Resource> original = controller.getGalleryFile(directory.toString(), "new.JPEG", false);
+        ResponseEntity<Resource> thumbnail = controller.getGalleryFile(directory.toString(), "new.JPEG", true);
+        assertThat(original.getStatusCodeValue()).isEqualTo(200);
+        assertThat(original.getHeaders().getContentType()).isEqualTo(org.springframework.http.MediaType.IMAGE_JPEG);
+        assertThat(thumbnail.getStatusCodeValue()).isEqualTo(200);
+        assertThat(thumbnail.getHeaders().getContentType()).isEqualTo(org.springframework.http.MediaType.IMAGE_JPEG);
+        try (InputStream input = thumbnail.getBody().getInputStream()) {
+            assertThat(ImageIO.read(input)).isNotNull();
+        }
+    }
+
+    @Test
     void lazilyCachesThumbnailsWithoutLookingUpArtistForEveryImage() throws Exception {
         Path downloadRoot = temporaryDirectory.resolve("downloads");
         Path artistDirectory = downloadRoot.resolve("artist-one");
@@ -39,37 +81,37 @@ class ArtistGalleryControllerTest {
         Path source = artistDirectory.resolve("sample.png");
         writeImage(source);
         Files.write(artistDirectory.resolve("sample.mp4"), new byte[]{0, 0, 0, 24, 102, 116, 121, 112});
+        Path nestedDirectory = artistDirectory.resolve("nested-album");
+        Files.createDirectories(nestedDirectory);
+        writeImage(nestedDirectory.resolve("nested.png"));
 
-        Artist artist = new Artist().setId(7).setName("artist-one").setArtistId("creator-one")
-                .setType("fanbox");
-        ArtistManagementItem artistItem = new ArtistManagementItem();
-        artistItem.setId(7);
-        artistItem.setName("artist-one");
-        KemonoArtistService artistService = mock(KemonoArtistService.class);
-        ArtistManagementService managementService = mock(ArtistManagementService.class);
-        when(artistService.getById(7)).thenReturn(artist);
-        when(managementService.toItem(artist)).thenReturn(artistItem);
         Path cacheRoot = temporaryDirectory.resolve("cache").resolve("gallery-thumbnails");
         ArtistGalleryController controller = new ArtistGalleryController(
-                artistService, managementService, downloadRoot.toString(), cacheRoot);
+                downloadRoot.toString(), cacheRoot);
 
         ResponseEntity<ResultEntity<ArtistGalleryData>> galleryResponse =
-                controller.getGallery(7, "created", "desc");
+                controller.getGallery(artistDirectory.toString(), "created", "desc");
         ArtistGalleryData gallery = galleryResponse.getBody().getData();
         List<ArtistGalleryItem> images = gallery.getImages();
 
-        assertThat(gallery.getArtist().getArtistDirectory()).isEqualTo("artist-one");
-        assertThat(images).hasSize(2);
+        assertThat(gallery.getFolderPath()).isEqualTo(artistDirectory.toRealPath().toString());
+        assertThat(images).hasSize(3);
         ArtistGalleryItem image = images.stream().filter(item -> "image".equals(item.getType())).findFirst().get();
         ArtistGalleryItem video = images.stream().filter(item -> "video".equals(item.getType())).findFirst().get();
+        ArtistGalleryItem folder = images.stream().filter(item -> "folder".equals(item.getType())).findFirst().get();
         assertThat(image.getThumbnailUrl()).endsWith("&thumbnail=true");
-        assertThat(video.getThumbnailUrl()).isNull();
+        assertThat(image.getUrl()).contains("folderPath=").doesNotContain("artistDirectory=");
+        assertThat(video.getThumbnailUrl()).isEqualTo(video.getUrl() + "&thumbnail=true");
         assertThat(video.getUrl()).contains("sample.mp4");
-        verify(artistService, times(1)).getById(7);
-
-        ResponseEntity<Resource> first = controller.getGalleryFile("artist-one", "sample.png", true);
-        ResponseEntity<Resource> second = controller.getGalleryFile("artist-one", "sample.png", true);
-        ResponseEntity<Resource> videoResponse = controller.getGalleryFile("artist-one", "sample.mp4", false);
+        assertThat(folder.getName()).isEqualTo("nested-album");
+        assertThat(folder.getUrl()).isNull();
+        assertThat(folder.getFolderPath()).isEqualTo(nestedDirectory.toString());
+        assertThat(controller.getGallery(folder.getFolderPath(), "name", "asc")
+                .getBody().getData().getImages()).extracting(ArtistGalleryItem::getName)
+                .containsExactly("nested.png");
+        ResponseEntity<Resource> first = controller.getGalleryFile(artistDirectory.toString(), "sample.png", true);
+        ResponseEntity<Resource> second = controller.getGalleryFile(artistDirectory.toString(), "sample.png", true);
+        ResponseEntity<Resource> videoResponse = controller.getGalleryFile(artistDirectory.toString(), "sample.mp4", false);
 
         assertThat(first.getStatusCodeValue()).isEqualTo(200);
         assertThat(first.getHeaders().getContentType().toString()).isEqualTo("image/jpeg");
@@ -84,7 +126,107 @@ class ArtistGalleryControllerTest {
         try (java.util.stream.Stream<Path> cachedFiles = Files.walk(cacheRoot)) {
             assertThat(cachedFiles.filter(Files::isRegularFile).count()).isEqualTo(1);
         }
-        verify(artistService, times(1)).getById(7);
+    }
+
+    @Test
+    void generatesVideoFirstFrameOnlyOnThumbnailRequestAndReusesCache() throws Exception {
+        Path downloadRoot = temporaryDirectory.resolve("video-preview-root");
+        Path directory = downloadRoot.resolve("artist");
+        Files.createDirectories(directory);
+        Path video = directory.resolve("clip.mp4");
+        Files.write(video, new byte[]{1, 2, 3});
+        Path cacheRoot = temporaryDirectory.resolve("video-preview-cache");
+        AtomicInteger extractions = new AtomicInteger();
+        ArtistGalleryController controller = new ArtistGalleryController(
+                downloadRoot.toString(), cacheRoot) {
+            @Override
+            void extractVideoFrame(Path source, Path target) throws IOException {
+                extractions.incrementAndGet();
+                BufferedImage frame = new BufferedImage(32, 18, BufferedImage.TYPE_INT_RGB);
+                if (!ImageIO.write(frame, "jpg", target.toFile())) {
+                    throw new IOException("JPEG encoder unavailable");
+                }
+            }
+        };
+
+        ResponseEntity<Resource> original = controller.getGalleryFile(directory.toString(), "clip.mp4", false);
+        assertThat(original.getBody().getFile().toPath()).isEqualTo(video);
+        assertThat(extractions.get()).isZero();
+
+        ResponseEntity<Resource> first = controller.getGalleryFile(directory.toString(), "clip.mp4", true);
+        ResponseEntity<Resource> second = controller.getGalleryFile(directory.toString(), "clip.mp4", true);
+        assertThat(first.getStatusCodeValue()).isEqualTo(200);
+        assertThat(first.getHeaders().getContentType()).isEqualTo(org.springframework.http.MediaType.IMAGE_JPEG);
+        assertThat(first.getBody().getFile().toPath()).startsWith(cacheRoot);
+        try (InputStream input = first.getBody().getInputStream()) {
+            assertThat(ImageIO.read(input)).isNotNull();
+        }
+        assertThat(second.getBody().getFile()).isEqualTo(first.getBody().getFile());
+        assertThat(extractions.get()).isEqualTo(1);
+        Files.setLastModifiedTime(video, FileTime.fromMillis(
+                Files.getLastModifiedTime(first.getBody().getFile().toPath()).toMillis() + 1000));
+        ResponseEntity<Resource> refreshed = controller.getGalleryFile(directory.toString(), "clip.mp4", true);
+        assertThat(refreshed.getStatusCodeValue()).isEqualTo(200);
+        assertThat(extractions.get()).isEqualTo(2);
+        try (java.util.stream.Stream<Path> sourceFiles = Files.list(directory)) {
+            assertThat(sourceFiles.count()).isEqualTo(1);
+        }
+    }
+
+    @Test
+    void extractsRealVideoFrameWithoutExternalFfmpegExecutable() throws Exception {
+        Path downloadRoot = temporaryDirectory.resolve("native-video-root");
+        Path directory = downloadRoot.resolve("artist");
+        Files.createDirectories(directory);
+        Path video = directory.resolve("clip.mp4");
+        BufferedImage frame = new BufferedImage(64, 36, BufferedImage.TYPE_INT_RGB);
+        Graphics2D graphics = frame.createGraphics();
+        try {
+            graphics.setColor(Color.RED);
+            graphics.fillRect(0, 0, frame.getWidth(), frame.getHeight());
+        } finally {
+            graphics.dispose();
+        }
+        try (FFmpegFrameRecorder recorder = new FFmpegFrameRecorder(video.toFile(), 64, 36);
+             Java2DFrameConverter converter = new Java2DFrameConverter()) {
+            recorder.setFormat("mp4");
+            recorder.setVideoCodec(org.bytedeco.ffmpeg.global.avcodec.AV_CODEC_ID_MPEG4);
+            recorder.setFrameRate(1);
+            recorder.start();
+            recorder.record(converter.convert(frame));
+            recorder.stop();
+        }
+        ArtistGalleryController controller = new ArtistGalleryController(
+                downloadRoot.toString(), temporaryDirectory.resolve("native-video-cache"));
+
+        ResponseEntity<Resource> response = controller.getGalleryFile(directory.toString(), "clip.mp4", true);
+        assertThat(response.getStatusCodeValue()).isEqualTo(200);
+        assertThat(response.getHeaders().getContentType()).isEqualTo(org.springframework.http.MediaType.IMAGE_JPEG);
+        try (InputStream input = response.getBody().getInputStream()) {
+            BufferedImage extracted = ImageIO.read(input);
+            assertThat(extracted).isNotNull();
+            assertThat(extracted.getWidth()).isLessThanOrEqualTo(600);
+            assertThat(new Color(extracted.getRGB(extracted.getWidth() / 2, extracted.getHeight() / 2))
+                    .getRed()).isGreaterThan(150);
+        }
+    }
+
+    @Test
+    void neverReturnsOriginalVideoWhenFrameExtractionFails() throws Exception {
+        Path downloadRoot = temporaryDirectory.resolve("broken-video-root");
+        Path directory = downloadRoot.resolve("artist");
+        Files.createDirectories(directory);
+        Files.write(directory.resolve("clip.mp4"), new byte[]{1, 2, 3});
+        ArtistGalleryController controller = new ArtistGalleryController(
+                downloadRoot.toString(), temporaryDirectory.resolve("broken-video-cache")) {
+            @Override
+            void extractVideoFrame(Path source, Path target) throws IOException {
+                throw new IOException("Cannot decode video");
+            }
+        };
+
+        assertThat(controller.getGalleryFile(directory.toString(), "clip.mp4", true)
+                .getStatusCodeValue()).isEqualTo(500);
     }
 
     @Test
@@ -96,34 +238,102 @@ class ArtistGalleryControllerTest {
         writeImage(artistDirectory.resolve("2026-07-23-set-01.png"));
         writeImage(artistDirectory.resolve("2025-12-01-set-01.png"));
         writeImage(artistDirectory.resolve("without-date.png"));
+        Files.createDirectories(artistDirectory.resolve("nested"));
 
-        Artist artist = new Artist().setId(8).setName("artist-two").setArtistId("creator-two")
-                .setType("fanbox");
-        ArtistManagementItem artistItem = new ArtistManagementItem();
-        KemonoArtistService artistService = mock(KemonoArtistService.class);
-        ArtistManagementService managementService = mock(ArtistManagementService.class);
-        when(artistService.getById(8)).thenReturn(artist);
-        when(managementService.toItem(artist)).thenReturn(artistItem);
         ArtistGalleryController controller = new ArtistGalleryController(
-                artistService, managementService, downloadRoot.toString(), temporaryDirectory.resolve("album-cache"));
+                downloadRoot.toString(), temporaryDirectory.resolve("album-cache"));
 
-        List<ArtistGalleryItem> descending = controller.getGallery(8, "album", "desc")
+        List<ArtistGalleryItem> descending = controller.getGallery(artistDirectory.toString(), "album", "desc")
                 .getBody().getData().getImages();
-        List<ArtistGalleryItem> ascending = controller.getGallery(8, "album", "asc")
+        List<ArtistGalleryItem> ascending = controller.getGallery(artistDirectory.toString(), "album", "asc")
                 .getBody().getData().getImages();
 
         assertThat(descending).extracting(ArtistGalleryItem::getName).containsExactly(
+                "nested",
                 "2026-07-23-set-01.png",
                 "2026-07-23-set-02.png",
                 "2025-12-01-set-01.png",
                 "without-date.png"
         );
         assertThat(ascending).extracting(ArtistGalleryItem::getName).containsExactly(
+                "nested",
                 "2025-12-01-set-01.png",
                 "2026-07-23-set-01.png",
                 "2026-07-23-set-02.png",
                 "without-date.png"
         );
+    }
+
+    @Test
+    void rejectsGalleryFoldersOutsideConfiguredDownloadRoot() throws Exception {
+        Path downloadRoot = temporaryDirectory.resolve("safe-downloads");
+        Path outsideDirectory = temporaryDirectory.resolve("outside");
+        Files.createDirectories(downloadRoot);
+        Files.createDirectories(outsideDirectory);
+        ArtistGalleryController controller = new ArtistGalleryController(
+                downloadRoot.toString(), temporaryDirectory.resolve("safe-cache"));
+
+        assertThat(controller.getGallery(outsideDirectory.toString(), "name", "asc")
+                .getStatusCodeValue()).isEqualTo(404);
+    }
+
+    @Test
+    void acceptsExternalFolderWhenItBelongsToRegisteredFreeGallery() throws Exception {
+        Path downloadRoot = temporaryDirectory.resolve("downloads-for-free-gallery");
+        Path registeredDirectory = temporaryDirectory.resolve("registered-free-gallery");
+        Path nestedDirectory = registeredDirectory.resolve("nested");
+        Files.createDirectories(downloadRoot);
+        Files.createDirectories(nestedDirectory);
+        writeImage(nestedDirectory.resolve("free.png"));
+        FreeGalleryService freeGalleryService = mock(FreeGalleryService.class);
+        when(freeGalleryService.isRegisteredDirectory(nestedDirectory.toRealPath())).thenReturn(true);
+        Path cacheRoot = temporaryDirectory.resolve("free-gallery-cache");
+        ArtistGalleryCache cache = new ArtistGalleryCache(downloadRoot, cacheRoot, new ObjectMapper());
+        ArtistGalleryController controller = new ArtistGalleryController(
+                downloadRoot.toString(), cacheRoot.resolve("thumbnails"), cache, freeGalleryService);
+
+        ResponseEntity<ResultEntity<ArtistGalleryData>> response = controller.getGallery(
+                nestedDirectory.toString(), "name", "asc");
+
+        assertThat(response.getStatusCodeValue()).isEqualTo(200);
+        assertThat(response.getBody().getData().getImages())
+                .extracting(ArtistGalleryItem::getName).containsExactly("free.png");
+    }
+
+    @Test
+    void servesFolderPosterThroughFileEndpointAsCachedTransparentPng() throws Exception {
+        Path downloadRoot = temporaryDirectory.resolve("poster-root");
+        Path folder = downloadRoot.resolve("posters");
+        Files.createDirectories(folder);
+        writeImage(folder.resolve("01 first.png"));
+        writeImage(folder.resolve("02.png"));
+        writeImage(folder.resolve("03.png"));
+        Path cacheRoot = temporaryDirectory.resolve("poster-indexes");
+        ArtistGalleryCache cache = new ArtistGalleryCache(downloadRoot, cacheRoot, new ObjectMapper());
+        ArtistGalleryController controller = new ArtistGalleryController(
+                downloadRoot.toString(), temporaryDirectory.resolve("poster-thumbnails"), cache);
+
+        assertThat(controller.getGalleryFile(downloadRoot.toString(), "posters", false)
+                .getStatusCodeValue()).isEqualTo(404);
+        assertThat(cache.posterFile(folder.toString())).doesNotExist();
+
+        cache.rebuildScheduledTree(downloadRoot.toString());
+
+        ArtistGalleryItem item = controller.getGallery(downloadRoot.toString(), "name", "asc")
+                .getBody().getData().getImages().get(0);
+
+        assertThat(item.getPosterUrl()).startsWith("/api/fanbox/gallery/file?folderPath=");
+        assertThat(item.getPosterUrl()).contains("&path=posters").doesNotContain("thumbnail=true", "01%20first.png");
+        ResponseEntity<Resource> posterResponse = controller.getGalleryFile(downloadRoot.toString(), "posters", false);
+        assertThat(posterResponse.getStatusCodeValue()).isEqualTo(200);
+        assertThat(posterResponse.getHeaders().getContentType()).isEqualTo(org.springframework.http.MediaType.IMAGE_PNG);
+        BufferedImage posterImage = ImageIO.read(posterResponse.getBody().getInputStream());
+        assertThat(posterImage.getColorModel().hasAlpha()).isTrue();
+        assertThat(new Color(posterImage.getRGB(0, 0), true).getAlpha()).isZero();
+        assertThat(controller.getGalleryFile(downloadRoot.toString(), "posters", true)
+                .getHeaders().getContentType()).isEqualTo(org.springframework.http.MediaType.IMAGE_PNG);
+        assertThat(controller.getGalleryFile(temporaryDirectory.toString(), "posters", false)
+                .getStatusCodeValue()).isEqualTo(404);
     }
 
     @Test
@@ -135,12 +345,11 @@ class ArtistGalleryControllerTest {
         Files.write(artistDirectory.resolve("clip.mp4"), videoBytes);
 
         ArtistGalleryController controller = new ArtistGalleryController(
-                mock(KemonoArtistService.class), mock(ArtistManagementService.class),
                 downloadRoot.toString(), temporaryDirectory.resolve("video-cache"));
         MockMvc mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
 
         mockMvc.perform(get("/api/fanbox/gallery/file")
-                        .param("artistDirectory", "video-artist")
+                        .param("folderPath", artistDirectory.toString())
                         .param("path", "clip.mp4")
                         .header("Range", "bytes=2-5"))
                 .andExpect(status().isPartialContent())

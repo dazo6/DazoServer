@@ -12,7 +12,7 @@ public class ArtistManagementItem {
     private String name;
     private String icon;
     private String banner;
-    private String artistDirectory;
+    private String folderPath;
     private String url;
     private String type;
     private Boolean enable;
@@ -52,12 +52,12 @@ public class ArtistManagementItem {
         this.banner = banner;
     }
 
-    public String getArtistDirectory() {
-        return artistDirectory;
+    public String getFolderPath() {
+        return folderPath;
     }
 
-    public void setArtistDirectory(String artistDirectory) {
-        this.artistDirectory = artistDirectory;
+    public void setFolderPath(String folderPath) {
+        this.folderPath = folderPath;
     }
 
     public String getUrl() {

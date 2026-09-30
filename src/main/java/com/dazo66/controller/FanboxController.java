@@ -14,6 +14,7 @@ import com.dazo66.util.ResultEntity;
 import com.geccocrawler.gecco.GeccoEngine;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Collections;
@@ -80,6 +81,15 @@ public class FanboxController {
             geccoEngine.start();
         }
         return ResultEntity.successWithData(artistManagementService.toItem(artist));
+    }
+
+    @GetMapping("{id}")
+    public ResponseEntity<ResultEntity<ArtistManagementItem>> getArtist(@PathVariable int id) {
+        Artist artist = kemonoArtistService.getById(id);
+        if (artist == null) {
+            return ResponseEntity.notFound().build();
+        }
+        return ResponseEntity.ok(ResultEntity.successWithData(artistManagementService.toItem(artist)));
     }
 
     @PostMapping("status")

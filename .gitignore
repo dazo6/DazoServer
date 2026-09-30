@@ -6,5 +6,7 @@
 /target/
 /test/
 cache/
+/logs/
+/.agents/
 
 

@@ -18,7 +18,7 @@ import java.util.Set;
 public class SecurityFilter implements Filter {
 
     private static final Set<String> PUBLIC_PATHS = new HashSet<>(Arrays.asList(
-            "/login.html", "/api/auth/login", "/error", "/favicon.ico"
+            "/login.html", "/api/auth/login", "/error", "/favicon.ico", "/bot/napcat"
     ));
 
     private final DashboardAuthTokenService tokenService;

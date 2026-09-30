@@ -9,6 +9,8 @@ public class ArtistGalleryItem {
     private String url;
     private String thumbnailUrl;
     private String type;
+    private String folderPath;
+    private String posterUrl;
     private long createdAt;
 
     public ArtistGalleryItem() {
@@ -19,10 +21,16 @@ public class ArtistGalleryItem {
     }
 
     public ArtistGalleryItem(String name, String url, String thumbnailUrl, String type, long createdAt) {
+        this(name, url, thumbnailUrl, type, null, createdAt);
+    }
+
+    public ArtistGalleryItem(String name, String url, String thumbnailUrl, String type,
+                             String folderPath, long createdAt) {
         this.name = name;
         this.url = url;
         this.thumbnailUrl = thumbnailUrl;
         this.type = type;
+        this.folderPath = folderPath;
         this.createdAt = createdAt;
     }
 
@@ -56,6 +64,22 @@ public class ArtistGalleryItem {
 
     public void setType(String type) {
         this.type = type;
+    }
+
+    public String getFolderPath() {
+        return folderPath;
+    }
+
+    public void setFolderPath(String folderPath) {
+        this.folderPath = folderPath;
+    }
+
+    public String getPosterUrl() {
+        return posterUrl;
+    }
+
+    public void setPosterUrl(String posterUrl) {
+        this.posterUrl = posterUrl;
     }
 
     public long getCreatedAt() {

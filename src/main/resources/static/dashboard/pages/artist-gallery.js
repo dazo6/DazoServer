@@ -1,7 +1,7 @@
 (() => {
     "use strict";
 
-    const {computed, nextTick, onBeforeUnmount, onMounted, reactive, ref} = Vue;
+    const {computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch} = Vue;
     const {useRoute, useRouter} = VueRouter;
     window.DazoAdminPages = window.DazoAdminPages || {};
     const GALLERY_POSITION_STORAGE_PREFIX = "dazo-gallery-position-v1:";
@@ -16,12 +16,12 @@
             const route = useRoute();
             const router = useRouter();
             const artist = reactive({
-                name: route.query.name || "画师图库",
+                name: "",
                 icon: "",
                 banner: "",
-                url: "",
-                artistDirectory: ""
+                url: ""
             });
+            const folderPath = ref(queryValue(route.query.folderPath));
             const galleryGrid = ref(null);
             const images = ref([]);
             const renderedImageCount = ref(0);
@@ -51,6 +51,7 @@
             const imageInfoVisible = ref(false);
             const imageInfo = reactive({
                 name: "",
+                url: "",
                 typeText: "图片",
                 sizeText: "读取中…",
                 sizeBytes: 0,
@@ -58,7 +59,8 @@
                 dimensionsText: "",
                 durationText: ""
             });
-            const artistName = computed(() => artist.name || route.query.name || "画师图库");
+            const artistName = computed(() => artist.name || "画师图库");
+            const hasArtist = computed(() => Boolean(artist.name));
             const currentImage = computed(() => images.value[viewerIndex.value] || null);
             const viewerImageStyle = computed(() => ({
                 transform: `translate(${viewerOffset.x}px, ${viewerOffset.y}px) scale(${viewerScale.value})`,
@@ -100,6 +102,8 @@
             let pendingViewerDirection = 0;
             let viewerSlideId = 0;
             let viewerCompletingSlide = false;
+            let pendingViewerFolderNavigation = false;
+            let galleryLoadId = 0;
             const MAX_FORWARD_PRELOAD = 10;
             const PRELOAD_CONCURRENCY = 3;
             const preloadPromises = new Map();
@@ -110,35 +114,63 @@
             const GALLERY_LOAD_AHEAD_PX = 900;
 
             async function loadGallery(offerResume = true) {
+                const loadId = ++galleryLoadId;
                 loading.value = true;
                 errorMessage.value = "";
+                let loaded = false;
                 try {
                     const params = new URLSearchParams({sortBy: sort.field, order: sort.order});
-                    const data = await requestData(`/api/fanbox/${encodeURIComponent(route.params.id)}/gallery?${params}`);
-                    if (data && data.artist) {
-                        artist.name = data.artist.name || artist.name;
-                        artist.icon = data.artist.icon || "";
-                        artist.banner = data.artist.banner || "";
-                        artist.url = data.artist.url || "";
-                        artist.artistDirectory = data.artist.artistDirectory || "";
+                    if (!folderPath.value) {
+                        throw new Error("未指定文件夹路径");
                     }
+                    params.set("folderPath", folderPath.value);
+                    const data = await requestData(`/api/fanbox/gallery?${params}`);
+                    if (loadId !== galleryLoadId) return false;
+                    folderPath.value = data && data.folderPath ? data.folderPath : folderPath.value;
                     images.value = data && Array.isArray(data.images)
                         ? data.images.map(image => ({
                             ...image,
-                            type: image.type === "video" ? "video" : "image",
-                            loaded: false,
-                            aspectRatio: image.type === "video" ? 16 / 9 : image.aspectRatio
+                            type: ["video", "folder"].includes(image.type) ? image.type : "image",
+                            loaded: image.type === "folder",
+                            aspectRatio: image.type === "video" ? 16 / 9
+                                : image.type === "folder" ? 4 / 3 : image.aspectRatio
                         }))
                         : [];
                     renderedImageCount.value = Math.min(GALLERY_BATCH_SIZE, images.value.length);
                     viewerIndex.value = Math.min(viewerIndex.value, Math.max(images.value.length - 1, 0));
                     scheduleGalleryLayout();
                     scheduleGalleryBatchCheck();
-                    if (offerResume) nextTick(offerSavedGalleryPosition);
+                    loaded = true;
+                    return true;
                 } catch (error) {
+                    if (loadId !== galleryLoadId) return false;
                     errorMessage.value = `图库加载失败：${error.message}`;
+                    return false;
                 } finally {
-                    loading.value = false;
+                    if (loadId === galleryLoadId) loading.value = false;
+                    if (loaded && loadId === galleryLoadId) {
+                        nextTick(() => {
+                            if (loadId !== galleryLoadId || route.name !== "artist-gallery") return;
+                            const restoring = window.DazoAdminScrollRestoration?.contentReady(
+                                route.fullPath, restoreGalleryBackPosition);
+                            if (offerResume && !restoring) offerSavedGalleryPosition();
+                        });
+                    }
+                }
+            }
+
+            async function loadArtist() {
+                const artistId = queryValue(route.query.artistId);
+                if (!artistId) return;
+                try {
+                    const data = await requestData(`/api/fanbox/${encodeURIComponent(artistId)}`);
+                    if (!data) return;
+                    artist.name = data.name || "";
+                    artist.icon = data.icon || "";
+                    artist.banner = data.banner || "";
+                    artist.url = data.url || "";
+                } catch (error) {
+                    ElementPlus.ElMessage.warning(`作者信息加载失败：${error.message}`);
                 }
             }
 
@@ -172,10 +204,34 @@
 
             function handleGalleryItemClick(index) {
                 if (Date.now() < suppressGalleryClickUntil) return;
+                const item = images.value[index];
+                if (item && item.type === "folder") {
+                    enterFolder(item, false);
+                    return;
+                }
                 openViewer(index);
             }
 
+            async function enterFolder(item, keepViewerOpen) {
+                if (!item || item.type !== "folder" || !item.folderPath) return;
+                clearViewerCloseTimer();
+                saveGalleryPosition();
+                pendingViewerFolderNavigation = Boolean(keepViewerOpen);
+                const query = {...route.query, folderPath: item.folderPath};
+                try {
+                    if (keepViewerOpen) {
+                        await router.replace({name: "artist-gallery", query});
+                    } else {
+                        await router.push({name: "artist-gallery", query});
+                    }
+                } catch (error) {
+                    pendingViewerFolderNavigation = false;
+                    ElementPlus.ElMessage.error(`进入文件夹失败：${error.message}`);
+                }
+            }
+
             function startGalleryImageLongPress(event, image) {
+                if (image && image.type === "folder") return;
                 if (!event || !event.isPrimary || event.button !== 0) return;
                 clearImageLongPressTimer();
                 const element = event.currentTarget
@@ -228,20 +284,23 @@
             }
 
             function showImageInfo(image, element, originalDimensions) {
-                if (!image) return;
+                if (!image || image.type === "folder") return;
                 const requestId = ++imageInfoRequestId;
                 const video = image.type === "video";
                 imageInfo.name = imageDisplayName(image);
+                imageInfo.url = image.url || "";
                 imageInfo.typeText = video ? "视频" : "图片";
                 imageInfo.sizeText = "读取中…";
                 imageInfo.sizeBytes = 0;
                 imageInfo.durationText = video && element && Number.isFinite(element.duration)
                     ? formatDuration(element.duration) : "";
-                const width = video ? element && element.videoWidth : element && element.naturalWidth;
-                const height = video ? element && element.videoHeight : element && element.naturalHeight;
+                const videoElement = video && element && element.tagName === "VIDEO";
+                const width = videoElement ? element.videoWidth : element && element.naturalWidth;
+                const height = videoElement ? element.videoHeight : element && element.naturalHeight;
                 if (width > 0 && height > 0) {
-                    imageInfo.dimensionsLabel = video
-                        ? "视频分辨率" : originalDimensions ? "原图分辨率" : "预览分辨率";
+                    imageInfo.dimensionsLabel = videoElement ? "视频分辨率"
+                        : video ? "首帧预览分辨率"
+                            : originalDimensions ? "原图分辨率" : "预览分辨率";
                     imageInfo.dimensionsText = `${width} × ${height} px`;
                 } else {
                     imageInfo.dimensionsLabel = "";
@@ -269,6 +328,10 @@
                 } catch (error) {
                     return "未命名文件";
                 }
+            }
+
+            function galleryItemKey(image) {
+                return image ? image.folderPath || image.url || image.name || "" : "";
             }
 
             function formatDuration(seconds) {
@@ -363,13 +426,13 @@
                     pendingViewerGalleryReturn = null;
                     return;
                 }
-                if (viewerOpeningVisibleUrls.has(image.url)) {
+                if (viewerOpeningVisibleUrls.has(galleryItemKey(image))) {
                     pendingViewerGalleryReturn = null;
                     return;
                 }
                 const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
                 pendingViewerGalleryReturn = {
-                    imageUrl: image.url,
+                    imageUrl: galleryItemKey(image),
                     index,
                     offsetTop: Math.min(140, Math.max(72, viewportHeight * .18))
                 };
@@ -391,7 +454,7 @@
                     }
                     const index = Number.parseInt(element.dataset.galleryIndex, 10);
                     const image = images.value[index];
-                    if (image && image.url) urls.add(image.url);
+                    if (image) urls.add(galleryItemKey(image));
                 });
                 return urls;
             }
@@ -499,7 +562,7 @@
                     id: viewerSlideId,
                     image,
                     originalRequested,
-                    originalReady: false,
+                    originalReady: Boolean(image && image.type === "folder"),
                     loadError: false
                 };
             }
@@ -520,7 +583,8 @@
                 const slides = viewerSlides.value;
                 if (slides.length !== 3) return;
                 const slide = direction < 0 ? slides[0] : slides[2];
-                if (!slide || !slide.image || slide.originalRequested) return;
+                if (!slide || !slide.image || ["folder", "video"].includes(slide.image.type)
+                    || slide.originalRequested) return;
                 slide.originalRequested = true;
                 slide.originalReady = false;
             }
@@ -617,6 +681,16 @@
                 } else {
                     rebuildViewerSlides();
                 }
+                viewerSlides.value.forEach((slide, index) => {
+                    if (!slide || !slide.image || slide.image.type !== "video") return;
+                    if (index === 1) {
+                        if (!slide.originalRequested) slide.loadError = false;
+                        slide.originalRequested = true;
+                    } else {
+                        slide.originalRequested = false;
+                        slide.originalReady = false;
+                    }
+                });
                 pendingViewerDirection = 0;
                 resetViewerTransform(false);
 
@@ -647,6 +721,10 @@
             function toggleViewerZoom() {
                 clearViewerCloseTimer();
                 if (!currentImage.value || currentImage.value.type === "video") return;
+                if (currentImage.value.type === "folder") {
+                    enterFolder(currentImage.value, true);
+                    return;
+                }
                 viewerTransition.value = true;
                 if (viewerScale.value > 1.05) {
                     resetViewerTransform(true);
@@ -714,7 +792,7 @@
             function armViewerImageLongPress() {
                 const state = touchState;
                 const image = currentImage.value;
-                if (!state || !image) return;
+                if (!state || !image || image.type === "folder") return;
                 const element = viewerRoot.value
                     ? viewerRoot.value.querySelector(".cinema-viewer-slide:nth-child(2) .cinema-viewer-image")
                     : null;
@@ -731,6 +809,7 @@
             }
 
             function startViewerMouseLongPress(event) {
+                if (currentImage.value && currentImage.value.type === "folder") return;
                 if (!event || event.pointerType !== "mouse" || !event.isPrimary || event.button !== 0) return;
                 if (event.target && typeof event.target.closest === "function"
                     && event.target.closest(".cinema-viewer-nav, .cinema-viewer-video")) return;
@@ -950,7 +1029,7 @@
                 });
             }
 
-            function handleViewerImageError(event) {
+            function handleViewerImageError(event, slide) {
                 const failedImage = currentImage.value;
                 const element = event && event.currentTarget;
                 if (failedImage && element && failedImage.thumbnailUrl
@@ -961,31 +1040,21 @@
                     element.src = failedImage.thumbnailUrl;
                     return;
                 }
-                if (failedImage) hideBrokenImage(failedImage);
-                if (!images.value.length) {
-                    closeViewer();
-                    return;
-                }
-                viewerIndex.value = normalizeViewerIndex(viewerIndex.value);
-                rebuildViewerSlides();
-                resetViewerTransform(false);
-                resetViewerTrack(false);
-                nextTick(() => {
-                    viewerSwipeTransition.value = true;
-                });
+                if (slide) slide.loadError = true;
             }
 
             function hideViewerPreview(event) {
                 if (event && event.currentTarget) event.currentTarget.style.visibility = "hidden";
             }
 
-            function handleViewerSlideError(event, slideIndex) {
-                if (slideIndex === 1) handleViewerImageError(event);
+            function handleViewerSlideError(event, slide, slideIndex) {
+                if (slideIndex === 1) handleViewerImageError(event, slide);
                 else hideViewerPreview(event);
             }
 
             function preloadViewerImages(startIndex) {
-                const urls = images.value.map(image => image.type === "video" ? null : image.url);
+                const urls = images.value.map(image => ["video", "folder"].includes(image.type)
+                    ? null : image.url);
                 if (!urls.length) return;
                 const order = [];
                 const visited = new Set();
@@ -1016,17 +1085,23 @@
                     image.thumbnailUrl = `${baseUrl}&retry=${image.thumbnailRetryCount}`;
                     return;
                 }
-                hideBrokenImage(image);
+                const element = event && event.currentTarget;
+                if (element && element.dataset.originalFallback !== "true" && image.url) {
+                    element.dataset.originalFallback = "true";
+                    element.src = image.url;
+                    return;
+                }
+                image.loadError = true;
+                image.loaded = true;
+                scheduleGalleryLayout();
             }
 
             function markVideoLoaded(event, video) {
                 if (!video) return;
                 const element = event && event.currentTarget;
-                if (element && element.videoWidth > 0 && element.videoHeight > 0) {
-                    video.aspectRatio = element.videoWidth / element.videoHeight;
+                if (element && element.naturalWidth > 0 && element.naturalHeight > 0) {
+                    video.aspectRatio = element.naturalWidth / element.naturalHeight;
                 }
-                video.durationText = element && Number.isFinite(element.duration)
-                    ? formatDuration(element.duration) : "";
                 video.loadError = false;
                 video.loaded = true;
                 scheduleGalleryLayout();
@@ -1115,6 +1190,7 @@
                         image.aspectRatio = element.naturalWidth / element.naturalHeight;
                     }
                     image.loaded = true;
+                    image.loadError = false;
                     scheduleGalleryLayout();
                 }
             }
@@ -1137,7 +1213,7 @@
             }
 
             function galleryPositionStorageKey() {
-                return GALLERY_POSITION_STORAGE_PREFIX + String(route.params.id || "unknown");
+                return GALLERY_POSITION_STORAGE_PREFIX + String(folderPath.value || "unknown");
             }
 
             function readGalleryPosition() {
@@ -1154,9 +1230,36 @@
                 }
             }
 
+            async function restoreGalleryBackPosition(position) {
+                const top = Number(position && position.top) || 0;
+                if (savedGalleryPosition && top >= 120
+                    && Math.abs(savedGalleryPosition.scrollY - top) <= Math.max(250, top * .2)) {
+                    resumePosition.value = savedGalleryPosition;
+                    await restoreSavedGalleryPosition();
+                    return;
+                }
+                dismissResumePrompt();
+                if (top > 0 && images.value.length) {
+                    renderedImageCount.value = Math.max(renderedImageCount.value,
+                        Math.min(images.value.length, Math.ceil(top / 200) + GALLERY_BATCH_SIZE));
+                    await nextTick();
+                    layoutGalleryItems();
+                    const requiredHeight = top + (window.innerHeight || 0);
+                    while (renderedImageCount.value < images.value.length
+                    && document.documentElement.scrollHeight < requiredHeight) {
+                        renderedImageCount.value = Math.min(images.value.length,
+                            renderedImageCount.value + GALLERY_BATCH_SIZE);
+                        await nextTick();
+                        layoutGalleryItems();
+                    }
+                }
+                window.scrollTo(Number(position && position.left) || 0, top);
+            }
+
             function offerSavedGalleryPosition() {
                 if (resumeOfferConsumed || !savedGalleryPosition || !images.value.length) return;
-                let index = images.value.findIndex(image => image.url === savedGalleryPosition.imageUrl);
+                let index = images.value.findIndex(
+                    image => galleryItemKey(image) === savedGalleryPosition.imageUrl);
                 const exactImageMatch = index >= 0;
                 if (index < 0 && savedGalleryPosition.index >= 0
                     && savedGalleryPosition.index < images.value.length) {
@@ -1231,7 +1334,7 @@
                 const image = images.value[index];
                 if (!image || !Number.isInteger(index)) return;
                 const position = {
-                    imageUrl: image.url,
+                    imageUrl: galleryItemKey(image),
                     imageName: image.name,
                     index,
                     offsetTop: anchor.rect.top,
@@ -1255,7 +1358,8 @@
                 if (!position || !images.value.length) return;
                 dismissResumePrompt();
                 stopGalleryPositionRestore(false);
-                let targetIndex = images.value.findIndex(image => image.url === position.imageUrl);
+                let targetIndex = images.value.findIndex(
+                    image => galleryItemKey(image) === position.imageUrl);
                 if (targetIndex < 0) {
                     targetIndex = Math.min(Math.max(position.index, 0), images.value.length - 1);
                 }
@@ -1272,7 +1376,7 @@
             function alignRestoredGalleryPosition() {
                 if (!activeRestorePosition || !galleryGrid.value) return;
                 let targetIndex = images.value.findIndex(
-                    image => image.url === activeRestorePosition.imageUrl);
+                    image => galleryItemKey(image) === activeRestorePosition.imageUrl);
                 if (targetIndex < 0) {
                     targetIndex = Math.min(activeRestorePosition.index, images.value.length - 1);
                 }
@@ -1363,9 +1467,15 @@
                     const width = item.getBoundingClientRect().width;
                     const index = Number.parseInt(item.dataset.galleryIndex, 10);
                     const galleryImage = images.value[index];
-                    const isVideo = galleryImage && galleryImage.type === "video";
-                    const mediaWidth = isVideo ? image && image.videoWidth : image && image.naturalWidth;
-                    const mediaHeight = isVideo ? image && image.videoHeight : image && image.naturalHeight;
+                    if (galleryImage && galleryImage.type === "folder") {
+                        const folderHeight = Math.max(210, Math.round(width * .9));
+                        item.style.height = `${folderHeight}px`;
+                        item.style.gridRowEnd = `span ${Math.max(1,
+                            Math.ceil((folderHeight + rowGap) / (rowHeight + rowGap)))}`;
+                        return;
+                    }
+                    const mediaWidth = image && image.naturalWidth;
+                    const mediaHeight = image && image.naturalHeight;
                     const imageLoaded = image && !image.classList.contains("is-loading")
                         && mediaWidth > 0 && mediaHeight > 0;
                     const height = imageLoaded
@@ -1382,8 +1492,37 @@
                 if (activeRestorePosition) alignRestoredGalleryPosition();
             }
 
+            watch(() => queryValue(route.query.folderPath), async (nextFolderPath) => {
+                if (!nextFolderPath || nextFolderPath === folderPath.value) return;
+                if (!viewerVisible.value) saveGalleryPosition();
+                folderPath.value = nextFolderPath;
+                savedGalleryPosition = readGalleryPosition();
+                resumeOfferConsumed = false;
+                dismissResumePrompt();
+                stopGalleryPositionRestore(false);
+                const keepViewerOpen = pendingViewerFolderNavigation;
+                pendingViewerFolderNavigation = false;
+                const loaded = await loadGallery(!keepViewerOpen);
+                if (!keepViewerOpen) return;
+                if (!loaded || !images.value.length) {
+                    closeViewer();
+                    return;
+                }
+                viewerIndex.value = 0;
+                viewerOpeningVisibleUrls = new Set();
+                rebuildViewerSlides();
+                resetViewerTransform(false);
+                resetViewerTrack(false);
+                nextTick(() => {
+                    viewerSwipeTransition.value = true;
+                    if (viewerRoot.value) viewerRoot.value.focus({preventScroll: true});
+                });
+                preloadViewerImages(0);
+            });
+
             onMounted(() => {
                 loadGallery();
+                loadArtist();
                 window.addEventListener("resize", scheduleGalleryLayout);
                 window.addEventListener("resize", scheduleGalleryBatchCheck);
                 window.addEventListener("scroll", handleGalleryScroll, {passive: true});
@@ -1395,6 +1534,7 @@
             });
 
             onBeforeUnmount(() => {
+                galleryLoadId += 1;
                 window.removeEventListener("resize", scheduleGalleryLayout);
                 window.removeEventListener("resize", scheduleGalleryBatchCheck);
                 window.removeEventListener("scroll", handleGalleryScroll);
@@ -1427,6 +1567,8 @@
             return {
                 artist,
                 artistName,
+                folderPath,
+                hasArtist,
                 cancelGalleryImageLongPress,
                 clearViewerMouseLongPress,
                 closeImageInfo,
@@ -1488,6 +1630,11 @@
             };
         }
     };
+
+    function queryValue(value) {
+        if (Array.isArray(value)) return value.length ? String(value[0] || "") : "";
+        return value === null || value === undefined ? "" : String(value);
+    }
 
     async function requestData(url) {
         const response = await fetch(url, {headers: {Accept: "application/json"}, cache: "no-store"});

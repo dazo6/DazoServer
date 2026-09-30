@@ -1,7 +1,7 @@
 (() => {
     "use strict";
 
-    const {onMounted, reactive, ref} = Vue;
+    const {nextTick, onMounted, reactive, ref} = Vue;
     const {useRoute, useRouter} = VueRouter;
     window.DazoAdminPages = window.DazoAdminPages || {};
 
@@ -44,6 +44,12 @@
                     ElementPlus.ElMessage.error(`画师列表加载失败：${error.message}`);
                 } finally {
                     loading.value = false;
+                    await nextTick();
+                    if (route.name === "artist-management") {
+                        window.DazoAdminScrollRestoration?.contentReady(route.fullPath, position => {
+                            window.scrollTo(position.left || 0, position.top || 0);
+                        });
+                    }
                 }
             }
 
@@ -71,14 +77,17 @@
             }
 
             async function openGallery(row) {
-                if (!row || row.id === null || row.id === undefined) {
-                    ElementPlus.ElMessage.warning("当前画师缺少有效编号，无法打开图库");
+                if (!row || !row.folderPath) {
+                    ElementPlus.ElMessage.warning("当前画师缺少文件夹路径，无法打开图库");
                     return;
                 }
                 await syncListRoute();
                 await router.push({
-                    path: `/manage/artists/${encodeURIComponent(row.id)}/gallery`,
-                    query: {name: row.name || ""}
+                    name: "artist-gallery",
+                    query: {
+                        folderPath: row.folderPath,
+                        artistId: row.id === null || row.id === undefined ? undefined : String(row.id)
+                    }
                 });
             }
 

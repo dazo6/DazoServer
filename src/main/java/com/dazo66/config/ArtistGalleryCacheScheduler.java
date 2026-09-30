@@ -3,7 +3,9 @@ package com.dazo66.config;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dazo66.entity.Artist;
+import com.dazo66.entity.FreeGallery;
 import com.dazo66.service.ArtistGalleryCache;
+import com.dazo66.service.FreeGalleryService;
 import com.dazo66.service.KemonoArtistService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -22,10 +24,13 @@ public class ArtistGalleryCacheScheduler {
 
     private final KemonoArtistService artistService;
     private final ArtistGalleryCache galleryCache;
+    private final FreeGalleryService freeGalleryService;
 
-    public ArtistGalleryCacheScheduler(KemonoArtistService artistService, ArtistGalleryCache galleryCache) {
+    public ArtistGalleryCacheScheduler(KemonoArtistService artistService, ArtistGalleryCache galleryCache,
+                                       FreeGalleryService freeGalleryService) {
         this.artistService = artistService;
         this.galleryCache = galleryCache;
+        this.freeGalleryService = freeGalleryService;
     }
 
     @Scheduled(cron = "0 15 13 * * ?", zone = "Asia/Shanghai")
@@ -43,7 +48,7 @@ public class ArtistGalleryCacheScheduler {
             }
             for (Artist artist : artists) {
                 try {
-                    galleryCache.rebuild(artist);
+                    galleryCache.rebuildScheduledTree(artist);
                     processed += 1;
                 } catch (Exception exception) {
                     failed += 1;
@@ -55,6 +60,15 @@ public class ArtistGalleryCacheScheduler {
             }
             pageNumber += 1;
         }
-        log.info("全部画师图库缓存刷新完成：成功 {} 个，失败 {} 个", processed, failed);
+        for (FreeGallery freeGallery : freeGalleryService.list(null)) {
+            try {
+                galleryCache.rebuildScheduledTree(freeGallery.getFolderPath());
+                processed += 1;
+            } catch (Exception exception) {
+                failed += 1;
+                log.warn("刷新自由画廊缓存失败: {} ({})", freeGallery.getName(), freeGallery.getId(), exception);
+            }
+        }
+        log.info("全部图库缓存刷新完成：成功 {} 个，失败 {} 个", processed, failed);
     }
 }

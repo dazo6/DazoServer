@@ -119,8 +119,8 @@ public class ArtistIconScheduler {
         if (sourceUrl == null || sourceUrl.trim().isEmpty() || artist.getId() == null) {
             return null;
         }
+        ArtistDomainEnum domain = artistManagementService.effectiveDomain(artist);
         try {
-            ArtistDomainEnum domain = artistManagementService.effectiveDomain(artist);
             Request.Builder request = new Request.Builder()
                     .url(sourceUrl)
                     .addHeader("Accept", "image/avif,image/webp,image/*,*/*;q=0.8")

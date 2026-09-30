@@ -1,6 +1,5 @@
 package com.dazo66.crawler.fanbox.pipeline;
 
-import com.alibaba.fastjson.JSONObject;
 import com.dazo66.config.CookieConfig;
 import com.dazo66.crawler.fanbox.FanboxPostDetail;
 import com.dazo66.entity.Artist;
@@ -56,8 +55,14 @@ public class FanboxPostDetailPipeline implements Pipeline<FanboxPostDetail> {
 
     @Override
     public void process(FanboxPostDetail bean) {
-        if (bean.getIsRestricted()) {
-            log.error("这个post没权限：{}", JSONObject.toJSONString(bean));
+        if (!bean.hasPost() || bean.getIsRestricted() == null
+                || StringUtils.isBlank(bean.getArtistId()) || StringUtils.isBlank(bean.getType())
+                || StringUtils.isBlank(bean.getTitle())) {
+            log.warn("Fanbox 作品详情缺少必要字段: postId={}", bean.getPostId());
+            return;
+        }
+        if (Boolean.TRUE.equals(bean.getIsRestricted())) {
+            log.info("跳过无权限的 Fanbox 作品: postId={}", bean.getPostId());
             return;
         }
         Artist artist = kemonoArtistService.getArtistId(bean.getArtistId(), ArtistDomainEnum.FANBOX);
@@ -67,8 +72,11 @@ public class FanboxPostDetailPipeline implements Pipeline<FanboxPostDetail> {
         }
         List<? extends FanboxPostDetail.DownloadObject> downloadObject = bean.getDownloadObject();
         List<String> imageUrls = new ArrayList<>();
-        imageUrls.add(bean.getImageForShare());
-        imageUrls.addAll(downloadObject.stream().map(FanboxPostDetail.DownloadObject::getUrl).collect(Collectors.toList()));
+        if (StringUtils.isNotBlank(bean.getImageForShare())) {
+            imageUrls.add(bean.getImageForShare());
+        }
+        imageUrls.addAll(downloadObject.stream().map(FanboxPostDetail.DownloadObject::getUrl)
+                .filter(StringUtils::isNotBlank).collect(Collectors.toList()));
         List<Future<Boolean>> list = new ArrayList<>();
         for (int i = 0; i < imageUrls.size(); i++) {
             DownloadAction task = new DownloadAction(imageUrls.get(i), getDownloadPath(bean, artist, imageUrls.size(), i), artist.getCompression());
@@ -98,7 +106,7 @@ public class FanboxPostDetailPipeline implements Pipeline<FanboxPostDetail> {
 
     public String getDownloadPath(FanboxPostDetail post, Artist artist, int total, int index) {
         String time = post.getPublishedDatetime();
-        if (StringUtils.isEmpty(time) && time.length() < 10) {
+        if (StringUtils.isEmpty(time) || time.length() < 10) {
             time = DateUtils.format(new Date(), "yyyy-MM-dd");
         } else {
             time = time.substring(0, 10);

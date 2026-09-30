@@ -3,27 +3,27 @@ package com.dazo66.dashboard;
 import java.util.List;
 
 /**
- * Artist metadata and downloaded media returned by one gallery query.
+ * A folder path and its downloaded media returned by one gallery query.
  */
 public class ArtistGalleryData {
 
-    private ArtistManagementItem artist;
+    private String folderPath;
     private List<ArtistGalleryItem> images;
 
     public ArtistGalleryData() {
     }
 
-    public ArtistGalleryData(ArtistManagementItem artist, List<ArtistGalleryItem> images) {
-        this.artist = artist;
+    public ArtistGalleryData(String folderPath, List<ArtistGalleryItem> images) {
+        this.folderPath = folderPath;
         this.images = images;
     }
 
-    public ArtistManagementItem getArtist() {
-        return artist;
+    public String getFolderPath() {
+        return folderPath;
     }
 
-    public void setArtist(ArtistManagementItem artist) {
-        this.artist = artist;
+    public void setFolderPath(String folderPath) {
+        this.folderPath = folderPath;
     }
 
     public List<ArtistGalleryItem> getImages() {

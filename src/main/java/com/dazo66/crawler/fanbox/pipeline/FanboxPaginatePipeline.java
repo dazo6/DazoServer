@@ -33,8 +33,22 @@ public class FanboxPaginatePipeline implements Pipeline<FanboxPageinate> {
     public void process(FanboxPageinate bean) {
 
         for (String item : bean.getUrls()) {
-            UriComponents uriComponents = UriComponentsBuilder.fromHttpUrl(item).build();
+            UriComponents uriComponents;
+            try {
+                uriComponents = UriComponentsBuilder.fromHttpUrl(item).build();
+            } catch (IllegalArgumentException exception) {
+                log.warn("跳过格式无效的 Fanbox 分页 URL");
+                continue;
+            }
+            if (!"api.fanbox.cc".equalsIgnoreCase(uriComponents.getHost())
+                    || !"/post.listCreator".equals(uriComponents.getPath())) {
+                log.warn("跳过非 Fanbox 作品列表的分页 URL");
+                continue;
+            }
             List<String> maxId = uriComponents.getQueryParams().get("firstId");
+            if (maxId == null || maxId.isEmpty()) {
+                maxId = uriComponents.getQueryParams().get("maxId");
+            }
             if (maxId != null && !maxId.isEmpty()) {
                 List<CrawlerRequest> crawlerRequests = crawlerRequestService.getLambdaQuery()
                         .like(CrawlerRequest::getUrl, "post.info?postId=" + maxId.get(0)).list();

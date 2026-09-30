@@ -3,7 +3,9 @@ package com.dazo66.config;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dazo66.entity.Artist;
+import com.dazo66.entity.FreeGallery;
 import com.dazo66.service.ArtistGalleryCache;
+import com.dazo66.service.FreeGalleryService;
 import com.dazo66.service.KemonoArtistService;
 import org.junit.jupiter.api.Test;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -14,9 +16,7 @@ import java.util.Collections;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 
 class ArtistGalleryCacheSchedulerTest {
 
@@ -31,13 +31,17 @@ class ArtistGalleryCacheSchedulerTest {
 
         KemonoArtistService artistService = mock(KemonoArtistService.class);
         ArtistGalleryCache galleryCache = mock(ArtistGalleryCache.class);
+        FreeGalleryService freeGalleryService = mock(FreeGalleryService.class);
         when(artistService.getArtistByPage(eq(1), eq(500), any(Wrapper.class))).thenReturn(firstPage);
         when(artistService.getArtistByPage(eq(2), eq(500), any(Wrapper.class))).thenReturn(secondPage);
+        when(freeGalleryService.list(null)).thenReturn(Collections.singletonList(
+                new FreeGallery().setFolderPath("C:/galleries/free")));
 
-        new ArtistGalleryCacheScheduler(artistService, galleryCache).rebuildAll();
+        new ArtistGalleryCacheScheduler(artistService, galleryCache, freeGalleryService).rebuildAll();
 
-        verify(galleryCache).rebuild(first);
-        verify(galleryCache).rebuild(second);
+        verify(galleryCache).rebuildScheduledTree(first);
+        verify(galleryCache).rebuildScheduledTree(second);
+        verify(galleryCache).rebuildScheduledTree("C:/galleries/free");
     }
 
     @Test

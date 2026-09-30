@@ -5,13 +5,18 @@ import com.dazo66.dashboard.ArtistCreateRequest;
 import com.dazo66.dashboard.ArtistManagementItem;
 import com.dazo66.entity.Artist;
 import com.dazo66.entity.ArtistDomainEnum;
+import com.dazo66.util.StringUtil;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.util.UriUtils;
 
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.InvalidPathException;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -28,6 +33,8 @@ public class ArtistManagementService {
 
     @Autowired
     private KemonoProperties kemonoProperties;
+    @Value("${fanbox.save.path}")
+    private String downloadPath;
 
     public Artist parse(ArtistCreateRequest request) {
         if (request == null || StringUtils.isBlank(request.getUrl())) {
@@ -75,6 +82,7 @@ public class ArtistManagementService {
         item.setName(name);
         item.setIcon(ArtistImageCache.publicUrl(artist.getIcon()));
         item.setBanner(ArtistImageCache.publicUrl(artist.getBanner()));
+        item.setFolderPath(resolveFolderPath(artist));
         item.setUrl(buildArtistUrl(artist, domain));
         item.setType(type);
         item.setEnable(Boolean.TRUE.equals(artist.getEnable()));
@@ -82,6 +90,28 @@ public class ArtistManagementService {
         item.setGmtCreate(artist.getGmtCreate());
         item.setLastUpdate(artist.getLastUpdate());
         return item;
+    }
+
+    /**
+     * Calculates the absolute gallery folder from the current download root
+     * and artist name. The value is presentation data and is not persisted.
+     */
+    public String resolveFolderPath(Artist artist) {
+        if (artist == null) {
+            return null;
+        }
+        try {
+            Path root = StringUtils.isBlank(downloadPath)
+                    ? Paths.get("").toAbsolutePath().normalize()
+                    : Paths.get(downloadPath).toAbsolutePath().normalize();
+            String directoryName = StringUtil.cleanSym(artist.getName());
+            if (directoryName.isEmpty()) {
+                directoryName = StringUtil.cleanSym(artist.getArtistId());
+            }
+            return root.resolve(directoryName).normalize().toString();
+        } catch (InvalidPathException exception) {
+            return null;
+        }
     }
 
     public ArtistDomainEnum effectiveDomain(Artist artist) {

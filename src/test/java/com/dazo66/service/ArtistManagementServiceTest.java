@@ -22,6 +22,7 @@ class ArtistManagementServiceTest {
         properties.setBaseUrl("https://pawchive.pw/");
         service = new ArtistManagementService();
         ReflectionTestUtils.setField(service, "kemonoProperties", properties);
+        ReflectionTestUtils.setField(service, "downloadPath", "downloads");
     }
 
     @Test
@@ -40,6 +41,8 @@ class ArtistManagementServiceTest {
         assertThat(item.getIcon()).isEqualTo(
                 "/api/fanbox/artist-image/artist-7-icon-0123456789abcdef0123456789abcdef.jpg");
         assertThat(item.getUrl()).isEqualTo("https://www.fanbox.cc/@takk");
+        assertThat(item.getFolderPath()).isEqualTo(
+                java.nio.file.Paths.get("downloads", "takk").toAbsolutePath().normalize().toString());
     }
 
     @Test

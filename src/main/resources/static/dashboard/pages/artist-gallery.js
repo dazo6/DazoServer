@@ -4,6 +4,7 @@
     const {computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch} = Vue;
     const {useRoute, useRouter} = VueRouter;
     window.DazoAdminPages = window.DazoAdminPages || {};
+    const GALLERY_SORT_STORAGE_PREFIX = "dazo-gallery-sort-v1:";
     const GALLERY_POSITION_STORAGE_PREFIX = "dazo-gallery-position-v1:";
     const GALLERY_RESUME_PROMPT_MS = 20000;
     const GALLERY_RESTORE_STABILIZE_MS = 20000;
@@ -12,6 +13,47 @@
 
     window.DazoAdminPages.ArtistGallery = {
         template: "#artist-gallery-template",
+        components: {
+            GalleryVideoPlayer: {
+                props: {slide: {type: Object, required: true}},
+                emits: ["metadata", "error"],
+                template: '<div class="cinema-viewer-video" @click.stop @dblclick.stop @pointerdown.stop @pointermove.stop @pointerup.stop @pointercancel.stop @touchstart.stop @touchmove.stop @touchend.stop @touchcancel.stop @contextmenu.stop><div ref="host" class="gallery-player-host"></div></div>',
+                setup(props, {emit}) {
+                    const host = ref(null);
+                    let player = null;
+                    onMounted(() => {
+                        try {
+                            player = new window.Player({
+                                el: host.value, url: props.slide.image.url,
+                                poster: props.slide.image.thumbnailUrl || "",
+                                width: "100%", height: "100%", lang: "zh-cn",
+                                autoplay: true, playsinline: true, videoFillMode: "contain",
+                                videoAttributes: {preload: "metadata"},
+                                keyShortcut: false, playbackRate: [1, 1.5, 2, 3],
+                                mobile: {disablePress: false, pressRate: 3, closedbClick: false}
+                            });
+                            player.on("loadedmetadata", () => emit("metadata", {currentTarget: player.video}));
+                            player.on("error", () => emit("error"));
+                            player.on("autoplay_was_prevented", () => {
+                                const blockedPlayer = player;
+                                // Xgplayer pauses after emitting this event; retry after that handler finishes.
+                                Promise.resolve().then(() => {
+                                    if (!player || player !== blockedPlayer || player.muted) return;
+                                    player.muted = true;
+                                    return player.play();
+                                }).catch(() => {
+                                    // Keep the play button available if the browser also blocks muted playback.
+                                });
+                            });
+                        } catch (error) { emit("error"); }
+                    });
+                    onBeforeUnmount(() => {
+                        if (player) { player.pause(); player.destroy(); player = null; }
+                    });
+                    return {host};
+                }
+            }
+        },
         setup() {
             const route = useRoute();
             const router = useRouter();
@@ -22,6 +64,65 @@
                 url: ""
             });
             const folderPath = ref(queryValue(route.query.folderPath));
+            const uploadInput=ref(null),uploading=ref(false),uploadProgress=ref(0);
+            const canUpload=computed(()=>window.DazoAuth.can("update",folderPath.value));
+            let uploadRequest=null,uploadDisposed=false;
+            const downloading=ref(false);
+            const canDownload=computed(()=>window.DazoAuth.can("read",folderPath.value));
+            let downloadRequest=null;
+            async function downloadAll(){
+                if(downloading.value || !canDownload.value)return;
+                downloading.value=true;
+                const destination=folderPath.value;
+                const controller=new AbortController();downloadRequest=controller;
+                try{
+                    const archive=await window.DazoAuth.request("/api/fanbox/gallery/archive?"+new URLSearchParams({folderPath:destination}),{signal:controller.signal});
+                    if(controller.signal.aborted || uploadDisposed || folderPath.value!==destination)return;
+                    const link=document.createElement("a");link.href=archive.url;link.download=archive.filename;link.hidden=true;
+                    document.body.appendChild(link);link.click();link.remove();
+                }catch(e){if(e.name!=="AbortError" && !uploadDisposed)ElementPlus.ElMessage.error(e.message);}
+                finally{if(downloadRequest===controller){downloadRequest=null;downloading.value=false;}}
+            }
+
+            function sortStorageKey(){return GALLERY_SORT_STORAGE_PREFIX+String(folderPath.value).replace(/\\/g,"/").toLowerCase().replace(/\/+$/,"");}
+            function readSavedSort(){try{const value=JSON.parse(window.localStorage.getItem(sortStorageKey()));return value && ["album","created","name","random"].includes(value.field) && ["asc","desc"].includes(value.order)?value:null;}catch{return null;}}
+            async function uploadFile(event){
+                const file=event.target.files[0];event.target.value="";
+                if(!file || uploading.value)return;
+                if(file.size>500*1024*1024){ElementPlus.ElMessage.error("文件最大500MB");return;}
+                if(!canUpload.value){ElementPlus.ElMessage.error("没有当前目录的上传权限");return;}
+                const destination=folderPath.value;uploading.value=true;uploadProgress.value=0;
+                try{
+                    await window.DazoAuth.ready;
+                    async function sendPart(url,body,start,bytes){
+                        return new Promise((resolve,reject)=>{
+                            const xhr=new XMLHttpRequest();uploadRequest=xhr;
+                            xhr.open("POST",url);xhr.setRequestHeader("X-CSRF-Token",window.DazoAuth.state.csrf);
+                            xhr.upload.onprogress=e=>{if(e.lengthComputable)uploadProgress.value=Math.round((start+e.loaded/e.total*bytes)/file.size*100);};
+                            xhr.onload=()=>{let result;try{result=JSON.parse(xhr.responseText);}catch{reject(new Error("HTTP "+xhr.status));return;}if(xhr.status>=200 && xhr.status<300 && result.result==="SUCCESS")resolve(result.data);else reject(new Error(result.message || "HTTP "+xhr.status));};
+                            xhr.onerror=()=>reject(new Error("上传连接失败，请重试"));xhr.onabort=()=>reject(new Error("上传已取消"));xhr.send(body);
+                        });
+                    }
+                    const chunkSize=512*1024;
+                    if(file.size<=chunkSize){
+                        const body=new FormData();body.append("file",file);
+                        await sendPart("/api/fanbox/gallery/upload?"+new URLSearchParams({folderPath:destination}),body,0,file.size);
+                    }else{
+                        const count=Math.ceil(file.size/chunkSize);let uploadId="";
+                        for(let index=0;index<count;index++){
+                            if(uploadDisposed)throw new Error("上传已取消");
+                            const start=index*chunkSize,end=Math.min(file.size,start+chunkSize);
+                            const body=new FormData();body.append("file",file.slice(start,end),file.name);
+                            const params=new URLSearchParams({folderPath:destination,filename:file.name,totalSize:String(file.size),partIndex:String(index),partCount:String(count)});
+                            if(uploadId)params.set("uploadId",uploadId);
+                            const result=await sendPart("/api/fanbox/gallery/upload-chunk?"+params,body,start,end-start);uploadId=result.uploadId;
+                        }
+                    }
+                    uploadProgress.value=100;
+                    if(!uploadDisposed)ElementPlus.ElMessage.success("上传完成，索引已刷新");
+                }catch(e){if(!uploadDisposed)ElementPlus.ElMessage.error(e.message);}
+                finally{uploadRequest=null;uploading.value=false;}
+            }
             const galleryGrid = ref(null);
             const images = ref([]);
             const renderedImageCount = ref(0);
@@ -40,10 +141,11 @@
             const viewerSwipeDuration = ref(260);
             const viewerSlideAnimating = ref(false);
             let savedGalleryPosition = readGalleryPosition();
+            const savedSort = readSavedSort();
             const sort = reactive({
-                field: savedGalleryPosition && ["album", "created", "name"].includes(savedGalleryPosition.sortField)
+                field: savedSort ? savedSort.field : savedGalleryPosition && ["album", "created", "name", "random"].includes(savedGalleryPosition.sortField)
                     ? savedGalleryPosition.sortField : "album",
-                order: savedGalleryPosition && ["asc", "desc"].includes(savedGalleryPosition.sortOrder)
+                order: savedSort ? savedSort.order : savedGalleryPosition && ["asc", "desc"].includes(savedGalleryPosition.sortOrder)
                     ? savedGalleryPosition.sortOrder : "desc"
             });
             const resumePromptVisible = ref(false);
@@ -55,6 +157,7 @@
                 typeText: "图片",
                 sizeText: "读取中…",
                 sizeBytes: 0,
+                modifiedText: "",
                 dimensionsLabel: "",
                 dimensionsText: "",
                 durationText: ""
@@ -127,14 +230,25 @@
                     const data = await requestData(`/api/fanbox/gallery?${params}`);
                     if (loadId !== galleryLoadId) return false;
                     folderPath.value = data && data.folderPath ? data.folderPath : folderPath.value;
+                    const previousItems=new Map(images.value.map(item=>[galleryItemKey(item),item]));
                     images.value = data && Array.isArray(data.images)
-                        ? data.images.map(image => ({
+                        ? data.images.map(image => {
+                            if (image.type !== "folder") {
+                                const params = new URLSearchParams({folderPath: folderPath.value, path: image.name});
+                                const url = `/api/fanbox/gallery/file?${params}`;
+                                image = {...image, url, thumbnailUrl: `${url}&thumbnail=true`};
+                            }
+                            const old=previousItems.get(galleryItemKey(image));
+                            const previous=old && old.thumbnailUrl===image.thumbnailUrl?old:null;
+                            return ({
                             ...image,
                             type: ["video", "folder"].includes(image.type) ? image.type : "image",
-                            loaded: image.type === "folder",
-                            aspectRatio: image.type === "video" ? 16 / 9
-                                : image.type === "folder" ? 4 / 3 : image.aspectRatio
-                        }))
+                            loaded: image.type === "folder" || Boolean(previous?.loaded),
+                            loadError: Boolean(previous?.loadError),
+                            durationText: previous?.durationText || "",
+                            aspectRatio: previous?.aspectRatio || (image.type === "video" ? 16 / 9
+                                : image.type === "folder" ? 4 / 3 : image.aspectRatio)
+                        });})
                         : [];
                     renderedImageCount.value = Math.min(GALLERY_BATCH_SIZE, images.value.length);
                     viewerIndex.value = Math.min(viewerIndex.value, Math.max(images.value.length - 1, 0));
@@ -292,6 +406,7 @@
                 imageInfo.typeText = video ? "视频" : "图片";
                 imageInfo.sizeText = "读取中…";
                 imageInfo.sizeBytes = 0;
+                imageInfo.modifiedText = "读取中…";
                 imageInfo.durationText = video && element && Number.isFinite(element.duration)
                     ? formatDuration(element.duration) : "";
                 const videoElement = video && element && element.tagName === "VIDEO";
@@ -307,8 +422,9 @@
                     imageInfo.dimensionsText = "";
                 }
                 imageInfoVisible.value = true;
-                readBrowserImageSize(image.url, video).then(size => {
+                readBrowserFileDetails(image.url, video).then(({size,modifiedAt}) => {
                     if (requestId !== imageInfoRequestId || !imageInfoVisible.value) return;
+                    imageInfo.modifiedText = Number.isFinite(modifiedAt) ? new Date(modifiedAt).toLocaleString("zh-CN",{hour12:false}) : "浏览器无法读取";
                     imageInfo.sizeBytes = size || 0;
                     imageInfo.sizeText = size ? formatFileSize(size) : "浏览器无法读取";
                 });
@@ -345,22 +461,22 @@
                     : `${minutes}:${String(remainingSeconds).padStart(2, "0")}`;
             }
 
-            async function readBrowserImageSize(url, requireFullLength = false) {
+            async function readBrowserFileDetails(url, requireFullLength = false) {
                 // Video metadata is normally fetched with a byte range, so its Resource
                 // Timing size is only the downloaded prefix rather than the full file.
                 const timingSize = requireFullLength ? 0 : readResourceTimingSize(url);
-                if (timingSize > 0) return timingSize;
+
                 try {
                     const response = await fetch(url, {
                         method: "HEAD",
                         credentials: "same-origin",
                         cache: "no-store"
                     });
-                    if (!response.ok) return 0;
+                    if (!response.ok) return {size:timingSize,modifiedAt:NaN};
                     const contentLength = Number.parseInt(response.headers.get("Content-Length"), 10);
-                    return Number.isFinite(contentLength) && contentLength > 0 ? contentLength : 0;
+                    return {size:Number.isFinite(contentLength) && contentLength > 0 ? contentLength : timingSize,modifiedAt:Date.parse(response.headers.get("Last-Modified"))};
                 } catch (error) {
-                    return 0;
+                    return {size:timingSize,modifiedAt:NaN};
                 }
             }
 
@@ -1024,7 +1140,7 @@
 
             function pauseViewerVideos() {
                 if (!viewerRoot.value) return;
-                viewerRoot.value.querySelectorAll(".cinema-viewer-video").forEach(video => {
+                viewerRoot.value.querySelectorAll(".cinema-viewer-video video").forEach(video => {
                     if (typeof video.pause === "function") video.pause();
                 });
             }
@@ -1172,6 +1288,7 @@
             function handleViewerKeydown(event) {
                 if (activeRestorePosition) stopGalleryPositionRestore(true);
                 if (!viewerVisible.value) return;
+                if (document.fullscreenElement || (event.target && event.target.closest && event.target.closest(".cinema-viewer-video"))) return;
                 if (event.key === "Escape") closeViewer();
                 else if (event.key === "ArrowLeft") previousViewerImage();
                 else if (event.key === "ArrowRight") nextViewerImage();
@@ -1412,6 +1529,7 @@
             }
 
             function handleSortChange() {
+                try{window.localStorage.setItem(sortStorageKey(),JSON.stringify({field:sort.field,order:sort.order}));}catch{}
                 dismissResumePrompt();
                 stopGalleryPositionRestore(false);
                 savedGalleryPosition = null;
@@ -1468,7 +1586,12 @@
                     const index = Number.parseInt(item.dataset.galleryIndex, 10);
                     const galleryImage = images.value[index];
                     if (galleryImage && galleryImage.type === "folder") {
-                        const folderHeight = Math.max(210, Math.round(width * .9));
+                        const poster = item.querySelector(".gallery-folder-poster-image");
+                        const ratio = poster && poster.naturalWidth > 0 && poster.naturalHeight > 0
+                            ? poster.naturalWidth / poster.naturalHeight : galleryImage.aspectRatio;
+                        const folderHeight = galleryImage.posterUrl && Number.isFinite(ratio) && ratio > 0
+                            ? Math.max(180, Math.ceil(Math.max(1, width - 16) / ratio) + 66)
+                            : Math.max(210, Math.round(width * .9));
                         item.style.height = `${folderHeight}px`;
                         item.style.gridRowEnd = `span ${Math.max(1,
                             Math.ceil((folderHeight + rowGap) / (rowHeight + rowGap)))}`;
@@ -1495,8 +1618,12 @@
             watch(() => queryValue(route.query.folderPath), async (nextFolderPath) => {
                 if (!nextFolderPath || nextFolderPath === folderPath.value) return;
                 if (!viewerVisible.value) saveGalleryPosition();
+                if(downloadRequest)downloadRequest.abort();
                 folderPath.value = nextFolderPath;
                 savedGalleryPosition = readGalleryPosition();
+                const preference=readSavedSort();
+                sort.field=preference?.field || savedGalleryPosition?.sortField || "album";
+                sort.order=preference?.order || savedGalleryPosition?.sortOrder || "desc";
                 resumeOfferConsumed = false;
                 dismissResumePrompt();
                 stopGalleryPositionRestore(false);
@@ -1534,6 +1661,7 @@
             });
 
             onBeforeUnmount(() => {
+                uploadDisposed=true;if(uploadRequest)uploadRequest.abort();if(downloadRequest)downloadRequest.abort();
                 galleryLoadId += 1;
                 window.removeEventListener("resize", scheduleGalleryLayout);
                 window.removeEventListener("resize", scheduleGalleryBatchCheck);
@@ -1565,6 +1693,7 @@
             });
 
             return {
+                uploadInput,uploading,uploadProgress,canUpload,uploadFile,downloading,canDownload,downloadAll,
                 artist,
                 artistName,
                 folderPath,

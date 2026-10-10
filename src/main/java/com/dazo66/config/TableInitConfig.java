@@ -49,6 +49,8 @@ public class TableInitConfig {
         }
         ensureArtistIconColumn(sqlSession);
         ensureArtistBannerColumn(sqlSession);
+        com.dazo66.util.CrawlerRequestArtistSchema.ensure(sqlSession.getConnection());
+        com.dazo66.util.CrawlerRequestArtistSchema.ensureTimelineIndex(sqlSession.getConnection());
         sqlSession.commit();
         sqlSession.close();
     }

@@ -29,6 +29,8 @@ public class FreeGalleryService {
         this.mapper = mapper;
     }
 
+    public FreeGallery getById(int id) {return mapper.selectById(id);}
+
     public List<FreeGallery> list(String keyword) {
         QueryWrapper<FreeGallery> query = new QueryWrapper<>();
         if (StringUtils.isNotBlank(keyword)) {

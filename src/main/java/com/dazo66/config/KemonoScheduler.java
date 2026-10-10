@@ -64,9 +64,8 @@ public class KemonoScheduler {
         ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();
         scheduler.setPoolSize(5); // 核心线程数，根据任务数量调整
         scheduler.setThreadNamePrefix("scheduled-task-");
-        // 任务拒绝策略（默认是丢弃，可根据需求调整）
-        scheduler.setRejectedExecutionHandler((r, executor) ->
-                System.err.println("定时任务被拒绝执行：" + r.toString()));
+        // Propagate rejection so manual task reservations can be released.
+        scheduler.setRejectedExecutionHandler(new java.util.concurrent.ThreadPoolExecutor.AbortPolicy());
         scheduler.initialize();
         return scheduler;
     }

@@ -1,6 +1,8 @@
 package com.dazo66.mapper;
 
 import com.dazo66.dashboard.ArtistUpdate;
+import com.dazo66.dashboard.HourlyArtistCount;
+import org.apache.ibatis.annotations.Param;
 import com.dazo66.dashboard.HourlyCount;
 import com.dazo66.dashboard.StatusCount;
 import org.apache.ibatis.annotations.Mapper;
@@ -18,6 +20,12 @@ public interface DashboardMapper {
             + "GROUP BY DATE_FORMAT(gmt_create, '%Y-%m-%d %H:00') "
             + "ORDER BY hour")
     List<HourlyCount> selectHourlyCounts();
+
+    @Select("SELECT a.id AS artistId, a.name, a.icon, COUNT(*) AS count "
+            + "FROM t_crawler_request r LEFT JOIN t_fanbox_artist a ON a.id = r.artist_id "
+            + "WHERE r.gmt_create >= #{start} AND r.gmt_create < #{end} AND r.url NOT LIKE '%?o=%' "
+            + "GROUP BY a.id, a.name, a.icon ORDER BY count DESC, a.id")
+    List<HourlyArtistCount> selectHourlyArtists(@Param("start") String start, @Param("end") String end);
 
     @Select("SELECT IF(is_done = 1, 1, 0) AS done, COUNT(*) AS count "
             + "FROM t_crawler_request WHERE url NOT LIKE '%?o=%' GROUP BY is_done")

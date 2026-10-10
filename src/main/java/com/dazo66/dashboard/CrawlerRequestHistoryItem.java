@@ -9,6 +9,10 @@ import java.util.Date;
 public class CrawlerRequestHistoryItem {
 
     private Integer id;
+    private Integer artistId;
+
+    public Integer getArtistId() { return artistId; }
+    public void setArtistId(Integer artistId) { this.artistId = artistId; }
     private String url;
     private Date gmtCreate;
     private Boolean isDone;

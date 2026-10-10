@@ -1,5 +1,6 @@
 package com.dazo66.controller;
 
+import com.dazo66.security.*;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dazo66.config.KemonoProperties;
@@ -32,6 +33,8 @@ public class CrawlerRequestController {
     }
 
     @GetMapping
+    @ACL(type=AclType.READ,point="op:crawlHistory.list")
+    @ACL(type=AclType.READ,point="*")
     public ResultEntity<Page<CrawlerRequestHistoryItem>> getHistory(
             @RequestParam(required = false, defaultValue = "1") int page,
             @RequestParam(required = false, defaultValue = "20") int pageSize,
@@ -68,6 +71,7 @@ public class CrawlerRequestController {
     private CrawlerRequestHistoryItem toHistoryItem(CrawlerRequest request) {
         CrawlerRequestHistoryItem item = new CrawlerRequestHistoryItem();
         item.setId(request.getId());
+        item.setArtistId(request.getArtistId());
         item.setUrl(completeUrl(request.getUrl()));
         item.setGmtCreate(request.getGmtCreate());
         item.setIsDone(request.getIsDone());

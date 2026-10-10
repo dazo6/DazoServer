@@ -98,7 +98,12 @@
                 }
             }
 
+            function canGallery(row,type) {
+                const action=type==="read"?null:"op:freeGallery."+type;
+                return window.DazoAuth.can(type,row.folderPath) && (!action || window.DazoAuth.can(type,action));
+            }
             function openGallery(row) {
+                if(!canGallery(row,"read")) return;
                 router.push({
                     name: "artist-gallery",
                     query: {folderPath: row.folderPath}
@@ -108,6 +113,9 @@
             onMounted(loadGalleries);
 
             return {
+                can: window.DazoAuth.can,
+                permissionRowClass: ({row}) => canGallery(row,"read") ? "" : "permission-masked",
+                canGallery,
                 dialogVisible,
                 editingId,
                 form,

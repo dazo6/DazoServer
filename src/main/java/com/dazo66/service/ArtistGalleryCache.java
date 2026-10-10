@@ -18,6 +18,7 @@ import javax.imageio.ImageIO;
 import java.awt.*;
 import java.awt.geom.AffineTransform;
 import java.awt.geom.RoundRectangle2D;
+import java.awt.geom.Rectangle2D;
 import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.nio.file.*;
@@ -33,8 +34,10 @@ public class ArtistGalleryCache {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(ArtistGalleryCache.class);
     private static final int CACHE_VERSION = 8;
-    private static final int POSTER_WIDTH = 800;
-    private static final int POSTER_HEIGHT = 600;
+    private static final int POSTER_IMAGE_MAX_EDGE = 620;
+    private static final int POSTER_BORDER = 12;
+    private static final int POSTER_PADDING = 20;
+    private static final java.util.concurrent.Semaphore POSTER_BUILD_SLOTS = new java.util.concurrent.Semaphore(1, true);
     private static final Set<String> IMAGE_EXTENSIONS = new HashSet<>(Arrays.asList(
             "jpg", "jpeg", "png", "gif", "webp", "bmp", "avif", "heic", "heif", "jfif"
     ));
@@ -114,7 +117,15 @@ public class ArtistGalleryCache {
      * Always scans the artist directory and atomically replaces its JSON cache.
      */
     public List<CachedImage> rebuild(String folderPath) throws IOException {
-        Path directory = galleryDirectory(folderPath, false);
+        return rebuild(folderPath, false);
+    }
+
+    public List<CachedImage> rebuildAuthorized(String folderPath) throws IOException {
+        return rebuild(folderPath, true);
+    }
+
+    private List<CachedImage> rebuild(String folderPath, boolean allowExternal) throws IOException {
+        Path directory = galleryDirectory(folderPath, allowExternal);
         String normalizedPath = directory.toString();
         Path cacheFile = cacheFile(normalizedPath);
         synchronized (cacheLock(normalizedPath)) {
@@ -231,6 +242,20 @@ public class ArtistGalleryCache {
     }
 
     private String buildFolderPoster(Path folder) {
+        try {
+            POSTER_BUILD_SLOTS.acquire();
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            return null;
+        }
+        try {
+            return generateFolderPoster(folder);
+        } finally {
+            POSTER_BUILD_SLOTS.release();
+        }
+    }
+
+    private String generateFolderPoster(Path folder) {
         List<String> names = folderPosterNames(folder);
         if (names == null) {
             return null;
@@ -250,15 +275,27 @@ public class ArtistGalleryCache {
                 LOGGER.warn("无法生成文件夹海报，少于三张可解码图片: {}", folder);
                 return null;
             }
-            BufferedImage poster = new BufferedImage(POSTER_WIDTH, POSTER_HEIGHT, BufferedImage.TYPE_INT_ARGB);
+            BufferedImage first = selected.get(0);
+            double scale = (double) POSTER_IMAGE_MAX_EDGE / Math.max(first.getWidth(), first.getHeight());
+            int imageWidth = Math.max(1, (int) Math.round(first.getWidth() * scale));
+            int imageHeight = Math.max(1, (int) Math.round(first.getHeight() * scale));
+            int sheetWidth = imageWidth + POSTER_BORDER * 2;
+            int sheetHeight = imageHeight + POSTER_BORDER * 2;
+            Rectangle2D bounds = posterSheetBounds(sheetWidth, sheetHeight, 0, 0, 0);
+            bounds = bounds.createUnion(posterSheetBounds(sheetWidth, sheetHeight, -20, -28, -8));
+            bounds = bounds.createUnion(posterSheetBounds(sheetWidth, sheetHeight, 20, -24, 8));
+            int width = (int) Math.ceil(bounds.getWidth()) + POSTER_PADDING * 2;
+            int height = (int) Math.ceil(bounds.getHeight()) + POSTER_PADDING * 2;
+            BufferedImage poster = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
             Graphics2D graphics = poster.createGraphics();
             try {
                 graphics.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
                 graphics.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
                         RenderingHints.VALUE_INTERPOLATION_BICUBIC);
-                drawPosterSheet(graphics, selected.get(2), 72, 40, -8);
-                drawPosterSheet(graphics, selected.get(1), 128, 42, 8);
-                drawPosterSheet(graphics, selected.get(0), 90, 94, 0);
+                graphics.translate(POSTER_PADDING - bounds.getMinX(), POSTER_PADDING - bounds.getMinY());
+                drawPosterSheet(graphics, selected.get(2), -20, -28, -8, sheetWidth, sheetHeight, false);
+                drawPosterSheet(graphics, selected.get(1), 20, -24, 8, sheetWidth, sheetHeight, false);
+                drawPosterSheet(graphics, first, 0, 0, 0, sheetWidth, sheetHeight, true);
             } finally {
                 graphics.dispose();
             }
@@ -318,10 +355,15 @@ public class ArtistGalleryCache {
         }
     }
 
-    private void drawPosterSheet(Graphics2D graphics, BufferedImage image, int x, int y, int degrees) {
-        final int width = 620;
-        final int height = 460;
-        final int border = 12;
+    private Rectangle2D posterSheetBounds(int width, int height, int x, int y, int degrees) {
+        AffineTransform rotation = AffineTransform.getRotateInstance(Math.toRadians(degrees),
+                x + width / 2.0, y + height / 2.0);
+        return rotation.createTransformedShape(new Rectangle2D.Double(x, y, width + 9, height + 12)).getBounds2D();
+    }
+
+    private void drawPosterSheet(Graphics2D graphics, BufferedImage image, int x, int y, int degrees,
+                                 int width, int height, boolean preserveWholeImage) {
+        final int border = POSTER_BORDER;
         AffineTransform transform = graphics.getTransform();
         Shape clip = graphics.getClip();
         try {
@@ -334,12 +376,12 @@ public class ArtistGalleryCache {
             int top = y + border;
             int innerWidth = width - border * 2;
             int innerHeight = height - border * 2;
-            graphics.setClip(new RoundRectangle2D.Double(left, top, innerWidth, innerHeight, 6, 6));
+            graphics.clip(new Rectangle2D.Double(left, top, innerWidth, innerHeight));
             double sourceRatio = (double) image.getWidth() / image.getHeight();
             double targetRatio = (double) innerWidth / innerHeight;
-            int cropWidth = sourceRatio > targetRatio
+            int cropWidth = !preserveWholeImage && sourceRatio > targetRatio
                     ? Math.max(1, (int) Math.round(image.getHeight() * targetRatio)) : image.getWidth();
-            int cropHeight = sourceRatio > targetRatio ? image.getHeight()
+            int cropHeight = preserveWholeImage || sourceRatio > targetRatio ? image.getHeight()
                     : Math.max(1, (int) Math.round(image.getWidth() / targetRatio));
             int sourceX = (image.getWidth() - cropWidth) / 2;
             int sourceY = (image.getHeight() - cropHeight) / 2;
@@ -375,7 +417,23 @@ public class ArtistGalleryCache {
         Path folder = Paths.get(folderPath).toAbsolutePath().normalize();
         String key = UUID.nameUUIDFromBytes(folder.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8))
                 .toString();
-        return posterCacheRoot.resolve("folder-" + key + ".png");
+        return posterCacheRoot.resolve("folder-" + key + "-v2.png");
+    }
+
+    /** Removes obsolete covers without opening gallery source files. */
+    @javax.annotation.PostConstruct
+    public void removeLegacyFolderPosters() throws IOException {
+        if (!Files.isDirectory(posterCacheRoot, LinkOption.NOFOLLOW_LINKS)) return;
+        int removed = 0;
+        try (DirectoryStream<Path> files = Files.newDirectoryStream(posterCacheRoot)) {
+            for (Path file : files) {
+                if (file.getFileName().toString().matches("folder-[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\\.png")
+                        && Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)) {
+                    if (Files.deleteIfExists(file)) removed++;
+                }
+            }
+        }
+        LOGGER.info("Removed {} obsolete gallery folder posters", removed);
     }
 
     private void writeAtomically(Path target, CacheDocument document) throws IOException {

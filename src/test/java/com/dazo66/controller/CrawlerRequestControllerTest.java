@@ -25,7 +25,7 @@ class CrawlerRequestControllerTest {
         properties.setBaseUrl("https://pawchive.pw/");
         Page<CrawlerRequest> source = Page.of(1, 20, 2);
         source.setRecords(Arrays.asList(
-                new CrawlerRequest().setId(1).setUrl("/fanbox/user/42/post/9").setIsDone(true),
+                new CrawlerRequest().setId(1).setArtistId(901).setUrl("/fanbox/user/42/post/9").setIsDone(true),
                 new CrawlerRequest().setId(2).setUrl("https://api.fanbox.cc/post.info?postId=10")
                         .setIsDone(false)
         ));
@@ -35,6 +35,8 @@ class CrawlerRequestControllerTest {
         ResultEntity<Page<CrawlerRequestHistoryItem>> response =
                 controller.getHistory(1, 20, null, null, null, null);
 
+        assertThat(response.getData().getRecords().get(0).getArtistId()).isEqualTo(901);
+        assertThat(response.getData().getRecords().get(1).getArtistId()).isNull();
         assertThat(response.getData().getRecords())
                 .extracting(CrawlerRequestHistoryItem::getUrl)
                 .containsExactly(

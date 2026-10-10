@@ -1,6 +1,11 @@
 package com.dazo66.controller;
 
+import com.dazo66.security.*;
 import com.dazo66.service.ArtistImageCache;
+import com.dazo66.service.KemonoArtistService;
+import com.dazo66.service.ArtistManagementService;
+import com.dazo66.entity.Artist;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
 import org.springframework.http.CacheControl;
@@ -24,6 +29,8 @@ import java.util.concurrent.TimeUnit;
 public class ArtistImageController {
 
     private final ArtistImageCache imageCache;
+    @Autowired private KemonoArtistService artists;
+    @Autowired private ArtistManagementService management;
 
     public ArtistImageController(ArtistImageCache imageCache) {
         this.imageCache = imageCache;
@@ -35,12 +42,19 @@ public class ArtistImageController {
         if (file == null) {
             return ResponseEntity.notFound().build();
         }
+        CurrentUser u=CurrentUser.require();
+        if(!u.superAdmin && !AclAccess.can(AclType.READ,"*")) {
+            java.util.regex.Matcher match=java.util.regex.Pattern.compile("^artist-(\\d+)-.*").matcher(fileName);
+            if(!match.matches()) return ResponseEntity.notFound().build();
+            Artist artist=artists.getById(Integer.valueOf(match.group(1)));
+            if(artist==null || !AclAccess.canPath(AclType.READ,management.resolveFolderPath(artist))) return ResponseEntity.status(403).build();
+        }
         FileSystemResource resource = new FileSystemResource(file);
         MediaType mediaType = MediaTypeFactory.getMediaType(fileName)
                 .orElse(MediaType.APPLICATION_OCTET_STREAM);
         ResponseEntity.BodyBuilder response = ResponseEntity.ok()
                 .contentType(mediaType)
-                .cacheControl(CacheControl.maxAge(365, TimeUnit.DAYS).cachePrivate());
+                .cacheControl(CacheControl.noStore().cachePrivate());
         try {
             response.contentLength(resource.contentLength());
         } catch (IOException ignored) {

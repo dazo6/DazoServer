@@ -13,6 +13,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class ArtistImageControllerTest {
 
+    @org.junit.jupiter.api.BeforeEach
+    void loginRoot() {com.dazo66.security.CurrentUser.set(new com.dazo66.security.CurrentUser("admin","admin",true,java.util.Arrays.asList("read:*","update:*","delete:*"),null));}
+    @org.junit.jupiter.api.AfterEach
+    void logoutRoot() {com.dazo66.security.CurrentUser.clear();}
+
     @TempDir
     Path temporaryDirectory;
 
@@ -28,7 +33,7 @@ class ArtistImageControllerTest {
 
         assertThat(found.getStatusCodeValue()).isEqualTo(200);
         assertThat(found.getBody()).isNotNull();
-        assertThat(found.getHeaders().getCacheControl()).contains("max-age=31536000");
+        assertThat(found.getHeaders().getCacheControl()).contains("no-store");
         assertThat(traversal.getStatusCodeValue()).isEqualTo(404);
     }
 }

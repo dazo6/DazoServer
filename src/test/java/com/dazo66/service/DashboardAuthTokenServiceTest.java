@@ -1,46 +1,40 @@
 package com.dazo66.service;
-
-import com.dazo66.config.DashboardAuthProperties;
-import org.junit.jupiter.api.Test;
-
-import static org.assertj.core.api.Assertions.assertThat;
-
+import com.dazo66.security.*;
+import org.junit.jupiter.api.*;
+import java.util.*;
+import static org.assertj.core.api.Assertions.*;
 class DashboardAuthTokenServiceTest {
-
-    @Test
-    void authenticatesConfiguredCredentialsAndEncryptsPermanentToken() {
-        DashboardAuthTokenService service = service("secret-password");
-
-        assertThat(service.authenticate("admin", "secret-password")).isTrue();
-        assertThat(service.authenticate("admin", "wrong-password")).isFalse();
-
-        String first = service.createToken();
-        String second = service.createToken();
-        assertThat(first).isNotEqualTo(second);
-        assertThat(service.isValid(first)).isTrue();
-        assertThat(service.isValid(second)).isTrue();
+    UserTestSupport s;
+    @BeforeEach void setup(){s=new UserTestSupport();}
+    @AfterEach void done(){s.close();}
+    @Test void storesRandomSaltAndRejectsTamperingAndDeletedSessions() {
+        String a=s.tokens.createToken("admin"),b=s.tokens.createToken("admin");
+        assertThat(a).isNotEqualTo(b);assertThat(s.tokens.isValid(a)).isTrue();
+        assertThat(s.jdbc.queryForList("SELECT token_salt FROM t_dashboard_user_session")).hasSize(2);
+        assertThat(s.tokens.isValid(a.substring(0,a.length()-2)+"xx")).isFalse();
+        s.tokens.logout(a.split("\\.")[1]);
+        assertThat(s.tokens.isValid(a)).isFalse();assertThat(s.tokens.isValid(b)).isTrue();
+        assertThat(s.tokens.isValid("old-token")).isFalse();
     }
-
-    @Test
-    void rejectsTamperedTokenAndTokenEncryptedWithAnotherPassword() {
-        DashboardAuthTokenService service = service("secret-password");
-        String token = service.createToken();
-        int tamperIndex = token.length() / 2;
-        char tamperValue = token.charAt(tamperIndex) == 'A' ? 'B' : 'A';
-        String tampered = token.substring(0, tamperIndex) + tamperValue
-                + token.substring(tamperIndex + 1);
-
-        assertThat(service.isValid(tampered)).isFalse();
-        assertThat(service("different-password").isValid(token)).isFalse();
+    @Test void sameSessionReadsNewPermissionsAndDisabledUserCannotReturnWithOldToken() {
+        s.create("reader","read:D:/test/*");
+        String token=s.tokens.createToken("reader");
+        assertThat(s.tokens.resolve(token).permissions).containsExactly("read:D:/test/*");
+        s.root();s.users.update("reader","permissions",Collections.singletonMap("permissions",Collections.singletonList("read:C:/test/*")));
+        assertThat(s.tokens.resolve(token).permissions).containsExactly("read:C:/test/*");
+        s.users.update("reader","enabled",Collections.singletonMap("enabled",false));
+        assertThat(s.tokens.resolve(token)).isNull();
+        s.users.update("reader","enabled",Collections.singletonMap("enabled",true));
+        assertThat(s.tokens.resolve(token)).isNull();
     }
-
-    static DashboardAuthTokenService service(String password) {
-        DashboardAuthProperties properties = new DashboardAuthProperties();
-        properties.setUserId("admin");
-        properties.setPassword(password);
-        properties.setTokenSalt("unit-test-dashboard-auth-salt");
-        properties.setCookieName("DAZO_AUTH_TOKEN");
-        properties.validate();
-        return new DashboardAuthTokenService(properties);
+    @Test void passwordsAreHashedAndChangingPasswordKeepsSessions() {
+        s.create("reader","read:D:/test/*");String token=s.tokens.createToken("reader");
+        assertThat(s.users.authenticate("reader","a-long-test-password")).isTrue();
+        assertThat(s.users.authenticate("reader","wrong")).isFalse();
+        s.users.update("reader","password",Collections.singletonMap("newPassword","a-new-long-password"));
+        assertThat(s.users.authenticate("reader","a-long-test-password")).isFalse();
+        assertThat(s.users.authenticate("reader","a-new-long-password")).isTrue();
+        assertThat(s.tokens.isValid(token)).isTrue();
+        assertThat(s.jdbc.queryForObject("SELECT password_hash FROM t_dashboard_user WHERE user_id='reader'",String.class)).startsWith("pbkdf2-sha256$");
     }
 }

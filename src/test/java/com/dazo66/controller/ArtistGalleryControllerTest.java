@@ -34,6 +34,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 class ArtistGalleryControllerTest {
 
+    @org.junit.jupiter.api.BeforeEach
+    void loginRoot() {com.dazo66.security.CurrentUser.set(new com.dazo66.security.CurrentUser("admin","admin",true,java.util.Arrays.asList("read:*","update:*","delete:*"),null));}
+    @org.junit.jupiter.api.AfterEach
+    void logoutRoot() {com.dazo66.security.CurrentUser.clear();}
+
     @TempDir
     Path temporaryDirectory;
 
@@ -99,12 +104,14 @@ class ArtistGalleryControllerTest {
         ArtistGalleryItem image = images.stream().filter(item -> "image".equals(item.getType())).findFirst().get();
         ArtistGalleryItem video = images.stream().filter(item -> "video".equals(item.getType())).findFirst().get();
         ArtistGalleryItem folder = images.stream().filter(item -> "folder".equals(item.getType())).findFirst().get();
-        assertThat(image.getThumbnailUrl()).endsWith("&thumbnail=true");
-        assertThat(image.getUrl()).contains("folderPath=").doesNotContain("artistDirectory=");
-        assertThat(video.getThumbnailUrl()).isEqualTo(video.getUrl() + "&thumbnail=true");
-        assertThat(video.getUrl()).contains("sample.mp4");
+        assertThat(image.getName()).isEqualTo("sample.png");
+        assertThat(video.getName()).isEqualTo("sample.mp4");
+        com.fasterxml.jackson.databind.JsonNode json = new ObjectMapper().valueToTree(gallery);
+        for (com.fasterxml.jackson.databind.JsonNode item : json.get("images")) {
+            assertThat(item.has("url")).isFalse();
+            assertThat(item.has("thumbnailUrl")).isFalse();
+        }
         assertThat(folder.getName()).isEqualTo("nested-album");
-        assertThat(folder.getUrl()).isNull();
         assertThat(folder.getFolderPath()).isEqualTo(nestedDirectory.toString());
         assertThat(controller.getGallery(folder.getFolderPath(), "name", "asc")
                 .getBody().getData().getImages()).extracting(ArtistGalleryItem::getName)
@@ -115,7 +122,7 @@ class ArtistGalleryControllerTest {
 
         assertThat(first.getStatusCodeValue()).isEqualTo(200);
         assertThat(first.getHeaders().getContentType().toString()).isEqualTo("image/jpeg");
-        assertThat(first.getHeaders().getCacheControl()).contains("private").contains("max-age=600");
+        assertThat(first.getHeaders().getCacheControl()).contains("private").contains("no-store");
         assertThat(first.getBody().getFile()).exists();
         assertThat(first.getBody().getFile().toPath()).startsWith(cacheRoot);
         assertThat(second.getBody().getFile()).isEqualTo(first.getBody().getFile());
@@ -313,6 +320,7 @@ class ArtistGalleryControllerTest {
         ArtistGalleryController controller = new ArtistGalleryController(
                 downloadRoot.toString(), temporaryDirectory.resolve("poster-thumbnails"), cache);
 
+        assertThat(cache.posterFile(folder.toString())).doesNotExist();
         assertThat(controller.getGalleryFile(downloadRoot.toString(), "posters", false)
                 .getStatusCodeValue()).isEqualTo(404);
         assertThat(cache.posterFile(folder.toString())).doesNotExist();
@@ -358,6 +366,57 @@ class ArtistGalleryControllerTest {
                 .andExpect(content().bytes(new byte[]{0, 24, 102, 116}));
     }
 
+    @Test
+    void fileDetailsHeadIncludesActualModificationTime() throws Exception {
+        Path directory=Files.createDirectories(temporaryDirectory.resolve("metadata"));
+        Path file=directory.resolve("photo.png");writeImage(file);
+        long timestamp=1600000000000L;Files.setLastModifiedTime(file,FileTime.fromMillis(timestamp));
+        ArtistGalleryController controller=new ArtistGalleryController(directory.toString(),temporaryDirectory.resolve("metadata-thumbs"));
+        MockMvcBuilders.standaloneSetup(controller).build()
+            .perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.head("/api/fanbox/gallery/file").param("folderPath",directory.toString()).param("path","photo.png"))
+            .andExpect(status().isOk())
+            .andExpect(header().dateValue("Last-Modified",timestamp))
+            .andExpect(header().string("Content-Length",String.valueOf(Files.size(file))));
+    }
+
+    @Test
+    void randomOrderShufflesEveryQueryWithoutChangingCachedItems() throws Exception {
+        Path directory=Files.createDirectories(temporaryDirectory.resolve("random"));
+        for(int i=0;i<8;i++)writeImage(directory.resolve("image-"+i+".png"));
+        ArtistGalleryController controller=new ArtistGalleryController(directory.toString(),temporaryDirectory.resolve("random-thumbs"));
+        java.util.List<String> sorted=controller.getGallery(directory.toString(),"name","asc").getBody().getData().getImages().stream().map(ArtistGalleryItem::getName).collect(java.util.stream.Collectors.toList());
+        java.util.Set<java.util.List<String>> orders=new java.util.HashSet<>();
+        for(int i=0;i<10;i++) {
+            java.util.List<String> names=controller.getGallery(directory.toString(),"random",i%2==0?"asc":"desc").getBody().getData().getImages().stream().map(ArtistGalleryItem::getName).collect(java.util.stream.Collectors.toList());
+            assertThat(names).containsExactlyInAnyOrderElementsOf(sorted);orders.add(names);
+        }
+        assertThat(orders.size()).isGreaterThan(1);
+        assertThat(controller.getGallery(directory.toString(),"name","asc").getBody().getData().getImages()).extracting(ArtistGalleryItem::getName).containsExactlyElementsOf(sorted);
+    }
+
+    @Test
+    void listsMissingCachedEntriesWithoutCheckingTheirExistence() throws Exception {
+        Path root = temporaryDirectory.resolve("stale-gallery");
+        Files.createDirectories(root);
+        ArtistGalleryCache cache = mock(ArtistGalleryCache.class);
+        when(cache.getOrBuildAuthorized(root.toRealPath().toString())).thenReturn(java.util.Arrays.asList(
+                new ArtistGalleryCache.CachedImage("missing.png", "image", 1L),
+                new ArtistGalleryCache.CachedImage("missing.mp4", "video", 2L),
+                new ArtistGalleryCache.CachedImage("missing-album", "folder", 3L)));
+        ArtistGalleryController controller = new ArtistGalleryController(
+                root.toString(), temporaryDirectory.resolve("stale-thumbnails"), cache);
+        assertThat(controller.getGallery(root.toString(), "name", "asc").getBody().getData().getImages())
+                .extracting(ArtistGalleryItem::getName)
+                .containsExactly("missing-album", "missing.mp4", "missing.png");
+        com.dazo66.security.CurrentUser.set(new com.dazo66.security.CurrentUser(
+                "reader", "reader", false, java.util.Arrays.asList(
+                "read:" + root, "read:" + root.resolve("missing.png")), null));
+        assertThat(controller.getGallery(root.toString(), "name", "asc").getBody().getData().getImages())
+                .extracting(ArtistGalleryItem::getName).containsExactly("missing.png");
+        assertThat(controller.getGalleryFile(root.toString(), "missing.png", false).getStatusCodeValue())
+                .isEqualTo(404);
+    }
+
     private void writeImage(Path path) throws Exception {
         BufferedImage image = new BufferedImage(1200, 800, BufferedImage.TYPE_INT_RGB);
         Graphics2D graphics = image.createGraphics();
@@ -369,4 +428,18 @@ class ArtistGalleryControllerTest {
         }
         ImageIO.write(image, "png", path.toFile());
     }
+
+    @Test
+    void filtersRestrictedFilesAndRejectsDirectThumbnailAndVideoAccess() throws Exception {
+        Path root=temporaryDirectory.resolve("restricted");Files.createDirectories(root);
+        writeImage(root.resolve("allowed.png"));writeImage(root.resolve("secret.png"));
+        Files.write(root.resolve("secret.mp4"),new byte[]{1,2,3});
+        com.dazo66.security.CurrentUser.set(new com.dazo66.security.CurrentUser("reader","reader",false,java.util.Arrays.asList("read:"+root,"read:"+root.resolve("allowed.png")),null));
+        ArtistGalleryController controller=new ArtistGalleryController(root.toString(),temporaryDirectory.resolve("restricted-cache"));
+        assertThat(controller.getGallery(root.toString(),"name","asc").getBody().getData().getImages()).extracting(ArtistGalleryItem::getName).containsExactly("allowed.png");
+        assertThat(controller.getGalleryFile(root.toString(),"allowed.png",true).getStatusCodeValue()).isEqualTo(200);
+        org.assertj.core.api.Assertions.assertThatThrownBy(()->controller.getGalleryFile(root.toString(),"secret.png",true)).isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
+        org.assertj.core.api.Assertions.assertThatThrownBy(()->controller.getGalleryFile(root.toString(),"secret.mp4",false)).isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
+    }
+
 }

@@ -1,5 +1,6 @@
 package com.dazo66.service;
 
+import com.dazo66.security.*;
 import com.dazo66.config.KemonoProperties;
 import com.dazo66.dashboard.ArtistCreateRequest;
 import com.dazo66.dashboard.ArtistManagementItem;
@@ -83,6 +84,13 @@ public class ArtistManagementService {
         item.setIcon(ArtistImageCache.publicUrl(artist.getIcon()));
         item.setBanner(ArtistImageCache.publicUrl(artist.getBanner()));
         item.setFolderPath(resolveFolderPath(artist));
+        if(CurrentUser.get()!=null) {
+            java.util.Map<String,Boolean> caps=new java.util.LinkedHashMap<>();
+            caps.put("canOpenGallery",AclAccess.canPath(AclType.READ,item.getFolderPath()));
+            caps.put("canStatus",AclAccess.can(AclType.UPDATE,"op:artist.status") && AclAccess.canPath(AclType.UPDATE,item.getFolderPath()));
+            caps.put("canCompression",AclAccess.can(AclType.UPDATE,"op:artist.compression") && AclAccess.canPath(AclType.UPDATE,item.getFolderPath()));
+            item.setCapabilities(caps);
+        }
         item.setUrl(buildArtistUrl(artist, domain));
         item.setType(type);
         item.setEnable(Boolean.TRUE.equals(artist.getEnable()));

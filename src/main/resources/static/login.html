@@ -4,6 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="light">
+    <link rel="icon" href="/favicon.ico">
     <title>登录 · Fanbox Admin</title>
     <style>
         :root {
@@ -159,7 +160,7 @@
         <span><strong>Fanbox Admin</strong><small>Crawler Console</small></span>
     </div>
     <h1>登录</h1>
-    <p class="intro">请输入配置文件中设置的用户 ID 和密码。</p>
+    <p class="intro">请输入你的用户 ID 和密码。</p>
     <form id="login-form">
         <label for="user-id">用户 ID</label>
         <input id="user-id" name="userId" autocomplete="username" required autofocus>
@@ -175,6 +176,20 @@
         const form = document.getElementById("login-form");
         const errorMessage = document.getElementById("error-message");
         const submitButton = document.getElementById("submit-button");
+        function loginTarget() {
+            const requested = new URLSearchParams(location.search).get("redirect");
+            const fallback = "/dashboard/";
+            try {
+                if (requested && (!requested.startsWith("/") || requested.startsWith("//") || /[\u0000-\u001f\u007f]/.test(requested))) return fallback;
+                const target = new URL(requested || fallback, location.origin);
+                if (target.origin !== location.origin || target.pathname === "/login.html") return fallback;
+                // HTTP redirects inherit the original fragment, which is not sent to the server.
+                if (!target.hash && (!requested || !requested.includes("#"))
+                        && ["/", "/dashboard", "/dashboard/", "/dashboard/index.html"].includes(target.pathname)
+                        && location.hash.startsWith("#/")) target.hash = location.hash;
+                return target.pathname + target.search + target.hash;
+            } catch (_) { return fallback; }
+        }
         form.addEventListener("submit", async (event) => {
             event.preventDefault();
             errorMessage.textContent = "";
@@ -194,10 +209,7 @@
                 if (!response.ok || result.result !== "SUCCESS") {
                     throw new Error(result.message || "登录失败");
                 }
-                const requested = new URLSearchParams(location.search).get("redirect");
-                const target = requested && requested.startsWith("/") && !requested.startsWith("//")
-                    ? requested : "/dashboard/";
-                location.replace(target);
+                location.replace(loginTarget());
             } catch (error) {
                 errorMessage.textContent = error.message || "登录失败，请稍后重试";
             } finally {

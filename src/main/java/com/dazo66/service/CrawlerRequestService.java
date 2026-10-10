@@ -20,6 +20,8 @@ public interface CrawlerRequestService {
 
     CrawlerRequest add(String url);
 
+    CrawlerRequest add(String url, Integer artistId);
+
     Boolean cleanAll();
 
     Boolean updateByUrl(CrawlerRequest crawlerRequest);

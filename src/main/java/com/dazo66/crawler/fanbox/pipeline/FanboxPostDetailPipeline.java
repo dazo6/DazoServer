@@ -61,13 +61,15 @@ public class FanboxPostDetailPipeline implements Pipeline<FanboxPostDetail> {
             log.warn("Fanbox 作品详情缺少必要字段: postId={}", bean.getPostId());
             return;
         }
-        if (Boolean.TRUE.equals(bean.getIsRestricted())) {
-            log.info("跳过无权限的 Fanbox 作品: postId={}", bean.getPostId());
-            return;
-        }
         Artist artist = kemonoArtistService.getArtistId(bean.getArtistId(), ArtistDomainEnum.FANBOX);
         if (artist == null) {
             log.error("找不到这个用户：{}", bean.getArtistId());
+            return;
+        }
+        crawlerRequestService.updateByUrl(new CrawlerRequest().setUrl(bean.getRequest().getUrl())
+                .setArtistId(artist.getId()));
+        if (Boolean.TRUE.equals(bean.getIsRestricted())) {
+            log.info("Skip restricted Fanbox post: postId={}", bean.getPostId());
             return;
         }
         List<? extends FanboxPostDetail.DownloadObject> downloadObject = bean.getDownloadObject();

@@ -1,6 +1,7 @@
 package com.dazo66.controller;
 
 
+import com.dazo66.security.*;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dazo66.config.KemonoScheduler;
@@ -53,6 +54,7 @@ public class FanboxController {
         }
         boolean ascending = "asc".equalsIgnoreCase(lastUpdateOrder);
         query.orderBy(true, ascending, "last_update").orderByDesc("id");
+        CurrentUser.require();
         int safePageSize = Math.max(1, Math.min(pageSize, 100));
         Page<Artist> artistPage = kemonoArtistService.getArtistByPage(Math.max(page, 1), safePageSize, query);
         Page<ArtistManagementItem> result = new Page<>(artistPage.getCurrent(), artistPage.getSize(),
@@ -63,6 +65,7 @@ public class FanboxController {
     }
 
     @PostMapping
+    @ACL(type=AclType.UPDATE,point="op:artist.create")
     public ResultEntity<ArtistManagementItem> insert(@RequestBody ArtistCreateRequest request) {
         Artist artist;
         try {
@@ -70,6 +73,7 @@ public class FanboxController {
         } catch (IllegalArgumentException exception) {
             return ResultEntity.failed(exception.getMessage());
         }
+        AclAccess.checkPath(AclType.UPDATE,artistManagementService.resolveFolderPath(artist));
         if (kemonoArtistService.getArtistId(artist.getArtistId()) != null) {
             return ResultEntity.failed("该画师已经存在");
         }
@@ -89,29 +93,44 @@ public class FanboxController {
         if (artist == null) {
             return ResponseEntity.notFound().build();
         }
+        AclAccess.checkPath(AclType.READ,artistManagementService.resolveFolderPath(artist));
         return ResponseEntity.ok(ResultEntity.successWithData(artistManagementService.toItem(artist)));
     }
 
     @PostMapping("status")
+    @ACL(type=AclType.UPDATE,point="op:artist.status")
     public ResultEntity<Artist> setStatus(String artistId, @RequestParam(required = false,
             defaultValue = "false") boolean status) {
+        Artist existing=kemonoArtistService.getArtistId(artistId);
+        requireArtist(existing,AclType.UPDATE);
         return ResultEntity.successWithData(kemonoArtistService.updateByArtistId(new Artist().setArtistId(artistId).setEnable(status)));
     }
 
     @PostMapping("{id}/status")
+    @ACL(type=AclType.UPDATE,point="op:artist.status")
     public ResultEntity<Boolean> setStatusById(@PathVariable int id, @RequestParam boolean enabled) {
+        requireArtist(kemonoArtistService.getById(id),AclType.UPDATE);
         kemonoArtistService.updateById(new Artist().setId(id).setEnable(enabled));
         return ResultEntity.successWithData(true);
     }
 
     @PostMapping("{id}/compression")
+    @ACL(type=AclType.UPDATE,point="op:artist.compression")
     public ResultEntity<Boolean> setCompressionById(@PathVariable int id,
                                                     @RequestParam boolean enabled) {
+        requireArtist(kemonoArtistService.getById(id),AclType.UPDATE);
         kemonoArtistService.updateById(new Artist().setId(id).setCompression(enabled));
         return ResultEntity.successWithData(true);
     }
 
+    private void requireArtist(Artist a,AclType t) {
+        if(a==null) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.NOT_FOUND,"画师不存在");
+        AclAccess.checkPath(t,artistManagementService.resolveFolderPath(a));
+    }
+
     @PostMapping("clean/history")
+    @ACL(type=AclType.DELETE,point="op:crawlHistory.clean")
+    @ACL(type=AclType.DELETE,point="*")
     public ResultEntity<Boolean> cleanHistory() {
         return ResultEntity.successWithData(crawlerRequestService.cleanAll());
     }

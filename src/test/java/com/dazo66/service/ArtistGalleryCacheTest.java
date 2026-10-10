@@ -122,11 +122,11 @@ class ArtistGalleryCacheTest {
                     .doesNotContain(poster.getFileName().toString());
         }
         BufferedImage image = ImageIO.read(poster.toFile());
-        assertThat(image.getWidth()).isEqualTo(800);
-        assertThat(image.getHeight()).isEqualTo(600);
+        assertThat(image.getWidth()).isGreaterThan(image.getHeight()).isLessThan(950);
+        assertThat(image.getHeight()).isLessThan(950);
         assertThat(image.getColorModel().hasAlpha()).isTrue();
         assertThat(new Color(image.getRGB(0, 0), true).getAlpha()).isZero();
-        Color front = new Color(image.getRGB(400, 300));
+        Color front = new Color(image.getRGB(image.getWidth() / 2, image.getHeight() / 2));
         assertThat(front.getRed()).isGreaterThan(200);
         assertThat(front.getGreen()).isLessThan(80);
         try (java.util.stream.Stream<Path> cacheFiles = Files.list(temporaryDirectory.resolve("poster-cache"))) {
@@ -168,9 +168,70 @@ class ArtistGalleryCacheTest {
         assertThat(poster).isRegularFile();
         BufferedImage image = ImageIO.read(poster.toFile());
         assertThat(image).isNotNull();
-        Color front = new Color(image.getRGB(400, 300));
+        Color front = new Color(image.getRGB(image.getWidth() / 2, image.getHeight() / 2));
         assertThat(front.getRed()).isGreaterThan(180);
         assertThat(front.getGreen()).isLessThan(90);
+    }
+
+    @Test
+    void posterSizeFollowsFirstImageAndPreservesAllFourEdges() throws Exception {
+        BufferedImage landscape = buildMarkedPoster("landscape", 480, 240);
+        BufferedImage portrait = buildMarkedPoster("portrait", 240, 480);
+        assertThat(landscape.getWidth()).isGreaterThan(landscape.getHeight());
+        assertThat(portrait.getHeight()).isGreaterThan(portrait.getWidth());
+        assertThat(landscape.getWidth()).isNotEqualTo(portrait.getWidth());
+        for (BufferedImage poster : new BufferedImage[]{landscape, portrait}) {
+            for (Color edge : new Color[]{Color.YELLOW, Color.CYAN, Color.GREEN, Color.MAGENTA}) {
+                long pixels = 0;
+                for (int y = 0; y < poster.getHeight(); y++) for (int x = 0; x < poster.getWidth(); x++) {
+                    if (poster.getRGB(x, y) == edge.getRGB()) pixels++;
+                }
+                assertThat(pixels).as("Visible first-image edge %s", edge).isGreaterThan(500);
+            }
+        }
+    }
+
+    private BufferedImage buildMarkedPoster(String name, int width, int height) throws Exception {
+        Path root = temporaryDirectory.resolve(name);
+        Path folder = Files.createDirectories(root.resolve("album"));
+        BufferedImage first = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
+        java.awt.Graphics2D graphics = first.createGraphics();
+        try {
+            graphics.setColor(Color.RED); graphics.fillRect(0, 0, width, height);
+            graphics.setColor(Color.YELLOW); graphics.fillRect(0, 0, width, height / 10);
+            graphics.setColor(Color.CYAN); graphics.fillRect(0, height - height / 10, width, height / 10);
+            graphics.setColor(Color.GREEN); graphics.fillRect(0, height / 10, width / 10, height * 8 / 10);
+            graphics.setColor(Color.MAGENTA); graphics.fillRect(width - width / 10, height / 10, width / 10, height * 8 / 10);
+        } finally { graphics.dispose(); }
+        ImageIO.write(first, "png", folder.resolve("01.png").toFile());
+        writeImage(folder.resolve("02.png"), Color.BLACK);
+        writeImage(folder.resolve("03.png"), Color.BLACK);
+        ArtistGalleryCache cache = new ArtistGalleryCache(root, temporaryDirectory.resolve(name + "-indexes"), new ObjectMapper());
+        Path legacy = cache.posterFile(folder.toString()).resolveSibling(cache.posterFile(folder.toString()).getFileName().toString().replace("-v2", ""));
+        Files.createDirectories(legacy.getParent());
+        Files.write(legacy, new byte[]{1, 2, 3});
+        Path unrelated = legacy.resolveSibling("keep.png");
+        Files.write(unrelated, new byte[]{4});
+        cache.removeLegacyFolderPosters();
+        assertThat(legacy).doesNotExist();
+        assertThat(unrelated).isRegularFile();
+        assertThat(cache.posterFile(folder.toString())).doesNotExist();
+        cache.rebuildScheduledTree(root.toString());
+        Path generated = cache.posterFile(folder.toString());
+        assertThat(generated.getFileName().toString()).endsWith("-v2.png");
+        cache.removeLegacyFolderPosters();
+        assertThat(generated).isRegularFile();
+        String previewDirectory = System.getProperty("gallery.poster.previewDir");
+        if (previewDirectory != null) {
+            Path previews = java.nio.file.Paths.get(previewDirectory);
+            Files.createDirectories(previews);
+            Files.copy(generated, previews.resolve(name + ".png"), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        }
+        byte[] bytes = Files.readAllBytes(generated);
+        Files.delete(folder.resolve("01.png"));
+        assertThat(generated).isRegularFile();
+        assertThat(Files.readAllBytes(generated)).isEqualTo(bytes);
+        return ImageIO.read(generated.toFile());
     }
 
     private void writeImage(Path path, Color color) throws Exception {

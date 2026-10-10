@@ -29,7 +29,10 @@
                 {path: "artists", name: "artist-management", component: pages.ArtistManagement},
                 {path: "free-galleries", name: "free-gallery", component: pages.FreeGallery},
                 {path: "gallery", name: "artist-gallery", component: pages.ArtistGallery},
-                {path: "history", name: "crawl-history", component: pages.CrawlHistory}
+                {path: "history", name: "crawl-history", component: pages.CrawlHistory},
+                {path: "scheduled-tasks", name: "scheduled-tasks", component: pages.ScheduledTasks},
+                {path: "users", name: "user-management", component: pages.UserManagement},
+                {path: "account", name: "my-account", component: pages.MyAccount}
             ]
         },
         {path: "/:pathMatch(.*)*", redirect: "/"}
@@ -62,17 +65,17 @@
         }
     });
 
+    if(router.beforeEach) router.beforeEach(async to => {
+        await window.DazoAuth.ready;
+        if(to.name==="scheduled-tasks" && !window.DazoAuth.state.user?.isSuperAdmin) return "/manage/artists";
+        if(to.name==="user-management" && !window.DazoAuth.can("read","op:user.list")) return "/manage/artists";
+        if(to.name==="crawl-history" && !window.DazoAuth.can("read","*")) return "/manage/artists";
+        return true;
+    });
+
     createApp({
         setup() {
-            async function logout() {
-                try {
-                    await fetch("/api/auth/logout", {method: "POST", credentials: "same-origin"});
-                } finally {
-                    location.replace("/login.html");
-                }
-            }
-
-            return {logout};
+            return {authState: window.DazoAuth.state, can: window.DazoAuth.can};
         }
     }).use(router).use(ElementPlus).mount("#app");
 })();

@@ -8,6 +8,9 @@ import java.util.Date;
  */
 public class ArtistManagementItem {
 
+    private java.util.Map<String,Boolean> capabilities;
+    public java.util.Map<String,Boolean> getCapabilities() {return capabilities;}
+    public void setCapabilities(java.util.Map<String,Boolean> v) {capabilities=v;}
     private Integer id;
     private String name;
     private String icon;

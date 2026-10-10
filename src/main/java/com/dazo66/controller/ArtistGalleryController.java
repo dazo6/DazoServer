@@ -1,5 +1,6 @@
 package com.dazo66.controller;
 
+import com.dazo66.security.*;
 import com.dazo66.dashboard.ArtistGalleryData;
 import com.dazo66.dashboard.ArtistGalleryItem;
 import com.dazo66.service.ArtistGalleryCache;
@@ -63,6 +64,7 @@ public class ArtistGalleryController {
     private final FreeGalleryService freeGalleryService;
     private final Path downloadRoot;
     private final Path thumbnailCacheRoot;
+    private final com.dazo66.service.ArtistGalleryArchiveCache archiveCache;
 
     @Autowired
     public ArtistGalleryController(@Value("${fanbox.save.path}") String downloadPath,
@@ -95,9 +97,114 @@ public class ArtistGalleryController {
         this.freeGalleryService = freeGalleryService;
         this.downloadRoot = Paths.get(downloadPath).toAbsolutePath().normalize();
         this.thumbnailCacheRoot = thumbnailCacheRoot.toAbsolutePath().normalize();
+        this.archiveCache = new com.dazo66.service.ArtistGalleryArchiveCache(this.thumbnailCacheRoot.resolveSibling("gallery-archives"));
+    }
+
+    @org.springframework.web.bind.annotation.PostMapping("gallery/upload")
+    @ACL(type=AclType.UPDATE,point="$arg1")
+    public ResponseEntity<ResultEntity<String>> uploadGalleryFile(@RequestParam String folderPath,
+            @RequestParam org.springframework.web.multipart.MultipartFile file) throws IOException {
+        Path directory = galleryDirectory(folderPath);
+        if(directory==null) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.NOT_FOUND,"画廊目录不存在");
+        AclAccess.checkPath(AclType.UPDATE,directory.toString());
+        if(file.isEmpty()) throw new IllegalArgumentException("请选择非空文件");
+        if(file.getSize()>500L*1024*1024) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.PAYLOAD_TOO_LARGE,"文件最大500MB");
+        String name=file.getOriginalFilename();
+        if(name==null || name.isEmpty() || name.equals(".") || name.equals("..") || name.contains("/") || name.contains("\\") || name.contains(":") || name.endsWith(".") || name.endsWith(" ") || name.chars().anyMatch(c->c<32))
+            throw new IllegalArgumentException("文件名无效");
+        Path target=directory.resolve(name);
+        AclAccess.checkPath(AclType.UPDATE,target.toString());
+        Path temporary=Files.createTempFile(directory,".gallery-upload-",".part");
+        try {
+            try(java.io.InputStream input=file.getInputStream();java.io.OutputStream output=Files.newOutputStream(temporary)) {
+                byte[] buffer=new byte[65536];long total=0;int count;
+                while((count=input.read(buffer))!=-1) {
+                    total+=count;
+                    if(total>500L*1024*1024) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.PAYLOAD_TOO_LARGE,"文件最大500MB");
+                    output.write(buffer,0,count);
+                }
+            }
+            Files.move(temporary,target);
+        } catch(FileAlreadyExistsException e) {
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.CONFLICT,"同名文件已存在，请更改文件名后上传");
+        } finally {Files.deleteIfExists(temporary);}
+        galleryCache.rebuildAuthorized(directory.toString());
+        return ResponseEntity.ok(ResultEntity.successWithData(name));
+    }
+
+    private static final long UPLOAD_LIMIT=500L*1024*1024;
+    private static final int CHUNK_SIZE=512*1024;
+    private static final long UPLOAD_IDLE_MS=15L*60*1000;
+    private final java.util.concurrent.ConcurrentHashMap<String,ChunkUpload> chunkUploads=new java.util.concurrent.ConcurrentHashMap<>();
+    private static final class ChunkUpload {
+        final String userId,name;final Path directory,temporary;final long totalSize;final int partCount;
+        int nextPart;long touched=System.currentTimeMillis();
+        ChunkUpload(String userId,String name,Path directory,Path temporary,long totalSize,int partCount){this.userId=userId;this.name=name;this.directory=directory;this.temporary=temporary;this.totalSize=totalSize;this.partCount=partCount;}
+    }
+    @org.springframework.web.bind.annotation.PostMapping("gallery/upload-chunk")
+    @ACL(type=AclType.UPDATE,point="$arg1")
+    public ResponseEntity<ResultEntity<Map<String,Object>>> uploadGalleryChunk(@RequestParam String folderPath,
+            @RequestParam org.springframework.web.multipart.MultipartFile file,@RequestParam String filename,
+            @RequestParam long totalSize,@RequestParam int partIndex,@RequestParam int partCount,
+            @RequestParam(required=false) String uploadId) throws IOException {
+        Path directory=galleryDirectory(folderPath);
+        if(directory==null) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.NOT_FOUND,"画廊目录不存在");
+        AclAccess.checkPath(AclType.UPDATE,directory.toString());
+        if(filename==null || filename.isEmpty() || filename.equals(".") || filename.equals("..") || filename.contains("/") || filename.contains("\\") || filename.contains(":") || filename.endsWith(".") || filename.endsWith(" ") || filename.chars().anyMatch(c->c<32))throw new IllegalArgumentException("文件名无效");
+        Path target=directory.resolve(filename);AclAccess.checkPath(AclType.UPDATE,target.toString());
+        if(totalSize<1 || totalSize>UPLOAD_LIMIT)throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.PAYLOAD_TOO_LARGE,"文件最大500MB");
+        if(partCount!=(int)((totalSize+CHUNK_SIZE-1)/CHUNK_SIZE) || partIndex<0 || partIndex>=partCount)throw new IllegalArgumentException("上传分片参数无效");
+        long expected=Math.min(CHUNK_SIZE,totalSize-(long)partIndex*CHUNK_SIZE);
+        if(file.getSize()!=expected)throw new IllegalArgumentException("分片大小不正确");
+        ChunkUpload state;
+        if(uploadId==null || uploadId.isEmpty()) {
+            if(partIndex!=0)throw new IllegalArgumentException("请从首个分片开始上传");
+            if(Files.exists(target,LinkOption.NOFOLLOW_LINKS))throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.CONFLICT,"同名文件已存在，请更改文件名后上传");
+            synchronized(chunkUploads) {
+                for(Map.Entry<String,ChunkUpload> entry:chunkUploads.entrySet())if(entry.getValue().userId.equals(CurrentUser.require().userId))synchronized(entry.getValue()){discardChunk(entry.getKey(),entry.getValue());}
+                Path staging=thumbnailCacheRoot.resolveSibling("gallery-uploads");Files.createDirectories(staging);
+                state=new ChunkUpload(CurrentUser.require().userId,filename,directory,Files.createTempFile(staging,"chunk-",".part"),totalSize,partCount);
+                uploadId=UUID.randomUUID().toString();chunkUploads.put(uploadId,state);
+            }
+        } else {
+            state=chunkUploads.get(uploadId);
+            if(state==null)throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.NOT_FOUND,"上传已过期，请重新选择文件");
+        }
+        synchronized(state) {
+            if(!state.userId.equals(CurrentUser.require().userId))throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN,"不能操作他人的上传");
+            if(!state.directory.equals(directory) || !state.name.equals(filename) || state.totalSize!=totalSize || state.partCount!=partCount || state.nextPart!=partIndex)throw new IllegalArgumentException("上传分片顺序或目标不一致");
+            state.touched=System.currentTimeMillis();
+            try {
+                try(java.io.InputStream input=file.getInputStream();java.io.OutputStream output=Files.newOutputStream(state.temporary,StandardOpenOption.APPEND)) {
+                    byte[] buffer=new byte[65536];long copied=0;int count;
+                    while((count=input.read(buffer))!=-1){copied+=count;if(copied>expected)throw new IllegalArgumentException("分片大小不正确");output.write(buffer,0,count);}
+                    if(copied!=expected)throw new IllegalArgumentException("分片数据不完整");
+                }
+                state.nextPart++;state.touched=System.currentTimeMillis();
+                boolean complete=state.nextPart==state.partCount;
+                if(complete){Files.move(state.temporary,target);chunkUploads.remove(uploadId,state);galleryCache.rebuildAuthorized(directory.toString());}
+                Map<String,Object> result=new LinkedHashMap<>();result.put("uploadId",uploadId);result.put("completed",complete);result.put("name",filename);
+                return ResponseEntity.ok(ResultEntity.successWithData(result));
+            } catch(FileAlreadyExistsException e) {
+                discardChunk(uploadId,state);throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.CONFLICT,"同名文件已存在，请更改文件名后上传");
+            } catch(IOException | RuntimeException e){discardChunk(uploadId,state);throw e;}
+        }
+    }
+    private void discardChunk(String id,ChunkUpload state) throws IOException {chunkUploads.remove(id,state);Files.deleteIfExists(state.temporary);}
+    @org.springframework.scheduling.annotation.Scheduled(fixedDelay=300000)
+    public void cleanAbandonedUploads() {
+        long cutoff=System.currentTimeMillis()-UPLOAD_IDLE_MS;
+        for(Map.Entry<String,ChunkUpload> entry:chunkUploads.entrySet())synchronized(entry.getValue()) {
+            if(entry.getValue().touched<cutoff)try{discardChunk(entry.getKey(),entry.getValue());}catch(IOException e){LOGGER.warn("无法清理上传临时文件",e);}
+        }
+        Path staging=thumbnailCacheRoot.resolveSibling("gallery-uploads");
+        if(Files.isDirectory(staging))try(DirectoryStream<Path> paths=Files.newDirectoryStream(staging,"chunk-*.part")) {
+            for(Path temporary:paths){boolean active=chunkUploads.values().stream().anyMatch(u->u.temporary.equals(temporary));if(!active && Files.getLastModifiedTime(temporary).toMillis()<cutoff)Files.deleteIfExists(temporary);}
+        }catch(IOException e){LOGGER.warn("无法清理上传暂存目录",e);}
     }
 
     @GetMapping("gallery")
+    @ACL(type=AclType.READ,point="$arg1")
     public ResponseEntity<ResultEntity<ArtistGalleryData>> getGallery(
             @RequestParam String folderPath,
             @RequestParam(required = false, defaultValue = "album") String sortBy,
@@ -106,14 +213,23 @@ public class ArtistGalleryController {
         if (directory == null) {
             return ResponseEntity.notFound().build();
         }
+        AclAccess.checkPath(AclType.READ,directory.toString());
         String normalizedFolderPath = directory.toString();
         try {
             List<ArtistGalleryCache.CachedImage> cachedImages = galleryCache.getOrBuildAuthorized(normalizedFolderPath);
             List<ArtistGalleryItem> items = new ArrayList<>(cachedImages.size());
             for (ArtistGalleryCache.CachedImage cachedImage : cachedImages) {
-                items.add(toGalleryItem(cachedImage, directory));
+                // Use cached entries without checking their existence or resolving real paths.
+                Path source=directory.resolve(cachedImage.getName()).normalize();
+                String permissionPath=GlobPermissions.canonical(source.toString());
+                if(directory.equals(source.getParent()) && AclAccess.can(AclType.READ,permissionPath)) {
+                    ArtistGalleryItem item=toGalleryItem(cachedImage,directory);
+                    if("folder".equals(cachedImage.getType()) && !canReadCachedTree(permissionPath)) item.setPosterUrl(null);
+                    items.add(item);
+                }
             }
-            items.sort(galleryComparator(sortBy, order));
+            if ("random".equalsIgnoreCase(sortBy)) Collections.shuffle(items);
+            else items.sort(galleryComparator(sortBy, order));
             return galleryResponse(normalizedFolderPath, items);
         } catch (IOException exception) {
             LOGGER.warn("Unable to read gallery folder {}", normalizedFolderPath, exception);
@@ -122,6 +238,7 @@ public class ArtistGalleryController {
     }
 
     @GetMapping("gallery/file")
+    @ACL(type=AclType.READ,point="$arg1")
     public ResponseEntity<Resource> getGalleryFile(@RequestParam String folderPath,
                                                    @RequestParam String path,
                                                    @RequestParam(required = false,
@@ -137,8 +254,10 @@ public class ArtistGalleryController {
         if (requested == null) {
             return ResponseEntity.notFound().build();
         }
+        AclAccess.checkPath(AclType.READ,requested.toString());
         Path servedFile;
         if (Files.isDirectory(requested)) {
+            if(!canReadTree(requested)) return ResponseEntity.status(403).build();
             servedFile = galleryCache.posterFile(requested.toString());
             if (!Files.isRegularFile(servedFile)) {
                 return ResponseEntity.notFound().build();
@@ -166,13 +285,59 @@ public class ArtistGalleryController {
         ResponseEntity.BodyBuilder response = ResponseEntity.ok()
                 .contentType(mediaType)
                 .header("Accept-Ranges", "bytes")
-                .cacheControl(CacheControl.maxAge(10, TimeUnit.MINUTES).cachePrivate());
+                .cacheControl(CacheControl.noStore().cachePrivate());
+        if(!isImage(servedFile) && !isVideo(servedFile)) response.header("Content-Disposition",org.springframework.http.ContentDisposition.attachment().filename(servedFile.getFileName().toString(),StandardCharsets.UTF_8).build().toString());
         try {
             response.contentLength(resource.contentLength());
+            response.lastModified(Files.getLastModifiedTime(requested).toMillis());
         } catch (IOException ignored) {
             // The resource can still be streamed when its size is unavailable.
         }
         return response.body(resource);
+    }
+
+    @GetMapping("/gallery/archive")
+    public ResultEntity<Map<String,String>> prepareArchive(@RequestParam String folderPath) throws IOException {
+        Path directory=authorizedArchiveDirectory(folderPath);
+        archiveCache.getOrBuild(directory);
+        Map<String,String> data=new LinkedHashMap<>();
+        data.put("url","/api/fanbox/gallery/archive/download?folderPath="+URLEncoder.encode(directory.toString(),StandardCharsets.UTF_8.name()));
+        data.put("filename",archiveDownloadName(directory));
+        return ResultEntity.successWithData(data);
+    }
+
+    @GetMapping("/gallery/archive/download")
+    public ResponseEntity<Resource> downloadArchive(@RequestParam String folderPath) throws IOException {
+        Path directory=authorizedArchiveDirectory(folderPath);
+        Path archive=archiveCache.archiveFile(directory);
+        if(!Files.isRegularFile(archive,LinkOption.NOFOLLOW_LINKS)) return ResponseEntity.notFound().build();
+        return ResponseEntity.ok().contentType(MediaType.parseMediaType("application/zip"))
+                .cacheControl(CacheControl.noStore()).contentLength(Files.size(archive))
+                .header("Content-Disposition",org.springframework.http.ContentDisposition.attachment()
+                        .filename(archiveDownloadName(directory),StandardCharsets.UTF_8).build().toString())
+                .body(new FileSystemResource(archive));
+    }
+
+    private Path authorizedArchiveDirectory(String folderPath) {
+        CurrentUser.require();
+        Path directory=galleryDirectory(folderPath);
+        if(directory==null) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.NOT_FOUND,"Gallery folder not found");
+        AclAccess.checkPath(AclType.READ,directory.toString());
+        if(!canReadTree(directory)) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN,"没有当前文件夹全部内容的阅读权限");
+        return directory;
+    }
+    private String archiveDownloadName(Path directory) {
+        return (directory.getFileName()==null ? "gallery" : directory.getFileName().toString())+".zip";
+    }
+
+    private boolean canReadCachedTree(String permissionPath) {
+        CurrentUser u=CurrentUser.require();
+        return u.superAdmin || GlobPermissions.subset(Collections.singletonList("read:"+permissionPath+"/*"),u.permissions);
+    }
+
+    private boolean canReadTree(Path dir) {
+        CurrentUser u=CurrentUser.require();
+        return u.superAdmin || GlobPermissions.subset(Collections.singletonList("read:"+AclAccess.path(dir.toString())+"/*"),u.permissions);
     }
 
     private ResponseEntity<ResultEntity<ArtistGalleryData>> galleryResponse(
@@ -233,20 +398,14 @@ public class ArtistGalleryController {
             throws IOException {
         if ("folder".equals(image.getType())) {
             Path childDirectory = directory.resolve(image.getName()).normalize();
-            ArtistGalleryItem folder = new ArtistGalleryItem(image.getName(), null, null, "folder",
+            ArtistGalleryItem folder = new ArtistGalleryItem(image.getName(), "folder",
                     childDirectory.toString(), image.getCreatedAt());
             folder.setPosterUrl("/api/fanbox/gallery/file?folderPath=" + encode(directory.toString())
                     + "&path=" + encode(image.getName()));
             return folder;
         }
-        String encodedFolderPath = encode(directory.toString());
-        String encodedPath = URLEncoder.encode(image.getName(), StandardCharsets.UTF_8.name())
-                .replace("+", "%20");
-        String url = "/api/fanbox/gallery/file?folderPath=" + encodedFolderPath
-                + "&path=" + encodedPath;
         String type = "video".equals(image.getType()) ? "video" : "image";
-        String thumbnailUrl = url + "&thumbnail=true";
-        return new ArtistGalleryItem(image.getName(), url, thumbnailUrl, type, image.getCreatedAt());
+        return new ArtistGalleryItem(image.getName(), type, null, image.getCreatedAt());
     }
 
     private Path galleryDirectory(String folderPath) {

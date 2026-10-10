@@ -77,6 +77,7 @@
             }
 
             async function openGallery(row) {
+                if (!canArtist(row,"canOpenGallery")) return;
                 if (!row || !row.folderPath) {
                     ElementPlus.ElMessage.warning("当前画师缺少文件夹路径，无法打开图库");
                     return;
@@ -183,9 +184,17 @@
                 updatingKeys.value = next;
             }
 
+            function canArtist(row,key) {
+                const points={canStatus:["update","op:artist.status"],canCompression:["update","op:artist.compression"],canOpenGallery:["read",row?.folderPath]};
+                const [type,point]=points[key] || [];
+                return Boolean(row?.capabilities?.[key]) && window.DazoAuth.can(type,point) && window.DazoAuth.can(type,row.folderPath);
+            }
             onMounted(loadArtists);
 
             return {
+                can: window.DazoAuth.can,
+                permissionRowClass: ({row}) => canArtist(row,"canOpenGallery") ? "" : "permission-masked",
+                canArtist,
                 changePageSize,
                 createArtist,
                 createDialogVisible,

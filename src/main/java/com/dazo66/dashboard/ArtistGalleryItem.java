@@ -6,8 +6,6 @@ package com.dazo66.dashboard;
 public class ArtistGalleryItem {
 
     private String name;
-    private String url;
-    private String thumbnailUrl;
     private String type;
     private String folderPath;
     private String posterUrl;
@@ -16,19 +14,8 @@ public class ArtistGalleryItem {
     public ArtistGalleryItem() {
     }
 
-    public ArtistGalleryItem(String name, String url, String thumbnailUrl, long createdAt) {
-        this(name, url, thumbnailUrl, "image", createdAt);
-    }
-
-    public ArtistGalleryItem(String name, String url, String thumbnailUrl, String type, long createdAt) {
-        this(name, url, thumbnailUrl, type, null, createdAt);
-    }
-
-    public ArtistGalleryItem(String name, String url, String thumbnailUrl, String type,
-                             String folderPath, long createdAt) {
+    public ArtistGalleryItem(String name, String type, String folderPath, long createdAt) {
         this.name = name;
-        this.url = url;
-        this.thumbnailUrl = thumbnailUrl;
         this.type = type;
         this.folderPath = folderPath;
         this.createdAt = createdAt;
@@ -40,22 +27,6 @@ public class ArtistGalleryItem {
 
     public void setName(String name) {
         this.name = name;
-    }
-
-    public String getUrl() {
-        return url;
-    }
-
-    public void setUrl(String url) {
-        this.url = url;
-    }
-
-    public String getThumbnailUrl() {
-        return thumbnailUrl;
-    }
-
-    public void setThumbnailUrl(String thumbnailUrl) {
-        this.thumbnailUrl = thumbnailUrl;
     }
 
     public String getType() {

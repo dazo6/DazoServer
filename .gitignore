@@ -9,4 +9,9 @@ cache/
 /logs/
 /.agents/
 
-
+# Local agent instructions and configuration
+AGENTS.md
+.codex/
+.claude/
+CLAUDE.md
+.github/agents/

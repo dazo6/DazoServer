@@ -1924,9 +1924,14 @@ h2 {
 
 .gallery-upload-actions .el-button + .el-button { margin-left:0; }
 @media(max-width:700px) {
-    .gallery-heading { grid-template-columns:minmax(0,1fr); }
-    .gallery-heading>.gallery-upload-actions { grid-column:1; grid-row:2; justify-self:start; }
-    .gallery-heading>.gallery-actions { grid-column:1; grid-row:3; }
+    .gallery-heading { grid-template-columns:minmax(0,1fr) auto; gap:8px; }
+    .gallery-heading>.gallery-upload-actions { grid-column:2; grid-row:1; justify-self:end; gap:4px; white-space:nowrap; }
+    .gallery-upload-actions .el-button { padding:8px; }
+    .gallery-heading>.gallery-actions { grid-column:1/-1; grid-row:2; }
+    .gallery-heading .gallery-artist-title { flex:1; margin-left:0; overflow:hidden; }
+    .gallery-heading .gallery-avatar-link { flex-shrink:0; margin-left:0; }
+    .gallery-heading .gallery-folder-path,
+    .gallery-heading .gallery-artist-name { display:block; max-width:100%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; direction:rtl; text-align:left; -webkit-line-clamp:unset; overflow-wrap:normal; }
 }
 
 .permission-masked { position:relative; cursor:not-allowed; }

@@ -26,17 +26,14 @@ public class DashboardController {
     @GetMapping("/api/dashboard/hour-artists")
     public ResultEntity<com.dazo66.dashboard.HourlyArtistDetails> hourlyArtists(
             @org.springframework.web.bind.annotation.RequestParam String hour) {
-        AclAccess.check(AclType.READ, "*");
+        CurrentUser.require();
         return ResultEntity.successWithData(dashboardService.getHourlyArtists(hour));
     }
 
     @ResponseBody
     @GetMapping("/api/dashboard")
     public ResultEntity<DashboardData> data() {
-        CurrentUser u=CurrentUser.require();
-        if(!u.superAdmin && !AclAccess.can(AclType.READ,"*")) {
-            return ResultEntity.successWithData(new DashboardData(java.util.Collections.emptyList(),java.util.Collections.emptyList(),java.util.Collections.emptyList()));
-        }
+        CurrentUser.require();
         return ResultEntity.successWithData(dashboardService.getDashboardData());
     }
 }

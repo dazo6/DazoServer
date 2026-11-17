@@ -108,7 +108,7 @@ public class ArtistGalleryController {
         if(directory==null) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.NOT_FOUND,"画廊目录不存在");
         AclAccess.checkPath(AclType.UPDATE,directory.toString());
         if(file.isEmpty()) throw new IllegalArgumentException("请选择非空文件");
-        if(file.getSize()>500L*1024*1024) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.PAYLOAD_TOO_LARGE,"文件最大500MB");
+        if(file.getSize()>2L*1024*1024*1024) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.PAYLOAD_TOO_LARGE,"文件最大2GB");
         String name=file.getOriginalFilename();
         if(name==null || name.isEmpty() || name.equals(".") || name.equals("..") || name.contains("/") || name.contains("\\") || name.contains(":") || name.endsWith(".") || name.endsWith(" ") || name.chars().anyMatch(c->c<32))
             throw new IllegalArgumentException("文件名无效");
@@ -120,7 +120,7 @@ public class ArtistGalleryController {
                 byte[] buffer=new byte[65536];long total=0;int count;
                 while((count=input.read(buffer))!=-1) {
                     total+=count;
-                    if(total>500L*1024*1024) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.PAYLOAD_TOO_LARGE,"文件最大500MB");
+                    if(total>2L*1024*1024*1024) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.PAYLOAD_TOO_LARGE,"文件最大2GB");
                     output.write(buffer,0,count);
                 }
             }
@@ -132,7 +132,7 @@ public class ArtistGalleryController {
         return ResponseEntity.ok(ResultEntity.successWithData(name));
     }
 
-    private static final long UPLOAD_LIMIT=500L*1024*1024;
+    private static final long UPLOAD_LIMIT=2L*1024*1024*1024;
     private static final int CHUNK_SIZE=512*1024;
     private static final long UPLOAD_IDLE_MS=15L*60*1000;
     private final java.util.concurrent.ConcurrentHashMap<String,ChunkUpload> chunkUploads=new java.util.concurrent.ConcurrentHashMap<>();
@@ -152,7 +152,7 @@ public class ArtistGalleryController {
         AclAccess.checkPath(AclType.UPDATE,directory.toString());
         if(filename==null || filename.isEmpty() || filename.equals(".") || filename.equals("..") || filename.contains("/") || filename.contains("\\") || filename.contains(":") || filename.endsWith(".") || filename.endsWith(" ") || filename.chars().anyMatch(c->c<32))throw new IllegalArgumentException("文件名无效");
         Path target=directory.resolve(filename);AclAccess.checkPath(AclType.UPDATE,target.toString());
-        if(totalSize<1 || totalSize>UPLOAD_LIMIT)throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.PAYLOAD_TOO_LARGE,"文件最大500MB");
+        if(totalSize<1 || totalSize>UPLOAD_LIMIT)throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.PAYLOAD_TOO_LARGE,"文件最大2GB");
         if(partCount!=(int)((totalSize+CHUNK_SIZE-1)/CHUNK_SIZE) || partIndex<0 || partIndex>=partCount)throw new IllegalArgumentException("上传分片参数无效");
         long expected=Math.min(CHUNK_SIZE,totalSize-(long)partIndex*CHUNK_SIZE);
         if(file.getSize()!=expected)throw new IllegalArgumentException("分片大小不正确");

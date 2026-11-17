@@ -89,7 +89,7 @@
             async function uploadFile(event){
                 const file=event.target.files[0];event.target.value="";
                 if(!file || uploading.value)return;
-                if(file.size>500*1024*1024){ElementPlus.ElMessage.error("文件最大500MB");return;}
+                if(file.size>2*1024*1024*1024){ElementPlus.ElMessage.error("文件最大2GB");return;}
                 if(!canUpload.value){ElementPlus.ElMessage.error("没有当前目录的上传权限");return;}
                 const destination=folderPath.value;uploading.value=true;uploadProgress.value=0;
                 try{

@@ -423,13 +423,13 @@
                     <div class="gallery-artist-title">
                         <p class="section-kicker">ARTIST GALLERY</p>
                         <a class="gallery-artist-name" :href="artist.url || undefined" target="_blank"
-                           rel="noopener noreferrer">{{ artistName }}</a>
+                           rel="noopener noreferrer" :title="artistName"><span dir="ltr">{{ artistName }}</span></a>
                     </div>
                 </div>
                 <div v-else class="gallery-folder-profile">
                     <div class="gallery-artist-title">
                         <p class="section-kicker">FOLDER GALLERY</p>
-                        <p class="gallery-folder-path" :title="folderPath">{{ folderPath }}</p>
+                        <p class="gallery-folder-path" :title="folderPath"><span dir="ltr">{{ folderPath }}</span></p>
                     </div>
                 </div>
                     <div class="gallery-upload-actions">

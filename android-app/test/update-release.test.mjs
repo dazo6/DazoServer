@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { createManifest } from "../ci/prepare-update.mjs";
+import { createManifest, inspectApk } from "../ci/prepare-update.mjs";
 
 const info = {
   packageName: "com.dazo66.android",
@@ -44,5 +44,24 @@ test("rejects empty files and invalid build identities", () => {
   );
   assert.throws(() =>
     createManifest(info, apk, { ...env, GITHUB_REPOSITORY: "another/repo" }),
+  );
+});
+test("reads the Android 37 minSdkVersion output and the legacy sdkVersion output", () => {
+  const pkg =
+    "package: name='com.dazo66.android' versionCode='100006' versionName='1.2.0.6' compileSdkVersion='37'\n";
+  const certificate = `V2 Signer: certificate SHA-256 digest: ${info.certificateSha256}\n`;
+  for (const field of ["minSdkVersion", "sdkVersion"]) {
+    assert.deepEqual(
+      inspectApk(pkg + `${field}:'26'\ntargetSdkVersion:'36'\n`, certificate),
+      info,
+    );
+  }
+});
+test("missing Android compatibility or signing metadata aborts publication", () => {
+  assert.throws(() =>
+    inspectApk(
+      "package: name='com.dazo66.android' versionCode='100006' versionName='1.2.0.6'",
+      "",
+    ),
   );
 });

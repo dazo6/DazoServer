@@ -4,6 +4,25 @@ import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve, join } from "node:path";
 import { pathToFileURL } from "node:url";
 
+export function inspectApk(badging, signing) {
+  const pkg = badging.match(
+    /^package: name='([^']+)' versionCode='(\d+)' versionName='([^']*)'/m,
+  );
+  const sdk = badging.match(/^(?:minSdkVersion|sdkVersion):'(\d+)'/m);
+  const certificate = signing.match(
+    /certificate SHA-256 digest: ([a-f0-9]{64})/i,
+  )?.[1];
+  if (!pkg || !sdk || !certificate)
+    throw new Error("Cannot inspect APK metadata");
+  return {
+    packageName: pkg[1],
+    versionCode: Number(pkg[2]),
+    versionName: pkg[3],
+    minSdk: Number(sdk[1]),
+    certificateSha256: certificate,
+  };
+}
+
 export function createManifest(info, apk, env) {
   const run = Number(env.GITHUB_RUN_NUMBER);
   if (!Number.isSafeInteger(run) || run < 1 || run > 999999999)
@@ -54,28 +73,14 @@ if (
     ["dump", "badging", source],
     { encoding: "utf8" },
   );
-  const pkg = badging.match(
-    /^package: name='([^']+)' versionCode='(\d+)' versionName='([^']*)'/m,
-  );
-  const sdk = badging.match(/^sdkVersion:'(\d+)'/m);
-  if (!pkg || !sdk) throw new Error("Cannot inspect APK metadata");
   const signing = execFileSync(
     join(tools, "apksigner"),
     ["verify", "--print-certs", source],
     { encoding: "utf8" },
   );
-  const certificate = signing.match(
-    /certificate SHA-256 digest: ([a-f0-9]{64})/i,
-  )?.[1];
   const apk = readFileSync(source);
   const manifest = createManifest(
-    {
-      packageName: pkg[1],
-      versionCode: Number(pkg[2]),
-      versionName: pkg[3],
-      minSdk: Number(sdk[1]),
-      certificateSha256: certificate,
-    },
+    inspectApk(badging, signing),
     apk,
     process.env,
   );

@@ -191,7 +191,7 @@ export function UpdateSection() {
           {state.phase === "ready" ? (
             <Button title="安装更新" onPress={() => void install()} />
           ) : downloading ? (
-            <Button title="取消下载" quiet onPress={Native.cancelUpdate} />
+            <Button title="取消下载" quiet onPress={() => Native.cancelUpdate()} />
           ) : (
             <Button
               title={checking ? state.message : "检查并下载更新"}

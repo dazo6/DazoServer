@@ -1,0 +1,348 @@
+package com.dazo66.android;
+
+import android.content.Context;
+import android.net.Uri;
+import android.security.keystore.KeyGenParameterSpec;
+import android.security.keystore.KeyProperties;
+import android.content.SharedPreferences;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.os.Handler;
+import android.os.Looper;
+import android.util.Base64;
+
+import org.json.JSONObject;
+
+import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.net.HttpURLConnection;
+import java.net.URI;
+import java.net.URL;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.KeyStore;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Comparator;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
+import javax.crypto.Cipher;
+import javax.crypto.KeyGenerator;
+import javax.crypto.SecretKey;
+import javax.crypto.spec.GCMParameterSpec;
+
+final class ApiClient {
+    interface Done<T> { void accept(T value, Exception error); }
+    interface Progress { void accept(int percent); }
+    private static final long CACHE_LIMIT = 256L * 1024 * 1024;
+    private static final long CACHE_TTL = 30L * 24 * 3600 * 1000;
+    private final ExecutorService pool = Executors.newFixedThreadPool(4);
+    private final ExecutorService mediaPool = Executors.newFixedThreadPool(3);
+    private final Handler main = new Handler(Looper.getMainLooper());
+    private final SharedPreferences prefs;
+    private final File imageCache;
+    private volatile String host;
+    private volatile String cookie = "";
+    private volatile String csrf = "";
+
+    ApiClient(Context context) {
+        prefs = context.getSharedPreferences("connection", Context.MODE_PRIVATE);
+        imageCache = new File(context.getCacheDir(), "media");
+        imageCache.mkdirs();
+        host = prefs.getString("host", "");
+        try { cookie = decrypt(prefs.getString("session", "")); }
+        catch (Exception ignored) { prefs.edit().remove("session").apply(); cookie = ""; }
+        pool.execute(this::trimCache);
+    }
+
+    String host() { return host; }
+    String lastUser() { return prefs.getString("user", ""); }
+    String scope() { return host + "|" + lastUser(); }
+    boolean signedIn() { return !cookie.isEmpty(); }
+    String cookie() { return cookie; }
+    String absolute(String path) { return path.startsWith("http") ? path : host + path; }
+
+    void login(String rawHost, String user, String password, Done<JSONObject> done) {
+        pool.execute(() -> {
+            try {
+                String normalized = rawHost.trim().replaceAll("/+$", "");
+                URL parsed = new URL(normalized);
+                if (!("http".equals(parsed.getProtocol()) || "https".equals(parsed.getProtocol())))
+                    throw new IllegalArgumentException("Host 必须以 http:// 或 https:// 开头");
+                if (parsed.getHost().isEmpty() || parsed.getUserInfo() != null || parsed.getQuery() != null || parsed.getRef() != null || !parsed.getPath().isEmpty())
+                    throw new IllegalArgumentException("请输入服务器根地址，例如 https://example.com");
+                host = normalized; cookie = ""; csrf = "";
+                JSONObject body = new JSONObject().put("userId", user.trim()).put("password", password);
+                JSONObject data = send("POST", "/api/auth/login", body).getJSONObject("data");
+                csrf = data.optString("csrfToken");
+                prefs.edit().putString("host", host).putString("user", user.trim()).putString("session", encrypt(cookie)).apply();
+                post(done, data.getJSONObject("me"), null);
+            } catch (Exception e) { cookie = ""; csrf = ""; prefs.edit().remove("session").apply(); post(done, null, e); }
+        });
+    }
+
+    void restore(Done<JSONObject> done) {
+        pool.execute(() -> {
+            try {
+                JSONObject user = send("GET", "/api/auth/me", null).getJSONObject("data");
+                csrf = send("GET", "/api/auth/csrf", null).optString("data");
+                post(done, user, null);
+            } catch (Exception e) { android.util.Log.w("DazoApi", "Session restore failed", e); csrf = ""; post(done, null, e); }
+        });
+    }
+
+    void request(String method, String path, JSONObject body, Done<Object> done) {
+        pool.execute(() -> {
+            try { post(done, send(method, path, body).opt("data"), null); }
+            catch (Exception e) { android.util.Log.w("DazoApi", "API request failed", e); post(done, null, e); }
+        });
+    }
+
+    AtomicBoolean upload(Context context, Uri uri, String filename, long size, String folderPath, Progress progress, Done<Object> done) {
+        AtomicBoolean cancelled = new AtomicBoolean();
+        pool.execute(() -> {
+            try (InputStream input = context.getContentResolver().openInputStream(uri)) {
+                if (input == null) throw new IllegalArgumentException("无法读取文件");
+                if (size < 1 || size > 2L * 1024 * 1024 * 1024) throw new IllegalArgumentException("文件大小必须在 1 字节到 2GB 之间");
+                final int chunkSize = 512 * 1024;
+                int count = (int) ((size + chunkSize - 1) / chunkSize);
+                String uploadId = "";
+                for (int i = 0; i < count; i++) {
+                    if (cancelled.get()) throw new IllegalStateException("上传已取消");
+                    int wanted = (int) Math.min(chunkSize, size - (long) i * chunkSize);
+                    byte[] part = new byte[wanted]; int offset = 0;
+                    while (offset < wanted) {
+                        int n = input.read(part, offset, wanted - offset);
+                        if (n < 0) throw new IllegalStateException("文件读取中断");
+                        offset += n;
+                    }
+                    String path;
+                    if (count == 1) path = "/api/fanbox/gallery/upload?folderPath=" + encode(folderPath);
+                    else path = "/api/fanbox/gallery/upload-chunk?folderPath=" + encode(folderPath)
+                            + "&filename=" + encode(filename) + "&totalSize=" + size + "&partIndex=" + i
+                            + "&partCount=" + count + (uploadId.isEmpty() ? "" : "&uploadId=" + encode(uploadId));
+                    JSONObject result = multipart(path, filename, part);
+                    uploadId = result.optJSONObject("data") == null ? uploadId : result.getJSONObject("data").optString("uploadId", uploadId);
+                    int percent = (int) Math.round((i + 1) * 100.0 / count);
+                    main.post(() -> progress.accept(percent));
+                }
+                post(done, true, null);
+            } catch (Exception e) { post(done, null, e); }
+        });
+        return cancelled;
+    }
+
+    void uploadAvatar(Context context, Uri uri, Done<Object> done) {
+        pool.execute(() -> {
+            try (InputStream stream = context.getContentResolver().openInputStream(uri)) {
+                byte[] bytes = readAll(stream);
+                if (bytes.length > 2 * 1024 * 1024) throw new IllegalArgumentException("头像最大 2MiB");
+                multipart("/api/auth/me/avatar", "avatar.png", bytes);
+                post(done, true, null);
+            } catch (Exception e) { post(done, null, e); }
+        });
+    }
+
+    private JSONObject multipart(String path, String filename, byte[] data) throws Exception {
+        String boundary = "DazoAndroid" + System.nanoTime();
+        String safe = filename.replace("\"", "_").replace("\\", "_").replace("\r", "_").replace("\n", "_");
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        bytes.write(("--" + boundary + "\r\nContent-Disposition: form-data; name=\"file\"; filename=\"" + safe + "\"\r\nContent-Type: application/octet-stream\r\n\r\n").getBytes(StandardCharsets.UTF_8));
+        bytes.write(data); bytes.write(("\r\n--" + boundary + "--\r\n").getBytes(StandardCharsets.UTF_8));
+        byte[] response = raw("POST", host + path, bytes.toByteArray(), "multipart/form-data; boundary=" + boundary);
+        JSONObject result = new JSONObject(new String(response, StandardCharsets.UTF_8));
+        if (!"SUCCESS".equals(result.optString("result"))) throw new IllegalStateException(result.optString("message", "上传失败"));
+        return result;
+    }
+
+    private static String encode(String value) { try { return java.net.URLEncoder.encode(value, "UTF-8"); } catch (java.io.UnsupportedEncodingException e) { throw new IllegalStateException(e); } }
+
+    void media(String url, boolean force, Done<JSONObject> done) {
+        mediaPool.execute(() -> {
+            File file = null;
+            try {
+                String address = absolute(url), cacheKey = hash(scope() + address);
+                file = new File(imageCache, cacheKey);
+                if (!file.isFile() || force) {
+                    try {
+                        byte[] bytes = raw("GET", address, null);
+                        if (bytes.length > 64 * 1024 * 1024) throw new IllegalArgumentException("单张图片超过 64 MiB");
+                        BitmapFactory.Options check = new BitmapFactory.Options(); check.inJustDecodeBounds = true;
+                        BitmapFactory.decodeByteArray(bytes, 0, bytes.length, check);
+                        if (check.outWidth < 1 || check.outHeight < 1) throw new IllegalArgumentException("图片格式不支持");
+                        File temporary = new File(imageCache, cacheKey + ".tmp-" + Thread.currentThread().getId());
+                        try (FileOutputStream stream = new FileOutputStream(temporary)) { stream.write(bytes); }
+                        java.nio.file.Files.move(temporary.toPath(), file.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                    } catch (java.io.IOException failure) { if (!file.isFile()) throw failure; }
+                }
+                BitmapFactory.Options bounds = new BitmapFactory.Options(); bounds.inJustDecodeBounds = true;
+                BitmapFactory.decodeFile(file.getAbsolutePath(), bounds);
+                if (bounds.outWidth < 1 || bounds.outHeight < 1) { file.delete(); throw new IllegalArgumentException("图片格式不支持"); }
+                file.setLastModified(System.currentTimeMillis()); trimCache();
+                post(done, new JSONObject().put("uri", Uri.fromFile(file).toString()+"?v="+file.lastModified()).put("width", bounds.outWidth).put("height", bounds.outHeight), null);
+            } catch (Exception e) { post(done, null, e); }
+        });
+    }
+
+    long cacheBytes() {
+        File[] files = imageCache.listFiles(); long size = 0;
+        if (files != null) for (File file : files) if (!file.getName().contains(".tmp-")) size += file.length();
+        return size;
+    }
+    void clearCache(Done<Object> done) {
+        pool.execute(() -> { File[] files = imageCache.listFiles(); if (files != null) for (File file : files) file.delete(); post(done, true, null); });
+    }
+
+    void image(String url, Done<Bitmap> done) {
+        if (url == null || url.isEmpty()) { post(done, null, null); return; }
+        pool.execute(() -> {
+            try {
+                String absolute = url.startsWith("http") ? url : host + url;
+                String key = hash(scope() + absolute);
+                File file = new File(imageCache, key);
+                byte[] bytes;
+                if (file.isFile()) {
+                    bytes = java.nio.file.Files.readAllBytes(file.toPath());
+                    file.setLastModified(System.currentTimeMillis());
+                } else {
+                    bytes = raw("GET", absolute, null);
+                    if (bytes.length <= 64 * 1024 * 1024) {
+                        File temporary = new File(imageCache, key + ".tmp-" + Thread.currentThread().getId());
+                        try (FileOutputStream stream = new FileOutputStream(temporary)) { stream.write(bytes); }
+                        java.nio.file.Files.move(temporary.toPath(), file.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                        trimCache();
+                    }
+                }
+                BitmapFactory.Options options = new BitmapFactory.Options(); options.inJustDecodeBounds = true;
+                BitmapFactory.decodeByteArray(bytes, 0, bytes.length, options);
+                int sample = 1;
+                while (options.outWidth / sample > 2400 || options.outHeight / sample > 2400) sample *= 2;
+                options.inSampleSize = sample; options.inJustDecodeBounds = false;
+                Bitmap bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.length, options);
+                if (bitmap == null) file.delete();
+                post(done, bitmap, bitmap == null ? new IllegalArgumentException("图片格式不支持") : null);
+            } catch (Exception e) { post(done, null, e); }
+        });
+    }
+
+    private JSONObject send(String method, String path, JSONObject body) throws Exception {
+        byte[] bytes = raw(method, host + path, body == null ? null : body.toString().getBytes(StandardCharsets.UTF_8), "application/json; charset=UTF-8");
+        JSONObject response = new JSONObject(new String(bytes, StandardCharsets.UTF_8));
+        if (!"SUCCESS".equals(response.optString("result")))
+            throw new IllegalStateException(response.optString("message", "请求失败"));
+        return response;
+    }
+
+    private byte[] raw(String method, String address, byte[] body) throws Exception { return raw(method, address, body, "application/json; charset=UTF-8"); }
+    private byte[] raw(String method, String address, byte[] body, String contentType) throws Exception {
+        try { return raw(method, address, body, contentType, 0); }
+        catch (java.io.IOException failure) {
+            if (!"GET".equals(method)) throw failure;
+            // A dropped connection is safe to retry for reads; writes are never replayed.
+            return raw(method, address, body, contentType, 0);
+        }
+    }
+    private byte[] raw(String method, String address, byte[] body, String contentType, int redirects) throws Exception {
+        HttpURLConnection connection = (HttpURLConnection) new URL(address).openConnection();
+        connection.setConnectTimeout(12000);
+        connection.setReadTimeout(30000);
+        connection.setInstanceFollowRedirects(false);
+        connection.setRequestMethod(method);
+        connection.setRequestProperty("Accept", "application/json, image/*, */*");
+        boolean sameOrigin = URI.create(host).getScheme().equalsIgnoreCase(URI.create(address).getScheme())
+                && URI.create(host).getAuthority().equalsIgnoreCase(URI.create(address).getAuthority());
+        if (sameOrigin && !cookie.isEmpty()) connection.setRequestProperty("Cookie", cookie);
+        if (sameOrigin && !csrf.isEmpty() && !"GET".equals(method)) connection.setRequestProperty("X-CSRF-Token", csrf);
+        try {
+            if (body != null) {
+                connection.setDoOutput(true);
+                connection.setRequestProperty("Content-Type", contentType);
+                try (java.io.OutputStream output = connection.getOutputStream()) { output.write(body); }
+            }
+            int status = connection.getResponseCode();
+            if ("GET".equals(method) && status >= 300 && status < 400 && connection.getHeaderField("Location") != null) {
+                if (redirects >= 5) throw new IllegalStateException("图片重定向过多");
+                String next = new URL(new URL(address), connection.getHeaderField("Location")).toString();
+                connection.disconnect();
+                return raw(method, next, null, contentType, redirects + 1);
+            }
+            String setCookie = connection.getHeaderField("Set-Cookie");
+            if (sameOrigin && setCookie != null && !setCookie.isEmpty()) cookie = setCookie.split(";", 2)[0];
+            InputStream stream = status >= 400 ? connection.getErrorStream() : connection.getInputStream();
+            byte[] bytes = readAll(stream);
+            if (sameOrigin && status == 401) { cookie = ""; prefs.edit().remove("session").apply(); }
+            if (status >= 300) {
+                try { throw new IllegalStateException(new JSONObject(new String(bytes, StandardCharsets.UTF_8)).optString("message", "HTTP " + status)); }
+                catch (org.json.JSONException ignored) { throw new IllegalStateException("HTTP " + status); }
+            }
+            return bytes;
+        } finally { connection.disconnect(); }
+    }
+
+    void logout(Done<Object> done) {
+        request("POST", "/api/auth/logout", null, (value, error) -> {
+            cookie = ""; csrf = ""; prefs.edit().remove("session").apply();
+            done.accept(value, error);
+        });
+    }
+
+    private static byte[] readAll(InputStream stream) throws Exception {
+        if (stream == null) return new byte[0];
+        try (InputStream input = stream; ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+            byte[] buffer = new byte[32768]; int n;
+            while ((n = input.read(buffer)) >= 0) { if (output.size() + n > 64 * 1024 * 1024) throw new IllegalArgumentException("响应超过 64 MiB"); output.write(buffer, 0, n); }
+            return output.toByteArray();
+        }
+    }
+
+    private static String hash(String value) throws Exception {
+        byte[] digest = MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8));
+        return Base64.encodeToString(digest, Base64.URL_SAFE | Base64.NO_WRAP | Base64.NO_PADDING);
+    }
+
+    private SecretKey key() throws Exception {
+        KeyStore store = KeyStore.getInstance("AndroidKeyStore"); store.load(null);
+        if (!store.containsAlias("dazo_session")) {
+            KeyGenerator generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore");
+            generator.init(new KeyGenParameterSpec.Builder("dazo_session", KeyProperties.PURPOSE_ENCRYPT | KeyProperties.PURPOSE_DECRYPT)
+                    .setBlockModes(KeyProperties.BLOCK_MODE_GCM).setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE).build());
+            generator.generateKey();
+        }
+        return (SecretKey) store.getKey("dazo_session", null);
+    }
+    private String encrypt(String value) throws Exception {
+        Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding"); cipher.init(Cipher.ENCRYPT_MODE, key());
+        byte[] iv = cipher.getIV(), encrypted = cipher.doFinal(value.getBytes(StandardCharsets.UTF_8));
+        byte[] packed = new byte[iv.length + encrypted.length];
+        System.arraycopy(iv, 0, packed, 0, iv.length); System.arraycopy(encrypted, 0, packed, iv.length, encrypted.length);
+        return Base64.encodeToString(packed, Base64.NO_WRAP);
+    }
+    private String decrypt(String encoded) throws Exception {
+        if (encoded.isEmpty()) return "";
+        byte[] packed = Base64.decode(encoded, Base64.NO_WRAP);
+        byte[] iv = Arrays.copyOfRange(packed, 0, 12);
+        Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding"); cipher.init(Cipher.DECRYPT_MODE, key(), new GCMParameterSpec(128, iv));
+        return new String(cipher.doFinal(packed, 12, packed.length - 12), StandardCharsets.UTF_8);
+    }
+
+    private synchronized void trimCache() {
+        File[] files = imageCache.listFiles();
+        if (files == null) return;
+        long now = System.currentTimeMillis(), total = 0;
+        Arrays.sort(files, Comparator.comparingLong(File::lastModified));
+        for (File file : files) {
+            if (file.getName().contains(".tmp-")) { if (now - file.lastModified() > 3600_000) file.delete(); continue; }
+            if (now - file.lastModified() > CACHE_TTL && file.delete()) continue;
+            total += file.length();
+        }
+        for (File file : files) {
+            if (total <= CACHE_LIMIT) break;
+            if (!file.getName().contains(".tmp-") && file.exists()) { long bytes = file.length(); if (file.delete()) total -= bytes; }
+        }
+    }
+
+    private <T> void post(Done<T> done, T value, Exception error) { main.post(() -> done.accept(value, error)); }
+}

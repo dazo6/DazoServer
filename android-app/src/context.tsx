@@ -6,13 +6,16 @@ import React, {
   useRef,
   useState,
   useSyncExternalStore,
+  useMemo,
 } from "react";
 import { memory, Native, Row, Screen } from "./core";
+import { createPagedFeed, PagedResult } from "./paged";
 
 export type AppContextValue = {
   me: Row;
   host: string;
   backupUrls: string[];
+  activeHost: string;
   setBackupUrls(urls: string[]): Promise<void>;
   scope: string;
   avatarVersion: number;
@@ -32,6 +35,34 @@ export const useApp = () => useContext(AppContext);
 export const ScreenActive = createContext(true);
 export const NavigationTab = createContext("home");
 export const useScreenActive = () => useContext(ScreenActive);
+export function usePagedRemote<T extends Row>(
+  key: string,
+  loader: (page: number) => Promise<PagedResult<T>>,
+) {
+  const { report } = useApp(),
+    active = useScreenActive();
+  const feed = useMemo(
+    () => createPagedFeed(loader, (item) => String(item.id)),
+    [key],
+  );
+  const state = useSyncExternalStore(feed.subscribe, feed.snapshot);
+  useEffect(() => {
+    if (active) void feed.ensure(memory.get("pages:" + key, 1));
+    return () => feed.cancel();
+  }, [feed, active]);
+  useEffect(() => {
+    if (state.page) memory.set("pages:" + key, state.page);
+  }, [key, state.page]);
+  useEffect(() => {
+    if (state.error) report(state.error);
+  }, [state.error]);
+  return {
+    ...state,
+    next: feed.next,
+    refresh: feed.refresh,
+    reload: feed.refresh,
+  };
+}
 export function useClock() {
   const active = useScreenActive(),
     [now, setNow] = useState(Date.now());

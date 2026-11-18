@@ -86,7 +86,7 @@ jobs:
         run: |
           curl --fail --location --retry 3 --connect-timeout 20 --output "$RUNNER_TEMP/foojay-plugin.pom" 'https://plugins.gradle.org/m2/org/gradle/toolchains/foojay-resolver-convention/org.gradle.toolchains.foojay-resolver-convention.gradle.plugin/1.0.0/org.gradle.toolchains.foojay-resolver-convention.gradle.plugin-1.0.0.pom'
           export APP_VERSION_CODE=$((100000 + GITHUB_RUN_NUMBER))
-          export APP_VERSION_NAME="1.3.0.${GITHUB_RUN_NUMBER}"
+          export APP_VERSION_NAME="1.4.0.${GITHUB_RUN_NUMBER}"
           echo "APP_VERSION_NAME=$APP_VERSION_NAME" >> "$GITHUB_ENV"
           ./gradlew testDebugUnitTest assembleDebug --no-daemon --max-workers=4 --stacktrace --info -PappVersionCode="$APP_VERSION_CODE" -PappVersionName="$APP_VERSION_NAME"
 

@@ -1,3 +1,4 @@
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
     <external-files-path name="updates" path="Download/updates/" />
+    <external-path name="user_downloads" path="Download/Dazo/" />
 </paths>

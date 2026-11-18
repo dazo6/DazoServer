@@ -5,6 +5,29 @@ import static org.junit.Assert.*;
 import java.util.*;
 
 public class ServerRoutesTest {
+    @Test public void networkChangeRetriesPrimaryBeforeRememberedBackup() throws Exception {
+        ServerRoutes routes = new ServerRoutes("https://main.example", Collections.singletonList("https://backup.example"));
+        routes.execute("/api/auth/me", (address, trusted) -> { if (address.startsWith("https://main.")) throw new ServerRoutes.Failure("offline", null, true); return true; });
+        assertTrue(routes.addresses("/api/status").get(0).startsWith("https://backup."));
+        routes.resetToPrimary();
+        assertEquals("https://main.example/api/status", routes.addresses("/api/status").get(0));
+    }
+    @Test public void anOldNetworkResponseCannotRestoreTheOldBackup() throws Exception {
+        ServerRoutes routes = new ServerRoutes("https://main.example", Collections.singletonList("https://backup.example"));
+        routes.execute("/api/auth/me", (address, trusted) -> {
+            if (address.startsWith("https://main.")) throw new ServerRoutes.Failure("offline", null, true);
+            routes.resetToPrimary(); return true;
+        });
+        assertEquals("https://main.example", routes.active());
+    }
+    @Test public void brokenStreamsMoveToAnotherOriginWithoutLosingPrimaryIdentity() throws Exception {
+        ServerRoutes routes = new ServerRoutes("https://main.example", Arrays.asList("https://a.example", "https://b.example"));
+        routes.failed("https://main.example/api/file", routes.generation());
+        assertEquals("https://a.example/api/file", routes.addresses("/api/file").get(0));
+        routes.failed("https://a.example/api/file", routes.generation());
+        assertEquals("https://b.example/api/file", routes.addresses("/api/file").get(0));
+        assertEquals("https://main.example", routes.primary());
+    }
     @Test public void normalizesAndDeduplicatesRoots() {
         ServerRoutes routes = new ServerRoutes(" HTTPS://Main.Example/ ", Arrays.asList("https://main.example", "http://127.0.0.1:8080/", ""));
         assertEquals("https://main.example", routes.primary());

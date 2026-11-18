@@ -1,6 +1,10 @@
+import { SavedList } from "../list";
 import { useUI } from "../theme";
 import React, { useState } from "react";
 import {
+  ActivityIndicator,
+  RefreshControl,
+  StyleSheet,
   Alert,
   Linking,
   Pressable,
@@ -12,6 +16,7 @@ import { allowed, dateLabel, updateAge, memory, query, Row } from "../core";
 import {
   useApp,
   useClock,
+  usePagedRemote,
   useDebounced,
   useRemote,
   useSaved,
@@ -42,7 +47,8 @@ export function Home() {
   const { request, navigate, report } = useApp(),
     remote = useRemote<Row>(() => request("GET", "/api/dashboard"), []);
   const [keyword, setKeyword] = useSaved("home:keyword", ""),
-    [page, setPage] = useSaved("home:page", 1);
+    [count, setCount] = useSaved("home:visibleCount", 20),
+    [headerHeight, setHeaderHeight] = useState(640);
   const data = remote.data,
     hours: Row[] = data?.hourlyCounts || [],
     statuses: Row[] = data?.statusCounts || [],
@@ -56,9 +62,8 @@ export function Home() {
       .reduce((n, a) => n + Number(a.count || 0), 0),
     percent = done + pending ? Math.round((done * 100) / (done + pending)) : 0;
   const updates = artists.filter((a) =>
-      (a.name || "").toLowerCase().includes(keyword.toLowerCase()),
-    ),
-    current = Math.min(page, Math.max(1, Math.ceil(updates.length / 10)));
+    (a.name || "").toLowerCase().includes(keyword.toLowerCase()),
+  );
   const hourDetails = async (hour: Row) => {
     try {
       const result = await request<Row>(
@@ -79,184 +84,231 @@ export function Home() {
     }
   };
   return (
-    <Page
+    <SavedList
+      resetKey={keyword}
       scrollKey="home"
-      loading={remote.loading}
-      refreshing={remote.refreshing}
-      onRefresh={remote.refresh}
-    >
-      {!data ? (
-        <Empty loading={remote.loading} />
-      ) : (
-        <>
-          <View style={[S.row, { gap: 12 }]}>
-            <Card style={{ flex: 1 }}>
-              <Txt size={12} muted>
-                近 150 小时
-              </Txt>
-              <Txt size={29} bold style={{ marginTop: 6, color: C.blue }}>
-                {total.toLocaleString()}
-              </Txt>
-              <Txt size={12} muted>
-                抓取完成
-              </Txt>
-            </Card>
-            <Card style={{ flex: 1 }}>
-              <Txt size={12} muted>
-                完成比例
-              </Txt>
-              <Txt size={29} bold style={{ marginTop: 6 }}>
-                {percent}
-                <Txt size={16} muted>
-                  %
-                </Txt>
-              </Txt>
-              <Txt size={12} muted>
-                {pending.toLocaleString()} 条待完成
-              </Txt>
-            </Card>
-          </View>
-          <Card>
-            <Section title="抓取趋势" detail="每小时完成数量" />
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentOffset={{ x: Math.max(0, hours.length * 18 - 320), y: 0 }}
-            >
-              <View
-                style={{
-                  flexDirection: "row",
-                  alignItems: "flex-end",
-                  height: 136,
-                  gap: 5,
-                  paddingTop: 10,
-                }}
-              >
-                {hours.map((hour, i) => (
-                  <Pressable
-                    key={i}
-                    accessibilityLabel={
-                      dateLabel(hour.hour) + "，" + hour.count + "条"
-                    }
-                    onPress={() => void hourDetails(hour)}
+      ready={!!data && !remote.loading}
+      expectedHeight={headerHeight + Math.min(count, updates.length) * 78 + 40}
+      data={updates.slice(0, count)}
+      keyExtractor={(a, i) => String(a.id || a.name || i)}
+      contentContainerStyle={S.page}
+      refreshControl={
+        <RefreshControl
+          refreshing={remote.refreshing}
+          onRefresh={remote.refresh}
+          colors={[C.blue]}
+          progressBackgroundColor={C.surface}
+        />
+      }
+      onEndReached={() => {
+        if (data && count < updates.length)
+          setCount(Math.min(updates.length, count + 20));
+      }}
+      onEndReachedThreshold={0.6}
+      initialNumToRender={12}
+      maxToRenderPerBatch={8}
+      windowSize={7}
+      removeClippedSubviews={false}
+      getItemLayout={(_, index) => ({
+        index,
+        length: 78,
+        offset: 16 + headerHeight + index * 78,
+      })}
+      ListHeaderComponent={
+        <View
+          onLayout={(event) => setHeaderHeight(event.nativeEvent.layout.height)}
+        >
+          {!data ? (
+            <Empty loading={remote.loading} />
+          ) : (
+            <>
+              {" "}
+              <View style={[S.row, { gap: 12 }]}>
+                <Card style={{ flex: 1 }}>
+                  <Txt size={12} muted>
+                    近 150 小时
+                  </Txt>
+                  <Txt size={29} bold style={{ marginTop: 6, color: C.blue }}>
+                    {total.toLocaleString()}
+                  </Txt>
+                  <Txt size={12} muted>
+                    抓取完成
+                  </Txt>
+                </Card>
+                <Card style={{ flex: 1 }}>
+                  <Txt size={12} muted>
+                    完成比例
+                  </Txt>
+                  <Txt size={29} bold style={{ marginTop: 6 }}>
+                    {percent}
+                    <Txt size={16} muted>
+                      %
+                    </Txt>
+                  </Txt>
+                  <Txt size={12} muted>
+                    {pending.toLocaleString()} 条待完成
+                  </Txt>
+                </Card>
+              </View>
+              <Card>
+                <Section title="抓取趋势" detail="每小时完成数量" />
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentOffset={{
+                    x: Math.max(0, hours.length * 18 - 320),
+                    y: 0,
+                  }}
+                >
+                  <View
                     style={{
-                      width: 13,
-                      height: 125,
-                      justifyContent: "flex-end",
-                      alignItems: "center",
+                      flexDirection: "row",
+                      alignItems: "flex-end",
+                      height: 136,
+                      gap: 5,
+                      paddingTop: 10,
                     }}
                   >
-                    <View
-                      style={{
-                        width: 9,
-                        height: Math.max(
-                          3,
-                          (Number(hour.count || 0) /
-                            Math.max(1, ...hours.map((x) => Number(x.count)))) *
-                            100,
-                        ),
-                        backgroundColor:
-                          i >= hours.length - 24 ? C.blue : "#addcea",
-                        borderRadius: 4,
-                      }}
-                    />
-                    {i % 6 === 0 ? (
-                      <Txt
-                        size={8}
-                        muted
-                        style={{ height: 19, width: 35, textAlign: "center" }}
+                    {hours.map((hour, i) => (
+                      <Pressable
+                        key={i}
+                        accessibilityLabel={
+                          dateLabel(hour.hour) + "，" + hour.count + "条"
+                        }
+                        onPress={() => void hourDetails(hour)}
+                        style={{
+                          width: 13,
+                          height: 125,
+                          justifyContent: "flex-end",
+                          alignItems: "center",
+                        }}
                       >
-                        {String(hour.hour).slice(11, 16) || String(i)}
-                      </Txt>
-                    ) : (
-                      <View style={{ height: 19 }} />
-                    )}
-                  </Pressable>
-                ))}
-              </View>
-            </ScrollView>
-          </Card>
-          <Card>
-            <Section title="请求状态" />
-            <View
-              style={{
-                height: 8,
-                borderRadius: 4,
-                backgroundColor: C.bg,
-                overflow: "hidden",
-                marginBottom: 14,
-              }}
-            >
-              <View
-                style={{
-                  width: `${percent}%`,
-                  height: 8,
-                  backgroundColor: C.blue,
-                  borderRadius: 4,
-                }}
-              />
-            </View>
-            <View style={S.row}>
-              <Txt size={13} style={{ flex: 1, color: C.blue }}>
-                已完成　{done.toLocaleString()}
-              </Txt>
-              <Txt size={13} muted>
-                未完成　{pending.toLocaleString()}
-              </Txt>
-            </View>
-          </Card>
-          <View style={{ height: 12 }} />
-          <Section title="最近更新" detail={`${artists.length} 位画师`} />
-          <SearchBar
-            value={keyword}
-            onChange={(v) => {
-              setKeyword(v);
-              setPage(1);
-            }}
-            placeholder="搜索更新画师"
-          />
-          {updates.slice((current - 1) * 10, current * 10).map((a, i) => (
-            <Card
-              key={a.id || a.name || i}
-              onPress={() => {
-                memory.set("artists:keyword", a.name || "");
-                memory.set("scroll:artists", 0);
-                memory.set("artists:filters", {
-                  status: "全部",
-                  order: "desc",
-                  size: 20,
-                  page: 1,
-                });
-                navigate({ name: "artists" });
-              }}
-              style={{ padding: 10, marginBottom: 6 }}
-            >
-              <View style={[S.row, { gap: 12 }]}>
-                <Media
-                  avatar
-                  path={a.icon}
-                  refreshKey={remote.revision}
-                  style={{ width: 46, height: 46, borderRadius: 13 }}
-                />
-                <View style={{ flex: 1 }}>
-                  <Txt bold>{a.name}</Txt>
-                  <Txt size={12} muted lines={1}>
-                    {updateAge(a.last, now)}
+                        <View
+                          style={{
+                            width: 9,
+                            height: Math.max(
+                              3,
+                              (Number(hour.count || 0) /
+                                Math.max(
+                                  1,
+                                  ...hours.map((x) => Number(x.count)),
+                                )) *
+                                100,
+                            ),
+                            backgroundColor:
+                              i >= hours.length - 24 ? C.blue : "#addcea",
+                            borderRadius: 4,
+                          }}
+                        />
+                        {i % 6 === 0 ? (
+                          <Txt
+                            size={8}
+                            muted
+                            style={{
+                              height: 19,
+                              width: 35,
+                              textAlign: "center",
+                            }}
+                          >
+                            {String(hour.hour).slice(11, 16) || String(i)}
+                          </Txt>
+                        ) : (
+                          <View style={{ height: 19 }} />
+                        )}
+                      </Pressable>
+                    ))}
+                  </View>
+                </ScrollView>
+              </Card>
+              <Card>
+                <Section title="请求状态" />
+                <View
+                  style={{
+                    height: 8,
+                    borderRadius: 4,
+                    backgroundColor: C.bg,
+                    overflow: "hidden",
+                    marginBottom: 14,
+                  }}
+                >
+                  <View
+                    style={{
+                      width: `${percent}%`,
+                      height: 8,
+                      backgroundColor: C.blue,
+                      borderRadius: 4,
+                    }}
+                  />
+                </View>
+                <View style={S.row}>
+                  <Txt size={13} style={{ flex: 1, color: C.blue }}>
+                    已完成　{done.toLocaleString()}
+                  </Txt>
+                  <Txt size={13} muted>
+                    未完成　{pending.toLocaleString()}
                   </Txt>
                 </View>
-                <Icon name="next" size={22} color={C.muted} />
-              </View>
-            </Card>
-          ))}
-          <Pager
-            page={current}
-            total={updates.length}
-            size={10}
-            onChange={setPage}
-          />
-        </>
+              </Card>
+              <View style={{ height: 12 }} />
+              <Section title="最近更新" detail={`${artists.length} 位画师`} />
+              <SearchBar
+                value={keyword}
+                onChange={(v) => {
+                  setKeyword(v);
+                  setCount(20);
+                  memory.set("scroll:home", 0);
+                }}
+                placeholder="搜索更新画师"
+              />
+            </>
+          )}
+        </View>
+      }
+      ListEmptyComponent={
+        data && !updates.length ? <Empty title="没有匹配的画师" /> : undefined
+      }
+      renderItem={({ item: a }) => (
+        <Card
+          onPress={() => {
+            memory.set("artists:keyword", a.name || "");
+            memory.set("scroll:artists", 0);
+            memory.set("artists:filters", {
+              status: "全部",
+              order: "desc",
+              size: 20,
+              page: 1,
+            });
+            navigate({ name: "artists" });
+          }}
+          style={{ height: 72, padding: 10, marginBottom: 6 }}
+        >
+          <View style={[S.row, { gap: 12 }]}>
+            <Media
+              avatar
+              path={a.icon}
+              refreshKey={remote.revision}
+              style={{ width: 46, height: 46, borderRadius: 13 }}
+            />
+            <View style={{ flex: 1 }}>
+              <Txt bold lines={1}>
+                {a.name}
+              </Txt>
+              <Txt size={12} muted lines={1}>
+                {updateAge(a.last, now)}
+              </Txt>
+            </View>
+            <Icon name="next" size={22} color={C.muted} />
+          </View>
+        </Card>
       )}
-    </Page>
+      ListFooterComponent={
+        !!updates.length && count >= updates.length ? (
+          <Txt size={12} muted style={{ textAlign: "center", padding: 16 }}>
+            已显示全部画师
+          </Txt>
+        ) : undefined
+      }
+    />
   );
 }
 
@@ -282,16 +334,27 @@ export function Artists() {
     [draft, setDraft] = useState(filters),
     [menu, setMenu] = useState<Row | null>(null),
     [create, setCreate] = useState(false);
-  const path = query("/api/fanbox", {
-    page: filters.page,
-    pageSize: filters.size,
-    keyword: keywordQuery,
-    enabled:
-      filters.status === "全部" ? undefined : filters.status === "已启用",
-    lastUpdateOrder: filters.order,
-  });
-  const remote = useRemote<Row>(() => request("GET", path), [path]);
-  const rows: Row[] = remote.data?.records || [];
+  const feedKey = JSON.stringify([
+    keywordQuery,
+    filters.status,
+    filters.order,
+    filters.size,
+  ]);
+  const [headerHeight, setHeaderHeight] = useState(130);
+  const remote = usePagedRemote<Row>("artists:" + feedKey, (page) =>
+    request(
+      "GET",
+      query("/api/fanbox", {
+        page,
+        pageSize: filters.size,
+        keyword: keywordQuery,
+        enabled:
+          filters.status === "全部" ? undefined : filters.status === "已启用",
+        lastUpdateOrder: filters.order,
+      }),
+    ),
+  );
+  const rows = remote.records;
   const mutate = async (url: string) => {
     try {
       await request("POST", url);
@@ -304,113 +367,112 @@ export function Artists() {
     writable = !!menu && allowed(me, "update", menu.folderPath || "");
   return (
     <>
-      <Page
-        key={filters.page + ":" + keywordQuery}
+      <SavedList
+        resetKey={feedKey}
         scrollKey="artists"
-        loading={remote.loading}
-        refreshing={remote.refreshing}
-        onRefresh={remote.refresh}
-      >
-        <SearchBar
-          value={keyword}
-          onChange={(v) => {
-            setKeyword(v);
-            setFilters({ ...filters, page: 1 });
-          }}
-          placeholder="搜索画师名称或 ID"
-          onFilter={() => {
-            setDraft(filters);
-            setFilterOpen(true);
-          }}
-        />
-        <Section
-          title={`${remote.data?.total ?? "—"} 位画师`}
-          detail={`${filters.status} · ${filters.order === "desc" ? "最近更新" : "最早更新"}`}
-          action={
-            allowed(me, "update", "op:artist.create") ? (
-              <IconButton
-                name="plus"
-                label="新增画师"
-                filled
-                onPress={() => setCreate(true)}
-              />
-            ) : undefined
-          }
-        />
-        {remote.loading && !remote.data ? (
-          <Empty loading />
-        ) : !rows.length ? (
-          <Empty title="没有匹配的画师" />
-        ) : (
-          rows.map((a) => (
-            <Card
-              key={a.id}
-              onPress={() => {
-                if (
-                  a.capabilities?.canOpenGallery &&
-                  allowed(me, "read", a.folderPath || "")
-                )
-                  navigate({
-                    name: "gallery",
-                    path: a.folderPath,
-                    artistId: String(a.id),
-                  });
+        ready={!remote.loading}
+        expectedHeight={headerHeight + rows.length * 80 + 40}
+        data={rows}
+        keyExtractor={(a) => String(a.id)}
+        contentContainerStyle={S.page}
+        refreshControl={
+          <RefreshControl
+            refreshing={remote.refreshing}
+            onRefresh={remote.refresh}
+            colors={[C.blue]}
+            progressBackgroundColor={C.surface}
+          />
+        }
+        ListHeaderComponent={
+          <View
+            onLayout={(event) =>
+              setHeaderHeight(event.nativeEvent.layout.height)
+            }
+          >
+            {" "}
+            <SearchBar
+              value={keyword}
+              onChange={(v) => {
+                memory.set("scroll:artists", 0);
+                setKeyword(v);
+                setFilters({ ...filters, page: 1 });
               }}
-              style={{ padding: 0, marginBottom: 6, borderRadius: 12 }}
-            >
-              <View style={{ padding: 10 }}>
-                <View style={[S.row, { gap: 10 }]}>
-                  <Media
-                    avatar
-                    path={a.icon}
-                    refreshKey={remote.revision}
-                    style={{ width: 42, height: 42, borderRadius: 11 }}
-                  />
-                  <View style={{ flex: 1 }}>
-                    <Txt size={16} bold lines={1}>
-                      {a.name}
-                    </Txt>
-                    <View style={[S.row, { gap: 4 }]}>
-                      <View
-                        accessible
-                        accessibilityLabel={a.enable ? "已启用" : "已停用"}
-                      >
-                        <Icon
-                          name="power"
-                          size={14}
-                          color={a.enable ? C.blue : C.muted}
-                        />
-                      </View>
-                      {!!a.compression && (
-                        <View accessible accessibilityLabel="图片压缩已开启">
-                          <Icon name="compress" size={14} color={C.muted} />
-                        </View>
-                      )}
-                      <Txt size={11} muted lines={1} style={{ flexShrink: 1 }}>
-                        {updateAge(a.lastUpdate, now)}
-                      </Txt>
-                    </View>
-                  </View>
+              placeholder="搜索画师名称或 ID"
+              onFilter={() => {
+                setDraft(filters);
+                setFilterOpen(true);
+              }}
+            />
+            <Section
+              title={`${remote.page ? remote.total : "—"} 位画师`}
+              detail={`${filters.status} · ${filters.order === "desc" ? "最近更新" : "最早更新"}`}
+              action={
+                allowed(me, "update", "op:artist.create") ? (
                   <IconButton
-                    name="more"
-                    label="画师选项"
-                    onPress={() => setMenu(a)}
+                    name="plus"
+                    label="新增画师"
+                    filled
+                    onPress={() => setCreate(true)}
                   />
-                </View>
-              </View>
-            </Card>
-          ))
+                ) : undefined
+              }
+            />
+          </View>
+        }
+        initialNumToRender={12}
+        maxToRenderPerBatch={8}
+        windowSize={7}
+        removeClippedSubviews={false}
+        getItemLayout={(_, index) => ({
+          index,
+          length: 80,
+          offset: 16 + headerHeight + index * 80,
+        })}
+        onEndReached={() => void remote.next()}
+        onEndReachedThreshold={0.6}
+        ListEmptyComponent={
+          <Empty
+            loading={remote.loading}
+            title={remote.error ? "加载暂时失败" : "没有匹配的画师"}
+          />
+        }
+        ListFooterComponent={
+          remote.loadingMore ? (
+            <ActivityIndicator color={C.blue} style={{ padding: 20 }} />
+          ) : remote.error ? (
+            <Button
+              quiet
+              title="重新加载"
+              onPress={() =>
+                void (remote.page ? remote.next() : remote.refresh())
+              }
+            />
+          ) : rows.length && !remote.hasMore ? (
+            <Txt size={12} muted style={{ textAlign: "center", padding: 16 }}>
+              已显示全部画师
+            </Txt>
+          ) : undefined
+        }
+        renderItem={({ item: a }) => (
+          <ArtistCard
+            artist={a}
+            now={now}
+            revision={remote.revision}
+            menu={() => setMenu(a)}
+            open={() => {
+              if (
+                a.capabilities?.canOpenGallery &&
+                allowed(me, "read", a.folderPath || "")
+              )
+                navigate({
+                  name: "gallery",
+                  path: a.folderPath,
+                  artistId: String(a.id),
+                });
+            }}
+          />
         )}
-        <Pager
-          page={filters.page}
-          total={remote.data?.total || 0}
-          size={filters.size}
-          onChange={(page) => {
-            memory.set("scroll:artists", 0);
-            setFilters({ ...filters, page });
-          }}
-        />
-      </Page>
+      />
       <Sheet
         title="筛选画师"
         visible={filterOpen}
@@ -435,7 +497,7 @@ export function Artists() {
           onChange={(order) => setDraft({ ...draft, order })}
         />
         <Options
-          label="每页显示"
+          label="每次加载"
           values={[10, 20, 50, 100].map((v) => ({
             label: String(v),
             value: v,
@@ -520,6 +582,137 @@ export function Artists() {
     </>
   );
 }
+function ArtistCard({
+  artist: a,
+  now,
+  revision,
+  open,
+  menu,
+}: {
+  artist: Row;
+  now: number;
+  revision: number;
+  open(): void;
+  menu(): void;
+}) {
+  const { C, S } = useUI(),
+    banner = !!a.banner;
+  const ink = banner ? "#f8fafc" : C.ink,
+    muted = banner ? "#dbe7f3" : C.muted;
+  const shadow = {
+    shadowColor: "#000000",
+    shadowOpacity: 0.3,
+    shadowRadius: 3,
+    shadowOffset: { width: 0, height: 1 },
+    elevation: 2,
+  };
+  return (
+    <Card
+      onPress={open}
+      style={{ height: 74, padding: 0, marginBottom: 6, borderRadius: 12 }}
+    >
+      {banner && (
+        <>
+          <Media
+            path={a.banner}
+            refreshKey={revision}
+            style={StyleSheet.absoluteFill}
+          />
+          <View
+            style={[StyleSheet.absoluteFill, { backgroundColor: "#07111d55" }]}
+          />
+        </>
+      )}
+      <View style={[S.row, { flex: 1, padding: 8, gap: 8 }]}>
+        <View
+          style={[
+            shadow,
+            {
+              borderRadius: 13,
+              borderWidth: 1.5,
+              borderColor: banner ? "#ffffffce" : C.line,
+              backgroundColor: C.surface,
+            },
+          ]}
+        >
+          <Media
+            avatar
+            path={a.icon}
+            refreshKey={revision}
+            style={{ width: 42, height: 42, borderRadius: 11 }}
+          />
+        </View>
+        <View
+          style={{
+            flex: 1,
+            paddingHorizontal: 6,
+            paddingVertical: 3,
+            borderRadius: 9,
+            borderWidth: banner ? 1 : 0,
+            borderColor: "#ffffff38",
+            backgroundColor: banner ? "#07111db8" : "transparent",
+          }}
+        >
+          <Txt
+            size={16}
+            bold
+            lines={1}
+            style={{
+              color: ink,
+              ...(banner
+                ? {
+                    textShadowColor: "#000000aa",
+                    textShadowRadius: 3,
+                    textShadowOffset: { width: 0, height: 1 },
+                  }
+                : {}),
+            }}
+          >
+            {a.name}
+          </Txt>
+          <View style={[S.row, { gap: 4 }]}>
+            <View
+              accessible
+              accessibilityLabel={a.enable ? "已启用" : "已停用"}
+            >
+              <Icon
+                name="power"
+                size={14}
+                color={a.enable ? (banner ? "#8bdfff" : C.blue) : muted}
+              />
+            </View>
+            {!!a.compression && (
+              <View accessible accessibilityLabel="图片压缩已开启">
+                <Icon name="compress" size={14} color={muted} />
+              </View>
+            )}
+            <Txt size={11} lines={1} style={{ color: muted, flexShrink: 1 }}>
+              {updateAge(a.lastUpdate, now)}
+            </Txt>
+          </View>
+        </View>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="画师选项"
+          onPress={menu}
+          style={[
+            S.iconButton,
+            shadow,
+            {
+              backgroundColor: banner ? "#07111dc9" : C.pale,
+              borderRadius: 11,
+              borderWidth: 1,
+              borderColor: banner ? "#ffffff88" : C.line,
+            },
+          ]}
+        >
+          <Icon name="more" color={banner ? "#ffffff" : C.blue} />
+        </Pressable>
+      </View>
+    </Card>
+  );
+}
+
 function ArtistEditor({ close, saved }: { close(): void; saved(): void }) {
   const { C, S } = useUI();
   const { request, report } = useApp(),

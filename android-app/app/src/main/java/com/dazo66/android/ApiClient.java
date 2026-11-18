@@ -36,6 +36,22 @@ import javax.crypto.SecretKey;
 import javax.crypto.spec.GCMParameterSpec;
 
 final class ApiClient {
+    private static ApiClient instance;
+    static synchronized ApiClient get(Context context) {
+        if (instance == null) instance = new ApiClient(context.getApplicationContext());
+        return instance;
+    }
+    private volatile Done<String> connectionListener;
+    void setConnectionListener(Done<String> listener) { connectionListener = listener; }
+    String connectionState() {
+        try { return new JSONObject().put("host", host).put("activeHost", routes == null ? host : routes.active()).put("backupUrls", backupUrls()).toString(); }
+        catch (Exception e) { throw new IllegalStateException(e); }
+    }
+    private void routingChanged() {
+        Done<String> listener = connectionListener;
+        if (listener != null) post(listener, connectionState(), null);
+    }
+    private void connectRoutes(ServerRoutes value) { value.setListener(this::routingChanged); routes = value; routingChanged(); }
     interface Done<T> { void accept(T value, Exception error); }
     interface Progress { void accept(int percent); }
     private static final long CACHE_LIMIT = 256L * 1024 * 1024;
@@ -57,18 +73,66 @@ final class ApiClient {
         host = prefs.getString("host", "");
         try { if (!host.isEmpty()) routes = new ServerRoutes(host, strings(new JSONArray(prefs.getString("backups", "[]")))); }
         catch (Exception ignored) { routes = host.isEmpty() ? null : new ServerRoutes(host, java.util.Collections.emptyList()); }
+        if (routes != null) routes.setListener(this::routingChanged);
+        new NetworkMonitor(context, () -> { ServerRoutes value = routes; if (value != null) value.resetToPrimary(); });
         try { cookie = decrypt(prefs.getString("session", "")); }
         catch (Exception ignored) { prefs.edit().remove("session").apply(); cookie = ""; }
         pool.execute(this::trimCache);
     }
 
     String host() { return host; }
+    String activeHost() { return routes == null ? host : routes.active(); }
     String lastUser() { return prefs.getString("user", ""); }
     String scope() { return host + "|" + lastUser(); }
     boolean signedIn() { return !cookie.isEmpty(); }
     String cookie() { return cookie; }
     String absolute(String path) { return routes == null ? path : routes.addresses(path).get(0); }
     boolean trusted(String path) { return routes != null && routes.trusted(path); }
+    static final class HttpStream implements java.io.Closeable {
+        final HttpURLConnection connection; final InputStream input; final long length; final String address; final ServerRoutes owner; final long epoch;
+        HttpStream(HttpURLConnection connection, InputStream input, long length, String address, ServerRoutes owner, long epoch) { this.connection = connection; this.input = input; this.length = length; this.address = address; this.owner = owner; this.epoch = epoch; }
+        @Override public void close() throws java.io.IOException { try { input.close(); } finally { connection.disconnect(); } }
+    }
+    void streamFailed(HttpStream stream) { if (stream != null && routes == stream.owner) stream.owner.failed(stream.address, stream.epoch); }
+    HttpStream openStream(String path, long offset, long length) throws Exception {
+        ServerRoutes selected = routes;
+        if (selected == null) throw new IllegalStateException("请先登录服务器");
+        long epoch = selected.generation();
+        return selected.execute(path, (address, trusted) -> {
+            for (int redirects = 0; redirects < 6; redirects++) {
+                URL url = new URL(address);
+                if (!("http".equals(url.getProtocol()) || "https".equals(url.getProtocol()))) throw new IllegalArgumentException("媒体地址无效");
+                HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+                connection.setConnectTimeout(6000); connection.setReadTimeout(15000); connection.setInstanceFollowRedirects(false);
+                connection.setRequestProperty("Accept-Encoding", "identity");
+                if (offset > 0 || length >= 0) connection.setRequestProperty("Range", "bytes=" + offset + "-" + (length >= 0 ? offset + length - 1 : ""));
+                if (trusted && selected.trusted(address) && !cookie.isEmpty()) connection.setRequestProperty("Cookie", cookie);
+                try {
+                    int code = connection.getResponseCode();
+                    if (code >= 300 && code < 400 && connection.getHeaderField("Location") != null) {
+                        address = new URL(url, connection.getHeaderField("Location")).toString();
+                        trusted = trusted && selected.trusted(address); connection.disconnect(); continue;
+                    }
+                    if (code == 502 || code == 503 || code == 504) throw new java.io.IOException("HTTP " + code);
+                    if (code != 200 && code != 206) throw new IllegalArgumentException("读取媒体失败（HTTP " + code + "）");
+                    if (code == 206 && (connection.getHeaderField("Content-Range") == null || !connection.getHeaderField("Content-Range").startsWith("bytes " + offset + "-"))) throw new java.io.IOException("媒体范围不一致");
+                    InputStream input = connection.getInputStream();
+                    long available = connection.getContentLengthLong();
+                    if (code == 200 && offset > 0) {
+                        long remaining = offset; byte[] skip = new byte[65536];
+                        while (remaining > 0) { int count = input.read(skip, 0, (int)Math.min(remaining, skip.length)); if (count < 0) throw new java.io.EOFException(); remaining -= count; }
+                        if (available >= 0) available = Math.max(0, available - offset);
+                    }
+                    return new HttpStream(connection, input, length >= 0 ? (available >= 0 ? Math.min(available, length) : length) : available, address, selected, epoch);
+                } catch (Exception error) {
+                    connection.disconnect();
+                    if (error instanceof java.io.IOException) throw new ServerRoutes.Failure("连接媒体服务器失败", error, true);
+                    throw error;
+                }
+            }
+            throw new IllegalArgumentException("媒体重定向过多");
+        });
+    }
     java.util.List<String> mediaAddresses(String path) { return routes.addresses(path); }
     JSONArray backupUrls() { return new JSONArray(routes == null ? java.util.Collections.emptyList() : routes.backups()); }
     void resolveDownload(String path, Done<String> done) {
@@ -98,7 +162,7 @@ final class ApiClient {
         return result;
     }
     void setBackupUrls(JSONArray values) throws Exception {
-        routes = new ServerRoutes(host, strings(values));
+        connectRoutes(new ServerRoutes(host, strings(values)));
         prefs.edit().putString("backups", backupUrls().toString()).apply();
     }
 
@@ -106,7 +170,7 @@ final class ApiClient {
         pool.execute(() -> {
             try {
                 ServerRoutes selected = new ServerRoutes(rawHost, strings(new JSONArray(backups)));
-                routes = selected; host = selected.primary(); cookie = ""; csrf = "";
+                host = selected.primary(); cookie = ""; csrf = ""; connectRoutes(selected);
                 prefs.edit().putString("host", host).putString("backups", backupUrls().toString()).putString("user", user.trim()).apply();
                 JSONObject body = new JSONObject().put("userId", user.trim()).put("password", password);
                 JSONObject data = send("POST", "/api/auth/login", body).getJSONObject("data");

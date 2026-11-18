@@ -6,6 +6,7 @@ const token = process.env.GH_TOKEN;
 if (repo !== "dazo6/DazoServer" || !token)
   throw new Error("Publishing repository credentials unavailable");
 const manifest = JSON.parse(readFileSync("dist/update.json", "utf8"));
+const releaseNotes = readFileSync("ci/release-notes.md", "utf8").trim();
 const tag = `android-build-${process.env.GITHUB_RUN_NUMBER}`;
 if (manifest.tag !== tag || manifest.commit !== process.env.GITHUB_SHA)
   throw new Error("Artifact does not belong to this build");
@@ -54,7 +55,7 @@ if (release && !release.draft) {
       tag_name: tag,
       target_commitish: process.env.GITHUB_SHA,
       name: `Android ${manifest.versionName}`,
-      body: `Android 自动构建版本 ${manifest.versionName}\n\n提交：${manifest.commit}\n\n支持在应用内检查、下载并覆盖安装更新。`,
+      body: `Android 自动构建版本 ${manifest.versionName}\n\n${releaseNotes}\n\n提交：${manifest.commit}\n\n支持在应用内检查、下载并覆盖安装更新。`,
       draft: true,
       prerelease: false,
       make_latest: "false",

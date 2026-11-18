@@ -10,6 +10,7 @@ import {
   Alert,
   AppState,
   BackHandler,
+  DeviceEventEmitter,
   Keyboard,
   KeyboardAvoidingView,
   Pressable,
@@ -52,6 +53,7 @@ import {
   Users,
 } from "./screens/Management";
 import { ServerFields } from "./servers";
+import { DownloadProvider } from "./downloads";
 
 export default function App() {
   return (
@@ -358,6 +360,26 @@ function Authenticated({
     false,
   );
   const [backupUrls, setBackups] = useState(initial.backupUrls || []);
+  const [activeHost, setActiveHost] = useState(
+    initial.activeHost || initial.host,
+  );
+  useEffect(() => {
+    const changed = (raw: string) => {
+      const value = JSON.parse(raw);
+      if (value.host === initial.host) {
+        setActiveHost(value.activeHost);
+        setBackups(value.backupUrls);
+      }
+    };
+    const listener = DeviceEventEmitter.addListener(
+      "DazoConnectionState",
+      changed,
+    );
+    Native.connectionState()
+      .then(changed)
+      .catch(() => {});
+    return () => listener.remove();
+  }, [initial.host]);
   const notify = useCallback((message: string) => {
     if (toastTimer.current) clearTimeout(toastTimer.current);
     setToast(message);
@@ -435,6 +457,7 @@ function Authenticated({
       host: initial.host,
       scope: initial.scope,
       backupUrls,
+      activeHost,
       avatarVersion,
       originalImages,
       setOriginalImages,
@@ -462,6 +485,7 @@ function Authenticated({
       me,
       initial,
       backupUrls,
+      activeHost,
       avatarVersion,
       originalImages,
       setOriginalImages,
@@ -475,128 +499,131 @@ function Authenticated({
   );
   return (
     <AppContext.Provider value={context}>
-      <View style={{ flex: 1, backgroundColor: C.bg, paddingTop: inset.top }}>
-        <View style={{ flex: 1, overflow: "hidden" }}>
-          {tabs
-            .filter(
-              (tab) =>
-                navigation.stacks[tab.name] !== undefined ||
-                tab.name === navigation.tab,
-            )
-            .flatMap((tab) => {
-              const routes: Screen[] = [
-                { name: tab.name },
-                ...(navigation.stacks[tab.name] || []),
-              ];
-              return routes.map((screen, depth) => {
-                const active =
-                  tab.name === navigation.tab && depth === routes.length - 1;
-                return (
-                  <ScreenActive.Provider
-                    key={`${tab.name}:${depth}:${screen.name}:${screen.path || ""}`}
-                    value={active}
-                  >
-                    <NavigationTab.Provider value={tab.name}>
-                      <View
-                        pointerEvents={active ? "auto" : "none"}
-                        accessibilityElementsHidden={!active}
-                        importantForAccessibility={
-                          active ? "auto" : "no-hide-descendants"
-                        }
-                        style={[
-                          StyleSheet.absoluteFill,
-                          {
-                            backgroundColor: C.bg,
-                            opacity: active ? 1 : 0,
-                            zIndex: active ? 1 : 0,
-                          },
-                        ]}
-                      >
-                        <Route screen={screen} hasBack={depth > 0} />
-                      </View>
-                    </NavigationTab.Provider>
-                  </ScreenActive.Provider>
-                );
-              });
-            })}
-        </View>
-        <View
-          style={[
-            S.row,
-            {
-              backgroundColor: C.surface,
-              paddingBottom: inset.bottom,
-              borderTopWidth: 1,
-              borderColor: C.line,
-              paddingHorizontal: 4,
-            },
-          ]}
-        >
-          {tabs.map((tab) => (
-            <Pressable
-              key={tab.name}
-              accessibilityRole="tab"
-              accessibilityState={{ selected: navigation.tab === tab.name }}
-              onPress={() => {
-                Keyboard.dismiss();
-                setNavigation(selectTab(navigation, tab.name));
-              }}
-              style={{
-                flex: 1,
-                alignItems: "center",
-                paddingVertical: 4,
-                gap: 2,
-              }}
-            >
-              <View
+      <DownloadProvider>
+        <View style={{ flex: 1, backgroundColor: C.bg, paddingTop: inset.top }}>
+          <View style={{ flex: 1, overflow: "hidden" }}>
+            {tabs
+              .filter(
+                (tab) =>
+                  navigation.stacks[tab.name] !== undefined ||
+                  tab.name === navigation.tab,
+              )
+              .flatMap((tab) => {
+                const routes: Screen[] = [
+                  { name: tab.name },
+                  ...(navigation.stacks[tab.name] || []),
+                ];
+                return routes.map((screen, depth) => {
+                  const active =
+                    tab.name === navigation.tab && depth === routes.length - 1;
+                  return (
+                    <ScreenActive.Provider
+                      key={`${tab.name}:${depth}:${screen.name}:${screen.path || ""}`}
+                      value={active}
+                    >
+                      <NavigationTab.Provider value={tab.name}>
+                        <View
+                          pointerEvents={active ? "auto" : "none"}
+                          accessibilityElementsHidden={!active}
+                          importantForAccessibility={
+                            active ? "auto" : "no-hide-descendants"
+                          }
+                          style={[
+                            StyleSheet.absoluteFill,
+                            {
+                              backgroundColor: C.bg,
+                              opacity: active ? 1 : 0,
+                              zIndex: active ? 1 : 0,
+                            },
+                          ]}
+                        >
+                          <Route screen={screen} hasBack={depth > 0} />
+                        </View>
+                      </NavigationTab.Provider>
+                    </ScreenActive.Provider>
+                  );
+                });
+              })}
+          </View>
+          <View
+            style={[
+              S.row,
+              {
+                backgroundColor: C.surface,
+                paddingBottom: inset.bottom,
+                borderTopWidth: 1,
+                borderColor: C.line,
+                paddingHorizontal: 4,
+              },
+            ]}
+          >
+            {tabs.map((tab) => (
+              <Pressable
+                key={tab.name}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: navigation.tab === tab.name }}
+                onPress={() => {
+                  Keyboard.dismiss();
+                  setNavigation(selectTab(navigation, tab.name));
+                }}
                 style={{
-                  width: 54,
-                  height: 30,
+                  flex: 1,
                   alignItems: "center",
-                  justifyContent: "center",
+                  paddingVertical: 3,
+                  marginHorizontal: 3,
                   backgroundColor:
                     navigation.tab === tab.name ? C.pale : "transparent",
-                  borderRadius: 14,
+                  borderRadius: 16,
                 }}
               >
-                <Icon
-                  name={tab.icon}
-                  size={27}
-                  color={navigation.tab === tab.name ? C.blue : C.muted}
-                />
-              </View>
-              <Txt
-                size={11}
-                bold={navigation.tab === tab.name}
-                style={{
-                  color: navigation.tab === tab.name ? C.blue : C.muted,
-                }}
-              >
-                {tab.title}
+                <View
+                  style={{
+                    width: 54,
+                    height: 30,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    borderRadius: 14,
+                  }}
+                >
+                  <Icon
+                    name={tab.icon}
+                    size={27}
+                    color={navigation.tab === tab.name ? C.blue : C.muted}
+                  />
+                </View>
+                <Txt
+                  size={11}
+                  bold={navigation.tab === tab.name}
+                  style={{
+                    color: navigation.tab === tab.name ? C.blue : C.muted,
+                  }}
+                >
+                  {tab.title}
+                </Txt>
+              </Pressable>
+            ))}
+          </View>
+          {!!toast && (
+            <Pressable
+              onPress={() => setToast("")}
+              style={{
+                position: "absolute",
+                bottom: inset.bottom + 72,
+                left: 24,
+                right: 24,
+                backgroundColor: "#172033ed",
+                padding: 14,
+                borderRadius: 12,
+                elevation: 8,
+              }}
+            >
+              <Txt size={13} style={{ color: "white" }}>
+                {toast}
               </Txt>
             </Pressable>
-          ))}
+          )}
         </View>
-        {!!toast && (
-          <Pressable
-            onPress={() => setToast("")}
-            style={{
-              position: "absolute",
-              bottom: inset.bottom + 72,
-              left: 24,
-              right: 24,
-              backgroundColor: "#172033ed",
-              padding: 14,
-              borderRadius: 12,
-              elevation: 8,
-            }}
-          >
-            <Txt size={13} style={{ color: "white" }}>
-              {toast}
-            </Txt>
-          </Pressable>
-        )}
-      </View>
+      </DownloadProvider>
     </AppContext.Provider>
   );
 }

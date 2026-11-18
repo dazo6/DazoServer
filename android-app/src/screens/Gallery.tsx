@@ -1,3 +1,5 @@
+import { Viewer } from "../viewer";
+import { useDownloads } from "../downloads";
 import { useUI } from "../theme";
 import React, { useContext, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -49,11 +51,6 @@ import {
   Txt,
 } from "../ui";
 
-const Video = requireNativeComponent<{
-  path: string;
-  rate: number;
-  style: any;
-}>("DazoVideo");
 type Position = { offset: number; anchor: string; within: number };
 export function Gallery({
   path,
@@ -65,6 +62,7 @@ export function Gallery({
   header: React.ReactNode;
 }) {
   const { C, S } = useUI();
+  const { download: saveFile } = useDownloads();
   const active = useScreenActive();
   const tab = useContext(NavigationTab);
   const activeRef = useRef(active);
@@ -199,18 +197,27 @@ export function Gallery({
   const download = async (item?: Row) => {
     try {
       if (item) {
-        await Native.download(fileUrl(path, item.name), item.name);
+        await saveFile(fileUrl(path, item.name), item.name);
       } else {
         const result = await request<Row>(
           "GET",
           query("/api/fanbox/gallery/archive", { folderPath: path }),
         );
-        await Native.download(result.url, result.filename || "gallery.zip");
+        await saveFile(result.url, result.filename || "gallery.zip");
       }
       toast("已加入下载队列");
     } catch (e) {
       report(e);
     }
+  };
+  const locate = (index: number) => {
+    const offset = layoutRef.current[index]?.offset || 0;
+    first.current = index;
+    restored.current = true;
+    live.current = { offset, anchor: items[index].name, within: 0 };
+    saved.current = { ...live.current };
+    memory.set(positionKey, { ...live.current });
+    ref.current?.scrollToOffset({ offset, animated: false });
   };
   const open = (item: Row, index: number) => {
     memory.set(positionKey, { ...live.current });
@@ -218,6 +225,7 @@ export function Gallery({
       navigate({ name: "gallery", path: item.folderPath, artistId });
     } else {
       memory.set(readerKey, item.name);
+      locate(index);
       setViewer(index);
     }
   };
@@ -278,9 +286,11 @@ export function Gallery({
               </Txt>
               {!!reader && items.some((a) => a.name === reader) && (
                 <Pressable
-                  onPress={() =>
-                    setViewer(items.findIndex((a) => a.name === reader))
-                  }
+                  onPress={() => {
+                    const current = items.findIndex((a) => a.name === reader);
+                    locate(current);
+                    setViewer(current);
+                  }}
                   style={{ paddingVertical: 6, paddingHorizontal: 8 }}
                 >
                   <Txt size={12} bold style={{ color: C.blue }}>
@@ -576,253 +586,17 @@ export function Gallery({
           path={path}
           index={viewer}
           setIndex={(index) => {
+            locate(index);
             setViewer(index);
             memory.set(readerKey, items[index].name);
           }}
-          close={() => setViewer(null)}
-          download={(item) => void download(item)}
+          close={() => {
+            const current = viewer;
+            setViewer(null);
+            requestAnimationFrame(() => locate(current));
+          }}
         />
       )}
     </View>
-  );
-}
-function Viewer({
-  items,
-  path,
-  index,
-  setIndex,
-  close,
-  download,
-}: {
-  items: Row[];
-  path: string;
-  index: number;
-  setIndex(index: number): void;
-  close(): void;
-  download(item: Row): void;
-}) {
-  const { C, S } = useUI();
-  const { scope } = useApp();
-  useMediaPrefetch(scope, upcomingImageUrls(path, items, index));
-  const inset = useSafeAreaInsets(),
-    { width, height } = useWindowDimensions(),
-    item = items[index],
-    scale = useRef(new Animated.Value(1)).current,
-    tx = useRef(new Animated.Value(0)).current,
-    ty = useRef(new Animated.Value(0)).current;
-  const [rate, setRate] = useState(1),
-    [rateOpen, setRateOpen] = useState(false);
-  const gesture = useRef({
-    zoom: 1,
-    x: 0,
-    y: 0,
-    distance: 0,
-    startZoom: 1,
-    multi: false,
-    lastTap: 0,
-  });
-  const next = (direction: number) => {
-    let target = index + direction;
-    while (
-      target >= 0 &&
-      target < items.length &&
-      items[target].type === "folder"
-    )
-      target += direction;
-    if (target >= 0 && target < items.length) setIndex(target);
-  };
-  useEffect(() => {
-    gesture.current = {
-      zoom: 1,
-      x: 0,
-      y: 0,
-      distance: 0,
-      startZoom: 1,
-      multi: false,
-      lastTap: 0,
-    };
-    scale.setValue(1);
-    tx.setValue(0);
-    ty.setValue(0);
-  }, [index]);
-  const responder = PanResponder.create({
-    onStartShouldSetPanResponder: () => true,
-    onMoveShouldSetPanResponder: () => true,
-    onPanResponderGrant: () => {
-      gesture.current.distance = 0;
-      gesture.current.startZoom = gesture.current.zoom;
-      gesture.current.multi = false;
-    },
-    onPanResponderMove: (event, state) => {
-      const touches = event.nativeEvent.touches,
-        g = gesture.current;
-      if (touches.length >= 2) {
-        g.multi = true;
-        const distance = Math.hypot(
-          touches[0].pageX - touches[1].pageX,
-          touches[0].pageY - touches[1].pageY,
-        );
-        if (!g.distance) g.distance = distance;
-        g.zoom = Math.max(
-          1,
-          Math.min(5, (g.startZoom * distance) / g.distance),
-        );
-        scale.setValue(g.zoom);
-      } else if (g.zoom > 1 && !g.multi) {
-        tx.setValue(
-          Math.max(
-            (-width * (g.zoom - 1)) / 2,
-            Math.min((width * (g.zoom - 1)) / 2, g.x + state.dx),
-          ),
-        );
-        ty.setValue(
-          Math.max(
-            (-height * (g.zoom - 1)) / 2,
-            Math.min((height * (g.zoom - 1)) / 2, g.y + state.dy),
-          ),
-        );
-      }
-    },
-    onPanResponderRelease: (_, state) => {
-      const g = gesture.current;
-      if (g.zoom <= 1.05) {
-        g.zoom = 1;
-        scale.setValue(1);
-        tx.setValue(0);
-        ty.setValue(0);
-        if (!g.multi && Math.abs(state.dx) > 65 && Math.abs(state.dy) < 65) {
-          next(state.dx < 0 ? 1 : -1);
-          return;
-        }
-      } else {
-        g.x = Math.max(
-          (-width * (g.zoom - 1)) / 2,
-          Math.min((width * (g.zoom - 1)) / 2, g.x + state.dx),
-        );
-        g.y = Math.max(
-          (-height * (g.zoom - 1)) / 2,
-          Math.min((height * (g.zoom - 1)) / 2, g.y + state.dy),
-        );
-      }
-      if (!g.multi && Math.abs(state.dx) < 8 && Math.abs(state.dy) < 8) {
-        const now = Date.now();
-        if (now - g.lastTap < 280) {
-          g.zoom = g.zoom > 1 ? 1 : 2;
-          g.x = 0;
-          g.y = 0;
-          Animated.parallel([
-            Animated.spring(scale, { toValue: g.zoom, useNativeDriver: true }),
-            Animated.spring(tx, { toValue: 0, useNativeDriver: true }),
-            Animated.spring(ty, { toValue: 0, useNativeDriver: true }),
-          ]).start();
-        }
-        g.lastTap = now;
-      }
-    },
-  });
-  return (
-    <Modal
-      visible
-      animationType="fade"
-      onRequestClose={close}
-      statusBarTranslucent
-      navigationBarTranslucent
-    >
-      <StatusBar barStyle="light-content" />
-      <View
-        style={{
-          flex: 1,
-          backgroundColor: "#080d15",
-          paddingTop: inset.top,
-          paddingBottom: inset.bottom,
-        }}
-      >
-        <View style={[S.row, { height: 44, paddingHorizontal: 2 }]}>
-          <IconButton name="back" label="返回图库" onPress={close} />
-          <View style={{ flex: 1, paddingHorizontal: 4 }}>
-            <Txt size={14} style={{ color: "#e2e8f0" }}>
-              {index + 1} / {items.length}
-            </Txt>
-          </View>
-          <IconButton
-            name="download"
-            label="下载原文件"
-            onPress={() => download(item)}
-          />
-          {item.type === "video" && (
-            <Pressable
-              onPress={() => setRateOpen(true)}
-              style={{ padding: 12 }}
-            >
-              <Txt size={13} style={{ color: "white" }}>
-                {rate}×
-              </Txt>
-            </Pressable>
-          )}
-        </View>
-        <View style={{ flex: 1, overflow: "hidden" }}>
-          {item.type === "video" ? (
-            <Video
-              key={item.name}
-              path={fileUrl(path, item.name)}
-              rate={rate}
-              style={{ flex: 1 }}
-            />
-          ) : (
-            <Animated.View
-              {...responder.panHandlers}
-              style={{
-                flex: 1,
-                transform: [{ translateX: tx }, { translateY: ty }, { scale }],
-              }}
-            >
-              <Media
-                key={item.name}
-                path={fileUrl(path, item.name)}
-                contain
-                style={{ flex: 1, backgroundColor: "#080d15" }}
-              />
-            </Animated.View>
-          )}
-        </View>
-        <View
-          style={[
-            S.row,
-            { justifyContent: "center", gap: 32, paddingVertical: 2 },
-          ]}
-        >
-          <IconButton
-            name="previous"
-            label="上一张"
-            disabled={!items.slice(0, index).some((a) => a.type !== "folder")}
-            onPress={() => next(-1)}
-          />
-          <IconButton
-            name="next"
-            label="下一张"
-            disabled={!items.slice(index + 1).some((a) => a.type !== "folder")}
-            onPress={() => next(1)}
-          />
-        </View>
-        <Sheet
-          title="播放速度"
-          visible={rateOpen}
-          onClose={() => setRateOpen(false)}
-        >
-          <Options
-            label="倍速"
-            values={[1, 1.5, 2, 3].map((value) => ({
-              value,
-              label: value + "×",
-            }))}
-            value={rate}
-            onChange={(value) => {
-              setRate(value);
-              setRateOpen(false);
-            }}
-          />
-        </Sheet>
-      </View>
-    </Modal>
   );
 }

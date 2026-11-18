@@ -1,3 +1,5 @@
+import { useDownloads } from "../downloads";
+import { PlaybackSpeedSheet } from "../playback";
 import { useUI } from "../theme";
 import { ServerFields } from "../servers";
 import React, { useEffect, useState } from "react";
@@ -11,7 +13,13 @@ import {
   query,
   Row,
 } from "../core";
-import { useApp, useDebounced, useRemote, useSaved, useScreenActive } from "../context";
+import {
+  useApp,
+  useDebounced,
+  useRemote,
+  useSaved,
+  useScreenActive,
+} from "../context";
 import { UpdateSection } from "../updates";
 import {
   Badge,
@@ -510,7 +518,7 @@ export function Account() {
                 userId: me.userId,
                 t: avatarVersion,
               })}
-              style={{ width: 86, height: 86, borderRadius: 28 }}
+              style={{ width: 172, height: 172, borderRadius: 48 }}
             />
             <View
               style={{
@@ -605,8 +613,19 @@ export function Account() {
 }
 export function Settings() {
   const { C, S, mode, setMode } = useUI();
-  const { report, toast, originalImages, setOriginalImages } = useApp(),
-    [size, setSize] = useState(0),
+  const {
+    report,
+    toast,
+    originalImages,
+    setOriginalImages,
+    activeHost,
+    backupUrls,
+  } = useApp();
+  const { jobs, download } = useDownloads();
+  const [rate, setRate] = useSaved("settings:videoRate", 1),
+    [themeOpen, setThemeOpen] = useState(false),
+    [rateOpen, setRateOpen] = useState(false);
+  const [size, setSize] = useState(0),
     [refreshing, setRefreshing] = useState(false),
     [busy, setBusy] = useState(false),
     [serversOpen, setServersOpen] = useState(false);
@@ -614,8 +633,8 @@ export function Settings() {
     setRefreshing(true);
     try {
       setSize(await Native.cacheSize());
-    } catch (e) {
-      report(e);
+    } catch (error) {
+      report(error);
     } finally {
       setRefreshing(false);
     }
@@ -629,8 +648,8 @@ export function Settings() {
       await Native.clearCache();
       await refresh();
       toast("缓存已清理");
-    } catch (e) {
-      report(e);
+    } catch (error) {
+      report(error);
     } finally {
       setBusy(false);
     }
@@ -641,31 +660,16 @@ export function Settings() {
       refreshing={refreshing}
       onRefresh={() => void refresh()}
     >
-      <Section title="外观" />
-      <Card>
-        <Options
-          label="主题模式"
-          values={[
-            { label: "跟随系统", value: "system" },
-            { label: "深色", value: "dark" },
-            { label: "浅色", value: "light" },
-          ]}
-          value={mode}
-          onChange={setMode}
-        />
-      </Card>
+      <Section title="外观与浏览" />
       <Card style={{ paddingVertical: 0 }}>
         <SettingRow
-          icon="external"
-          title="服务器地址"
-          value="主地址与备用地址"
-          onPress={() => setServersOpen(true)}
+          icon="settings"
+          title="主题模式"
+          value={{ system: "跟随系统", dark: "深色", light: "浅色" }[mode]}
+          onPress={() => setThemeOpen(true)}
         />
-      </Card>
-      <UpdateSection />
-      <Section title="图片浏览" />
-      <Card style={{ paddingVertical: 0 }}>
-        <View style={[S.row, { minHeight: 64, gap: 12 }]}>
+        <Divider />
+        <View style={[S.row, { minHeight: 64, gap: 10 }]}>
           <Icon name="gallery" />
           <View style={{ flex: 1, paddingVertical: 10 }}>
             <Txt>直接显示原图</Txt>
@@ -677,61 +681,156 @@ export function Settings() {
             accessibilityLabel="直接显示原图"
             value={originalImages}
             onValueChange={setOriginalImages}
-            trackColor={{ false: "#cbd5e1", true: C.cyan }}
+            trackColor={{ false: C.line, true: C.cyan }}
             thumbColor={originalImages ? C.blue : "#f8fafc"}
           />
         </View>
+        <Divider />
+        <SettingRow
+          icon="play"
+          title="默认播放速度"
+          value={rate + "×"}
+          onPress={() => setRateOpen(true)}
+        />
       </Card>
-      <View style={{ height: 12 }} />
-      <Section title="存储与缓存" />
-      <Card>
-        <View style={[S.row, { gap: 12 }]}>
-          <Icon name="storage" size={40} />
-          <View>
-            <Txt size={28} bold>
-              {bytesLabel(size)}
-            </Txt>
-            <Txt size={12} muted>
-              上限 256 MiB
-            </Txt>
-          </View>
-        </View>
+      <Section title="服务器连接" />
+      <Card style={{ paddingVertical: 0 }}>
+        <SettingRow
+          icon="external"
+          title="当前连接"
+          value={activeHost.replace(/^https?:\/\//, "")}
+          onPress={() => Alert.alert("当前连接", activeHost)}
+        />
+        <Divider />
+        <SettingRow
+          icon="settings"
+          title="主地址与备用地址"
+          value={backupUrls.length + " 个备用"}
+          onPress={() => setServersOpen(true)}
+        />
+      </Card>
+      <Section title="下载与缓存" />
+      <Card style={{ paddingVertical: 0 }}>
+        <SettingRow
+          icon="folder"
+          title="下载目录"
+          value="下载 / Dazo"
+          onPress={() => Native.openDownloads().catch(report)}
+        />
+        {jobs.slice(0, 3).map((job) => (
+          <React.Fragment key={job.id}>
+            <Divider />
+            <View style={[S.row, { minHeight: 64, gap: 8 }]}>
+              <Icon name="download" size={23} />
+              <Pressable
+                style={{ flex: 1, paddingVertical: 10 }}
+                disabled={job.phase !== "complete" && job.phase !== "error"}
+                onPress={() => {
+                  if (job.phase === "complete")
+                    Native.openDownload(job.id).catch(report);
+                  else void download(job.path, job.name).catch(report);
+                }}
+              >
+                <Txt size={13} lines={1}>
+                  {job.name}
+                </Txt>
+                <Txt size={11} muted>
+                  {job.phase === "complete"
+                    ? "已保存 · 点击打开"
+                    : job.phase === "error"
+                      ? "下载失败 · 点击重试"
+                      : job.phase === "cancelled"
+                        ? "已取消"
+                        : job.total > 0
+                          ? "正在下载 " +
+                            Math.min(
+                              100,
+                              Math.round((job.bytes * 100) / job.total),
+                            ) +
+                            "%"
+                          : "准备下载…"}
+                </Txt>
+              </Pressable>
+              {(job.phase === "queued" || job.phase === "downloading") && (
+                <IconButton
+                  name="close"
+                  label="取消下载"
+                  onPress={() => Native.cancelDownload(job.id)}
+                />
+              )}
+            </View>
+          </React.Fragment>
+        ))}
+      </Card>
+      <Card style={{ paddingVertical: 0 }}>
+        <SettingRow
+          icon="storage"
+          title="图片缓存"
+          value={bytesLabel(size) + " / 256 MiB"}
+        />
         <View
           style={{
-            height: 8,
-            borderRadius: 4,
+            height: 5,
             backgroundColor: C.bg,
-            marginTop: 22,
-            marginBottom: 16,
+            borderRadius: 3,
             overflow: "hidden",
+            marginBottom: 10,
           }}
         >
           <View
             style={{
-              height: 8,
-              width: `${Math.min(100, (size / 1024 / 1024 / 256) * 100)}%`,
+              height: 5,
+              width: Math.min(100, (size / 1024 / 1024 / 256) * 100) + "%",
               backgroundColor: C.blue,
             }}
           />
         </View>
-        <Txt size={13} muted>
-          优先清理最久未使用的媒体；超过 30 天未使用的缓存会自动删除。
+        <Txt size={11} muted style={{ marginBottom: 12 }}>
+          优先清理最久未使用的图片，30 天未使用自动删除。
         </Txt>
-      </Card>
-      <View style={{ marginTop: 10 }}>
-        <Button
-          title="清理媒体缓存"
-          quiet
-          busy={busy}
-          onPress={() =>
-            confirm(
-              "清理本地媒体缓存？",
-              () => void clear(),
-              "服务器中的原文件会保留。",
-            )
+        <Divider />
+        <SettingRow
+          icon="trash"
+          title="清理图片缓存"
+          value={busy ? "清理中…" : undefined}
+          onPress={
+            busy
+              ? undefined
+              : () =>
+                  confirm(
+                    "清理本地图片缓存？",
+                    () => void clear(),
+                    "下载目录中的文件和服务器原图会保留。",
+                  )
           }
         />
-      </View>
+      </Card>
+      <UpdateSection />
+      <Sheet
+        visible={themeOpen}
+        title="主题模式"
+        onClose={() => setThemeOpen(false)}
+      >
+        <Options
+          label="外观"
+          values={[
+            { label: "跟随系统", value: "system" },
+            { label: "深色", value: "dark" },
+            { label: "浅色", value: "light" },
+          ]}
+          value={mode}
+          onChange={(value) => {
+            setMode(value);
+            setThemeOpen(false);
+          }}
+        />
+      </Sheet>
+      <PlaybackSpeedSheet
+        visible={rateOpen}
+        rate={rate}
+        setRate={setRate}
+        close={() => setRateOpen(false)}
+      />
       {serversOpen && <ServerEditor close={() => setServersOpen(false)} />}
     </Page>
   );
@@ -756,7 +855,7 @@ function ServerEditor({ close }: { close(): void }) {
     <Sheet title="服务器地址" visible onClose={close}>
       <ServerFields host={host} backups={draft} setBackups={setDraft} />
       <Txt muted size={12} style={{ marginBottom: 16 }}>
-        这些地址连接同一个服务，共用当前登录。主地址无法连接时自动切换。
+        这些地址连接同一个服务，共用当前登录。主地址不可用时切换备用，网络环境变化后重新优先尝试主地址。
       </Txt>
       <Button title="保存" busy={busy} onPress={() => void save()} />
     </Sheet>
@@ -764,7 +863,7 @@ function ServerEditor({ close }: { close(): void }) {
 }
 export function More() {
   const { C, S } = useUI();
-  const { me, host, navigate, setMe, request, avatarVersion, report } =
+  const { me, activeHost, navigate, setMe, request, avatarVersion, report } =
       useApp(),
     [refreshing, setRefreshing] = useState(false);
   const refresh = async () => {
@@ -854,9 +953,9 @@ export function More() {
         <Divider />
         <SettingRow
           icon="external"
-          title="当前服务器"
-          value={host.replace(/^https?:\/\//, "")}
-          onPress={() => Alert.alert("当前服务器", host)}
+          title="当前连接"
+          value={activeHost.replace(/^https?:\/\//, "")}
+          onPress={() => Alert.alert("当前连接", activeHost)}
         />
       </Card>
     </Page>

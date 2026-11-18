@@ -15,6 +15,19 @@ final class ServerRoutes {
     }
     private final List<String> origins;
     private volatile String active;
+    private volatile long generation;
+    private volatile Runnable changed;
+    private final java.util.Set<String> failed = new java.util.HashSet<>();
+    long generation() { return generation; }
+    synchronized void failed(String address, long epoch) {
+        if (epoch != generation || !trusted(address)) return;
+        failed.add(URI.create(address).getScheme() + "://" + URI.create(address).getRawAuthority());
+    }
+    void setListener(Runnable listener) { changed = listener; }
+    synchronized void resetToPrimary() {
+        generation++; failed.clear(); active = primary();
+        if (changed != null) changed.run();
+    }
     ServerRoutes(String primary, List<String> backups) {
         LinkedHashSet<String> values = new LinkedHashSet<>(); values.add(normalize(primary));
         for (String backup : backups) if (!backup.trim().isEmpty()) values.add(normalize(backup));
@@ -42,24 +55,36 @@ final class ServerRoutes {
         return null;
     }
     String canonical(String address) { String path = relative(address); return path == null ? address : primary() + path; }
-    List<String> addresses(String address) {
+    synchronized List<String> addresses(String address) {
         String path = relative(address);
         List<String> result = new ArrayList<>();
         if (path == null) { result.add(address); return result; }
-        result.add(active + path);
-        for (String origin : origins) if (!origin.equals(active)) result.add(origin + path);
+        if (!failed.contains(active)) result.add(active + path);
+        for (String origin : origins) if (!origin.equals(active) && !failed.contains(origin)) result.add(origin + path);
+        for (String origin : origins) if (failed.contains(origin)) result.add(origin + path);
         return result;
     }
     <T> T execute(String address, Attempt<T> attempt) throws Exception {
+        long epoch = generation;
         boolean trusted = trusted(address);
         Failure last = null;
         for (String target : addresses(address)) {
             try {
                 T value = attempt.run(target, trusted);
-                if (trusted) active = URI.create(target).getScheme() + "://" + URI.create(target).getRawAuthority();
+                if (trusted) {
+                    synchronized (this) {
+                        String origin = URI.create(target).getScheme() + "://" + URI.create(target).getRawAuthority();
+                        if (generation == epoch) failed.remove(origin);
+                        if (generation == epoch && !origin.equals(active)) {
+                            active = origin;
+                            if (changed != null) changed.run();
+                        }
+                    }
+                }
                 return value;
             } catch (Failure failure) {
                 last = failure;
+                if (trusted) failed(target, epoch);
                 if (!trusted || !failure.retrySafe) throw failure;
             }
         }

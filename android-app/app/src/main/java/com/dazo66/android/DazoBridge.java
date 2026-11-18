@@ -12,6 +12,7 @@ import android.net.Uri;
 import android.provider.OpenableColumns;
 import com.facebook.react.bridge.*;
 import com.facebook.react.modules.core.DeviceEventManagerModule;
+import com.facebook.react.modules.core.PermissionAwareActivity;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
@@ -24,6 +25,7 @@ import org.json.JSONArray;
 public final class DazoBridge extends ReactContextBaseJavaModule {
     private final ApiClient api;
     private final UpdateManager updates;
+    private final FileDownloads downloads;
     private Promise picker;
     private String uploadFolder;
     private AtomicBoolean upload;
@@ -31,12 +33,19 @@ public final class DazoBridge extends ReactContextBaseJavaModule {
 
     DazoBridge(ReactApplicationContext context, ApiClient api) {
         super(context); this.api = api;
+        downloads = FileDownloads.get(context);
+        downloads.setListener(json -> {
+            if (context.hasActiveReactInstance()) context.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class).emit("DazoDownloadState", json);
+        });
+        api.setConnectionListener((json, error) -> {
+            if (context.hasActiveReactInstance()) context.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class).emit("DazoConnectionState", json);
+        });
         updates = UpdateManager.get(context);
         updates.setListener(json -> {
             if (context.hasActiveReactInstance()) context.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class).emit("DazoUpdateState", json);
         });
         context.addLifecycleEventListener(new LifecycleEventListener() {
-            @Override public void onHostResume() { updates.setVisible(true); updates.resumeInstallation(context.getCurrentActivity()); }
+            @Override public void onHostResume() { updates.setVisible(true); updates.resumeInstallation(context.getCurrentActivity()); try { downloads.resume(); } catch (RuntimeException ignored) {} }
             @Override public void onHostPause() { updates.setVisible(false); }
             @Override public void onHostDestroy() { updates.setVisible(false); }
         });
@@ -72,7 +81,7 @@ public final class DazoBridge extends ReactContextBaseJavaModule {
         else promise.resolve(value == null || value == JSONObject.NULL ? "null" : value.toString());
     }
     private JSONObject boot(JSONObject user) throws Exception {
-        return new JSONObject().put("host", api.host()).put("backupUrls", api.backupUrls()).put("userId", api.lastUser()).put("me", user == null ? JSONObject.NULL : user)
+        return new JSONObject().put("host", api.host()).put("activeHost", api.activeHost()).put("backupUrls", api.backupUrls()).put("userId", api.lastUser()).put("me", user == null ? JSONObject.NULL : user)
                 .put("scope", api.scope()).put("state", getReactApplicationContext().getSharedPreferences("rn-state", 0).getString(api.scope(), "{}"));
     }
     @ReactMethod public void bootstrap(Promise promise) {
@@ -85,6 +94,7 @@ public final class DazoBridge extends ReactContextBaseJavaModule {
     @ReactMethod public void connectionInfo(Promise promise) {
         try { promise.resolve(boot(null).toString()); } catch (Exception e) { promise.reject("BOOT", e); }
     }
+    @ReactMethod public void connectionState(Promise promise) { promise.resolve(api.connectionState()); }
     @ReactMethod public void updateState(Promise promise) { promise.resolve(updates.state()); }
     @ReactMethod public void checkUpdate(boolean manual) { updates.check(manual); }
     @ReactMethod public void setAutoUpdate(boolean value) { updates.setAutoCheck(value); }
@@ -146,17 +156,40 @@ public final class DazoBridge extends ReactContextBaseJavaModule {
         });
     }
     @ReactMethod public void download(String path, String filename, Promise promise) {
-        api.resolveDownload(path, (url, error) -> {
-        if (error != null) { complete(promise, null, error); return; }
-        try {
-            DownloadManager.Request request = new DownloadManager.Request(Uri.parse(url)); request.addRequestHeader("Cookie", api.cookie()); request.setTitle(filename);
-            request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
-            String safeName = System.currentTimeMillis() + "-" + filename.replaceAll("[/\\\\]", "_");
-            if (android.os.Build.VERSION.SDK_INT >= 29) request.setDestinationInExternalPublicDir(android.os.Environment.DIRECTORY_DOWNLOADS, safeName);
-            else request.setDestinationInExternalFilesDir(getReactApplicationContext(), android.os.Environment.DIRECTORY_DOWNLOADS, safeName);
-            ((DownloadManager) getReactApplicationContext().getSystemService(Context.DOWNLOAD_SERVICE)).enqueue(request); promise.resolve(true);
-        } catch (Exception e) { promise.reject("DOWNLOAD", e); }
-        });
+        Activity activity = getReactApplicationContext().getCurrentActivity();
+        if (activity == null) { promise.reject("DOWNLOAD", "请回到应用后下载"); return; }
+        activity.runOnUiThread(() -> requestDownloadPermission(activity, path, filename, promise));
+    }
+    private void requestDownloadPermission(Activity activity, String path, String filename, Promise promise) {
+        if (android.os.Build.VERSION.SDK_INT <= 28 && androidx.core.content.ContextCompat.checkSelfPermission(activity, android.Manifest.permission.WRITE_EXTERNAL_STORAGE) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            ((PermissionAwareActivity)activity).requestPermissions(new String[]{android.Manifest.permission.WRITE_EXTERNAL_STORAGE}, 104, (code, permissions, results) -> {
+                if (results.length > 0 && results[0] == android.content.pm.PackageManager.PERMISSION_GRANTED) enqueueDownload(path, filename, promise);
+                else promise.reject("DOWNLOAD", "允许存储权限后才能保存到下载目录");
+                return true;
+            }); return;
+        }
+        android.content.SharedPreferences prefs = activity.getSharedPreferences("preferences", 0);
+        if (android.os.Build.VERSION.SDK_INT >= 33 && !prefs.getBoolean("downloadNotificationAsked", false) && androidx.core.content.ContextCompat.checkSelfPermission(activity, android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            prefs.edit().putBoolean("downloadNotificationAsked", true).apply();
+            ((PermissionAwareActivity)activity).requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS}, 105, (code, permissions, results) -> { enqueueDownload(path, filename, promise); return true; }); return;
+        }
+        enqueueDownload(path, filename, promise);
+    }
+    private void enqueueDownload(String path, String filename, Promise promise) {
+        try { promise.resolve(downloads.enqueue(path, filename)); } catch (Exception error) { promise.reject("DOWNLOAD", error.getMessage(), error); }
+    }
+    @ReactMethod public void downloadsState(Promise promise) { promise.resolve(downloads.state()); }
+    @ReactMethod public void acknowledgeDownload(String id) { downloads.markSeen(id); }
+    @ReactMethod public void cancelDownload(String id) { downloads.cancel(id); }
+    @ReactMethod public void openDownload(String id, Promise promise) {
+        Activity activity = getReactApplicationContext().getCurrentActivity();
+        if (activity == null) { promise.reject("DOWNLOAD", "请回到应用后打开"); return; }
+        activity.runOnUiThread(() -> { try { downloads.open(activity, id); promise.resolve(true); } catch (Exception error) { promise.reject("DOWNLOAD", "没有可打开此文件的应用，可到文件管理器的下载/Dazo目录查看", error); } });
+    }
+    @ReactMethod public void openDownloads(Promise promise) {
+        Activity activity = getReactApplicationContext().getCurrentActivity();
+        if (activity == null) { promise.reject("DOWNLOAD", "请回到应用后打开"); return; }
+        activity.runOnUiThread(() -> { try { activity.startActivity(new Intent(DownloadManager.ACTION_VIEW_DOWNLOADS)); promise.resolve(true); } catch (Exception error) { promise.reject("DOWNLOAD", "请在文件管理器中打开 下载/Dazo", error); } });
     }
     private void cropAvatar(Activity activity, Uri uri, Promise promise) {
         try {

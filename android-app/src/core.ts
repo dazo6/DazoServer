@@ -17,6 +17,7 @@ export type { Screen } from "./navigation";
 export type Boot = {
   host: string;
   backupUrls: string[];
+  activeHost: string;
   userId: string;
   scope: string;
   me: Row | null;
@@ -25,6 +26,7 @@ export type Boot = {
 export const Native = NativeModules.DazoBridge as {
   bootstrap(): Promise<string>;
   connectionInfo(): Promise<string>;
+  connectionState(): Promise<string>;
   updateState(): Promise<string>;
   checkUpdate(manual: boolean): void;
   setAutoUpdate(value: boolean): void;
@@ -48,7 +50,12 @@ export const Native = NativeModules.DazoBridge as {
   pickUpload(folder: string): Promise<string>;
   cancelUpload(): void;
   pickAvatar(): Promise<void>;
-  download(path: string, filename: string): Promise<void>;
+  download(path: string, filename: string): Promise<string>;
+  downloadsState(): Promise<string>;
+  acknowledgeDownload(id: string): void;
+  cancelDownload(id: string): void;
+  openDownload(id: string): Promise<void>;
+  openDownloads(): Promise<void>;
   pickDateTime(initial: string, end: boolean): Promise<string>;
 };
 let values: Row = {},

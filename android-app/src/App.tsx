@@ -14,7 +14,6 @@ import {
   KeyboardAvoidingView,
   Pressable,
   ScrollView,
-  StatusBar,
   StyleSheet,
   View,
 } from "react-native";
@@ -23,8 +22,24 @@ import {
   useSafeAreaInsets,
 } from "react-native-safe-area-context";
 import { allowed, Boot, memory, Native, query, Row, Screen } from "./core";
-import { AppContext, useSaved } from "./context";
-import { Button, C, Icon, IconButton, Input, Media, S, Txt } from "./ui";
+import {
+  AppContext,
+  NavigationTab,
+  ScreenActive,
+  useApp,
+  useSaved,
+} from "./context";
+import { Button, Icon, IconButton, Input, Media, Txt } from "./ui";
+import { ThemeProvider, useUI } from "./theme";
+import {
+  Navigation,
+  normalizeNavigation,
+  popScreen,
+  pushScreen,
+  selectTab,
+  Tab,
+  tabNames,
+} from "./navigation";
 import { Artists, FreeGalleries, Home } from "./screens/Library";
 import { Gallery } from "./screens/Gallery";
 import { UpdateEntry, UpdateProvider } from "./updates";
@@ -36,8 +51,21 @@ import {
   Tasks,
   Users,
 } from "./screens/Management";
+import { ServerFields } from "./servers";
 
 export default function App() {
+  return (
+    <ThemeProvider>
+      <SafeAreaProvider>
+        <UpdateProvider>
+          <Root />
+        </UpdateProvider>
+      </SafeAreaProvider>
+    </ThemeProvider>
+  );
+}
+function Root() {
+  const { C } = useUI();
   const [boot, setBoot] = useState<Boot | null>(null),
     [failure, setFailure] = useState("");
   const bootstrap = useCallback(() => {
@@ -51,58 +79,56 @@ export default function App() {
       .catch((e) => setFailure(e.message));
   }, []);
   useEffect(bootstrap, [bootstrap]);
-  return (
-    <SafeAreaProvider>
-      <UpdateProvider>
-        <StatusBar barStyle="dark-content" />
-        {boot?.me ? (
-          <Authenticated
-            key={boot.scope}
-            initial={boot}
-            signedOut={() => setBoot({ ...boot, me: null })}
-          />
-        ) : boot ? (
-          <Login
-            initial={boot}
-            onLogin={(value) => {
-              memory.init(value);
-              setBoot(value);
+  return boot?.me ? (
+    <Authenticated
+      key={boot.scope}
+      initial={boot}
+      signedOut={() => {
+        Native.connectionInfo()
+          .then((raw) => setBoot(JSON.parse(raw)))
+          .catch(() => setBoot({ ...boot, me: null }));
+      }}
+    />
+  ) : boot ? (
+    <Login
+      initial={boot}
+      onLogin={(value) => {
+        memory.init(value);
+        setBoot(value);
+      }}
+    />
+  ) : (
+    <View
+      style={{
+        flex: 1,
+        backgroundColor: C.bg,
+        justifyContent: "center",
+        alignItems: "center",
+        gap: 12,
+      }}
+    >
+      {failure ? (
+        <>
+          <Txt muted>连接暂时不可用</Txt>
+          <Button title="重新连接" onPress={bootstrap} />
+          <Button
+            title="切换服务器"
+            quiet
+            onPress={() => {
+              Native.connectionInfo()
+                .then((raw) => setBoot(JSON.parse(raw)))
+                .catch((e) => setFailure(e.message));
             }}
           />
-        ) : (
-          <View
-            style={{
-              flex: 1,
-              backgroundColor: C.bg,
-              justifyContent: "center",
-              alignItems: "center",
-              gap: 12,
-            }}
-          >
-            {failure ? (
-              <>
-                <Txt muted>连接暂时不可用</Txt>
-                <Button title="重新连接" onPress={bootstrap} />
-                <Button
-                  title="切换服务器"
-                  quiet
-                  onPress={() => {
-                    Native.connectionInfo()
-                      .then((raw) => setBoot(JSON.parse(raw)))
-                      .catch((e) => setFailure(e.message));
-                  }}
-                />
-              </>
-            ) : (
-              <>
-                <ActivityIndicator color={C.blue} />
-                <Txt muted>正在连接…</Txt>
-              </>
-            )}
-          </View>
-        )}
-      </UpdateProvider>
-    </SafeAreaProvider>
+          <UpdateEntry />
+        </>
+      ) : (
+        <>
+          <ActivityIndicator color={C.blue} />
+          <Txt muted>正在连接…</Txt>
+        </>
+      )}
+    </View>
   );
 }
 function Login({
@@ -112,8 +138,10 @@ function Login({
   initial: Boot;
   onLogin(boot: Boot): void;
 }) {
-  const inset = useSafeAreaInsets(),
-    [host, setHost] = useState(initial.host),
+  const { C, S } = useUI(),
+    inset = useSafeAreaInsets();
+  const [host, setHost] = useState(initial.host),
+    [backups, setBackups] = useState(initial.backupUrls || []),
     [user, setUser] = useState(initial.userId),
     [password, setPassword] = useState(""),
     [busy, setBusy] = useState(false),
@@ -128,7 +156,12 @@ function Login({
     setError("");
     try {
       const boot = JSON.parse(
-        await Native.login(host.trim(), user.trim(), password),
+        await Native.login(
+          host.trim(),
+          JSON.stringify(backups.filter((v) => v.trim())),
+          user.trim(),
+          password,
+        ),
       );
       setPassword("");
       onLogin(boot);
@@ -144,11 +177,12 @@ function Login({
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={{
           padding: 24,
-          paddingTop: inset.top + 56,
+          paddingTop: inset.top + 40,
+          paddingBottom: inset.bottom + 24,
           flexGrow: 1,
         }}
       >
-        <View style={[S.row, { gap: 12, marginBottom: 44 }]}>
+        <View style={[S.row, { gap: 12, marginBottom: 32 }]}>
           <View
             style={{
               width: 48,
@@ -157,20 +191,8 @@ function Login({
               backgroundColor: C.blue,
               alignItems: "center",
               justifyContent: "center",
-              overflow: "hidden",
             }}
           >
-            <View
-              style={{
-                position: "absolute",
-                width: 46,
-                height: 46,
-                backgroundColor: C.cyan,
-                transform: [{ rotate: "45deg" }],
-                right: -26,
-                top: -20,
-              }}
-            />
             <Txt size={27} bold style={{ color: "white" }}>
               F
             </Txt>
@@ -187,14 +209,14 @@ function Login({
         <Txt size={30} bold>
           连接你的图库
         </Txt>
-        <Txt muted style={{ marginTop: 8, marginBottom: 28 }}>
+        <Txt muted style={{ marginTop: 8, marginBottom: 24 }}>
           使用现有服务账户登录
         </Txt>
-        <Input
-          label="服务器地址"
-          placeholder="https://example.com"
-          value={host}
-          onChange={setHost}
+        <ServerFields
+          host={host}
+          setHost={setHost}
+          backups={backups}
+          setBackups={setBackups}
         />
         <Input label="用户 ID" value={user} onChange={setUser} />
         <Input label="密码" secure value={password} onChange={setPassword} />
@@ -211,7 +233,7 @@ function Login({
     </KeyboardAvoidingView>
   );
 }
-const tabs: { name: Screen["name"]; title: string; icon: string }[] = [
+const tabs: { name: Tab; title: string; icon: string }[] = [
   { name: "home", title: "首页", icon: "home" },
   { name: "artists", title: "画师管理", icon: "artist" },
   { name: "free", title: "自由画廊", icon: "gallery" },
@@ -229,6 +251,88 @@ const titles: Record<Screen["name"], string> = {
   account: "我的账户",
   storage: "设置",
 };
+function Header({ screen, hasBack }: { screen: Screen; hasBack: boolean }) {
+  const { C, S } = useUI(),
+    { me, avatarVersion, navigate, back } = useApp();
+  return (
+    <View
+      style={[
+        S.row,
+        {
+          height: 48,
+          paddingHorizontal: 6,
+          backgroundColor: C.surface,
+          borderBottomWidth: 1,
+          borderColor: C.line,
+        },
+      ]}
+    >
+      {hasBack && <IconButton name="back" label="返回" onPress={back} />}
+      <Txt size={22} bold>
+        {titles[screen.name]}
+      </Txt>
+      {screen.path ? (
+        <Pressable
+          accessibilityLabel="查看完整路径"
+          onPress={() => Alert.alert("路径", screen.path!)}
+          style={{ flex: 1, marginLeft: 6 }}
+        >
+          <Txt size={11} muted lines={1}>
+            / {screen.path.replace(/\\/g, "/")}
+          </Txt>
+        </Pressable>
+      ) : (
+        <View style={{ flex: 1 }} />
+      )}
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="我的账户"
+        onPress={() =>
+          screen.name !== "account" && navigate({ name: "account" })
+        }
+        style={{ marginLeft: 8, marginRight: 4 }}
+      >
+        <Media
+          avatar
+          path={query("/api/users/avatar", {
+            userId: me.userId,
+            t: avatarVersion,
+          })}
+          style={{ width: 36, height: 36, borderRadius: 18 }}
+        />
+      </Pressable>
+    </View>
+  );
+}
+function Route({ screen, hasBack }: { screen: Screen; hasBack: boolean }) {
+  const header = <Header screen={screen} hasBack={hasBack} />;
+  if (screen.name === "gallery")
+    return (
+      <Gallery
+        path={screen.path || ""}
+        artistId={screen.artistId}
+        header={header}
+      />
+    );
+  const screens = {
+    artists: Artists,
+    free: FreeGalleries,
+    history: History,
+    tasks: Tasks,
+    users: Users,
+    account: Account,
+    storage: Settings,
+    more: More,
+    home: Home,
+  };
+  const Content = screens[screen.name];
+  return (
+    <>
+      {header}
+      <Content />
+    </>
+  );
+}
 function Authenticated({
   initial,
   signedOut,
@@ -236,20 +340,24 @@ function Authenticated({
   initial: Boot;
   signedOut(): void;
 }) {
-  const inset = useSafeAreaInsets(),
-    [me, setMe] = useState(initial.me!),
-    [avatarVersion, setAvatarVersion] = useState(Date.now()),
-    [navigation, setNavigation] = useSaved<{
-      tab: Screen["name"];
-      stack: Screen[];
-    }>("navigation", { tab: "home", stack: [] });
+  const { C, S } = useUI(),
+    inset = useSafeAreaInsets();
+  const [me, setMe] = useState(initial.me!),
+    [avatarVersion, setAvatarVersion] = useState(Date.now());
+  const [stored, setNavigation] = useSaved<Navigation>("navigation", {
+    tab: "home",
+    stacks: { home: [] },
+  });
+  const navigation = useMemo(() => normalizeNavigation(stored), [stored]),
+    stack = navigation.stacks[navigation.tab] || [],
+    current = stack.at(-1) || { name: navigation.tab };
   const [toast, setToast] = useState(""),
     toastTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [originalImages, setOriginalImages] = useSaved(
     "settings:originalImages",
     false,
   );
-  const current = navigation.stack.at(-1) || { name: navigation.tab };
+  const [backupUrls, setBackups] = useState(initial.backupUrls || []);
   const notify = useCallback((message: string) => {
     if (toastTimer.current) clearTimeout(toastTimer.current);
     setToast(message);
@@ -282,39 +390,35 @@ function Authenticated({
   );
   const back = useCallback(() => {
     Keyboard.dismiss();
-    if (navigation.stack.length) {
-      setNavigation({ ...navigation, stack: navigation.stack.slice(0, -1) });
-      return true;
-    }
-    if (navigation.tab !== "home") {
-      setNavigation({ tab: "home", stack: [] });
-      return true;
-    }
-    return false;
+    if (!stack.length && navigation.tab === "home") return false;
+    setNavigation(popScreen(navigation));
+    return true;
   }, [navigation]);
   const navigate = useCallback(
     (screen: Screen) => {
       Keyboard.dismiss();
-      if (screen.name === "tasks" && !me.isSuperAdmin) return;
-      if (screen.name === "users" && !allowed(me, "read", "op:user.list"))
+      if (
+        (screen.name === "tasks" && !me.isSuperAdmin) ||
+        (screen.name === "users" && !allowed(me, "read", "op:user.list"))
+      )
         return;
-      setNavigation({ ...navigation, stack: [...navigation.stack, screen] });
+      if (tabNames.includes(screen.name as Tab)) {
+        const tab = screen.name as Tab;
+        setNavigation({ tab, stacks: { ...navigation.stacks, [tab]: [] } });
+      } else setNavigation(pushScreen(navigation, screen));
     },
     [navigation, me],
   );
   useEffect(() => {
-    const backSubscription = BackHandler.addEventListener(
-      "hardwareBackPress",
-      back,
-    );
-    return () => backSubscription.remove();
+    const listener = BackHandler.addEventListener("hardwareBackPress", back);
+    return () => listener.remove();
   }, [back]);
   useEffect(() => {
-    const subscription = AppState.addEventListener("change", (state) => {
+    const listener = AppState.addEventListener("change", (state) => {
       if (state !== "active") memory.flush();
     });
     return () => {
-      subscription.remove();
+      listener.remove();
       memory.flush();
     };
   }, []);
@@ -322,15 +426,15 @@ function Authenticated({
     if (
       (current.name === "tasks" && !me.isSuperAdmin) ||
       (current.name === "users" && !allowed(me, "read", "op:user.list"))
-    ) {
-      setNavigation({ tab: "more", stack: [] });
-    }
+    )
+      setNavigation(popScreen(navigation));
   }, [me, current.name]);
   const context = useMemo(
     () => ({
       me,
       host: initial.host,
       scope: initial.scope,
+      backupUrls,
       avatarVersion,
       originalImages,
       setOriginalImages,
@@ -343,6 +447,11 @@ function Authenticated({
       request,
       report,
       toast: notify,
+      setBackupUrls: async (urls: string[]) => {
+        setBackups(
+          JSON.parse(await Native.setBackupUrls(JSON.stringify(urls))),
+        );
+      },
       logout: async () => {
         memory.flush();
         await Native.logout();
@@ -352,6 +461,7 @@ function Authenticated({
     [
       me,
       initial,
+      backupUrls,
       avatarVersion,
       originalImages,
       setOriginalImages,
@@ -363,168 +473,116 @@ function Authenticated({
       signedOut,
     ],
   );
-  let content: React.ReactNode;
-  switch (current.name) {
-    case "artists":
-      content = <Artists />;
-      break;
-    case "free":
-      content = <FreeGalleries />;
-      break;
-    case "gallery":
-      content = (
-        <Gallery
-          key={current.path}
-          path={current.path || ""}
-          artistId={current.artistId}
-        />
-      );
-      break;
-    case "history":
-      content = <History />;
-      break;
-    case "tasks":
-      content = <Tasks />;
-      break;
-    case "users":
-      content = <Users />;
-      break;
-    case "account":
-      content = <Account />;
-      break;
-    case "storage":
-      content = <Settings />;
-      break;
-    case "more":
-      content = <More />;
-      break;
-    default:
-      content = <Home />;
-  }
   return (
     <AppContext.Provider value={context}>
       <View style={{ flex: 1, backgroundColor: C.bg, paddingTop: inset.top }}>
+        <View style={{ flex: 1, overflow: "hidden" }}>
+          {tabs
+            .filter(
+              (tab) =>
+                navigation.stacks[tab.name] !== undefined ||
+                tab.name === navigation.tab,
+            )
+            .flatMap((tab) => {
+              const routes: Screen[] = [
+                { name: tab.name },
+                ...(navigation.stacks[tab.name] || []),
+              ];
+              return routes.map((screen, depth) => {
+                const active =
+                  tab.name === navigation.tab && depth === routes.length - 1;
+                return (
+                  <ScreenActive.Provider
+                    key={`${tab.name}:${depth}:${screen.name}:${screen.path || ""}`}
+                    value={active}
+                  >
+                    <NavigationTab.Provider value={tab.name}>
+                      <View
+                        pointerEvents={active ? "auto" : "none"}
+                        accessibilityElementsHidden={!active}
+                        importantForAccessibility={
+                          active ? "auto" : "no-hide-descendants"
+                        }
+                        style={[
+                          StyleSheet.absoluteFill,
+                          {
+                            backgroundColor: C.bg,
+                            opacity: active ? 1 : 0,
+                            zIndex: active ? 1 : 0,
+                          },
+                        ]}
+                      >
+                        <Route screen={screen} hasBack={depth > 0} />
+                      </View>
+                    </NavigationTab.Provider>
+                  </ScreenActive.Provider>
+                );
+              });
+            })}
+        </View>
         <View
           style={[
             S.row,
             {
-              height: 48,
-              paddingHorizontal: 6,
-              backgroundColor: "white",
-              borderBottomWidth: 1,
+              backgroundColor: C.surface,
+              paddingBottom: inset.bottom,
+              borderTopWidth: 1,
               borderColor: C.line,
+              paddingHorizontal: 4,
             },
           ]}
         >
-          {navigation.stack.length > 0 && (
-            <IconButton name="back" label="返回" onPress={() => back()} />
-          )}
-          <Txt size={22} bold>
-            {titles[current.name]}
-          </Txt>
-          {current.path && (
+          {tabs.map((tab) => (
             <Pressable
-              accessibilityLabel="查看完整路径"
-              onPress={() => Alert.alert("路径", current.path!)}
-              style={{ flex: 1, marginLeft: 6 }}
+              key={tab.name}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: navigation.tab === tab.name }}
+              onPress={() => {
+                Keyboard.dismiss();
+                setNavigation(selectTab(navigation, tab.name));
+              }}
+              style={{
+                flex: 1,
+                alignItems: "center",
+                paddingVertical: 4,
+                gap: 2,
+              }}
             >
-              <Txt size={11} muted lines={1}>
-                / {current.path.replace(/\\/g, "/")}
-              </Txt>
-            </Pressable>
-          )}
-          {!current.path && <View style={{ flex: 1 }} />}
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="我的账户"
-            onPress={() =>
-              current.name !== "account" && navigate({ name: "account" })
-            }
-            style={{ marginLeft: 8, marginRight: 4 }}
-          >
-            <Media
-              avatar
-              path={query("/api/users/avatar", {
-                userId: me.userId,
-                t: avatarVersion,
-              })}
-              style={{ width: 36, height: 36, borderRadius: 18 }}
-            />
-          </Pressable>
-        </View>
-        <View
-          key={current.name + ":" + (current.path || "")}
-          style={{ flex: 1 }}
-        >
-          {content}
-        </View>
-        {navigation.stack.length === 0 ? (
-          <View
-            style={[
-              S.row,
-              {
-                backgroundColor: "white",
-                paddingBottom: inset.bottom,
-                borderTopWidth: 1,
-                borderColor: C.line,
-                paddingHorizontal: 4,
-              },
-            ]}
-          >
-            {tabs.map((tab) => (
-              <Pressable
-                key={tab.name}
-                accessibilityRole="tab"
-                accessibilityState={{ selected: navigation.tab === tab.name }}
-                onPress={() => {
-                  Keyboard.dismiss();
-                  setNavigation({ tab: tab.name, stack: [] });
-                }}
+              <View
                 style={{
-                  flex: 1,
+                  width: 54,
+                  height: 30,
                   alignItems: "center",
-                  paddingVertical: 4,
-                  gap: 2,
+                  justifyContent: "center",
+                  backgroundColor:
+                    navigation.tab === tab.name ? C.pale : "transparent",
+                  borderRadius: 14,
                 }}
               >
-                <View
-                  style={{
-                    width: 54,
-                    height: 30,
-                    alignItems: "center",
-                    justifyContent: "center",
-                    backgroundColor:
-                      navigation.tab === tab.name ? C.pale : "transparent",
-                    borderRadius: 14,
-                  }}
-                >
-                  <Icon
-                    name={tab.icon}
-                    size={27}
-                    color={navigation.tab === tab.name ? C.blue : C.muted}
-                  />
-                </View>
-                <Txt
-                  size={11}
-                  bold={navigation.tab === tab.name}
-                  style={{
-                    color: navigation.tab === tab.name ? C.blue : C.muted,
-                  }}
-                >
-                  {tab.title}
-                </Txt>
-              </Pressable>
-            ))}
-          </View>
-        ) : (
-          <View style={{ height: inset.bottom, backgroundColor: C.bg }} />
-        )}
+                <Icon
+                  name={tab.icon}
+                  size={27}
+                  color={navigation.tab === tab.name ? C.blue : C.muted}
+                />
+              </View>
+              <Txt
+                size={11}
+                bold={navigation.tab === tab.name}
+                style={{
+                  color: navigation.tab === tab.name ? C.blue : C.muted,
+                }}
+              >
+                {tab.title}
+              </Txt>
+            </Pressable>
+          ))}
+        </View>
         {!!toast && (
           <Pressable
             onPress={() => setToast("")}
             style={{
               position: "absolute",
-              bottom: inset.bottom + (navigation.stack.length ? 18 : 86),
+              bottom: inset.bottom + 72,
               left: 24,
               right: 24,
               backgroundColor: "#172033ed",

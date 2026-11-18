@@ -1,3 +1,5 @@
+import { useUI } from "../theme";
+import { ServerFields } from "../servers";
 import React, { useEffect, useState } from "react";
 import { Alert, Linking, Pressable, Switch, View } from "react-native";
 import {
@@ -9,12 +11,11 @@ import {
   query,
   Row,
 } from "../core";
-import { useApp, useDebounced, useRemote, useSaved } from "../context";
+import { useApp, useDebounced, useRemote, useSaved, useScreenActive } from "../context";
 import { UpdateSection } from "../updates";
 import {
   Badge,
   Button,
-  C,
   Card,
   confirm,
   Divider,
@@ -27,7 +28,6 @@ import {
   Options,
   Page,
   Pager,
-  S,
   SearchBar,
   Section,
   SettingRow,
@@ -37,6 +37,7 @@ import {
 
 const NL = String.fromCharCode(10);
 export function Users() {
+  const { C, S } = useUI();
   const { request, me, report } = useApp(),
     [keyword, setKeyword] = useSaved("users:keyword", ""),
     [page, setPage] = useSaved("users:page", 1),
@@ -255,6 +256,7 @@ function UserEditor({
   close(): void;
   saved(): void;
 }) {
+  const { C, S } = useUI();
   const { request, report } = useApp(),
     [id, setId] = useState(value?.userId || ""),
     [name, setName] = useState(value?.username || ""),
@@ -439,6 +441,7 @@ function PasswordEditor({
 }
 
 export function Account() {
+  const { C, S } = useUI();
   const {
       me,
       host,
@@ -514,7 +517,7 @@ export function Account() {
                 position: "absolute",
                 bottom: -3,
                 right: -5,
-                backgroundColor: "white",
+                backgroundColor: C.surface,
                 borderRadius: 12,
                 padding: 3,
                 borderWidth: 1,
@@ -601,10 +604,12 @@ export function Account() {
   );
 }
 export function Settings() {
+  const { C, S, mode, setMode } = useUI();
   const { report, toast, originalImages, setOriginalImages } = useApp(),
     [size, setSize] = useState(0),
     [refreshing, setRefreshing] = useState(false),
-    [busy, setBusy] = useState(false);
+    [busy, setBusy] = useState(false),
+    [serversOpen, setServersOpen] = useState(false);
   const refresh = async () => {
     setRefreshing(true);
     try {
@@ -631,7 +636,32 @@ export function Settings() {
     }
   };
   return (
-    <Page refreshing={refreshing} onRefresh={() => void refresh()}>
+    <Page
+      scrollKey="settings"
+      refreshing={refreshing}
+      onRefresh={() => void refresh()}
+    >
+      <Section title="外观" />
+      <Card>
+        <Options
+          label="主题模式"
+          values={[
+            { label: "跟随系统", value: "system" },
+            { label: "深色", value: "dark" },
+            { label: "浅色", value: "light" },
+          ]}
+          value={mode}
+          onChange={setMode}
+        />
+      </Card>
+      <Card style={{ paddingVertical: 0 }}>
+        <SettingRow
+          icon="external"
+          title="服务器地址"
+          value="主地址与备用地址"
+          onPress={() => setServersOpen(true)}
+        />
+      </Card>
       <UpdateSection />
       <Section title="图片浏览" />
       <Card style={{ paddingVertical: 0 }}>
@@ -702,10 +732,38 @@ export function Settings() {
           }
         />
       </View>
+      {serversOpen && <ServerEditor close={() => setServersOpen(false)} />}
     </Page>
   );
 }
+function ServerEditor({ close }: { close(): void }) {
+  const { host, backupUrls, setBackupUrls, report, toast } = useApp();
+  const [draft, setDraft] = useState(backupUrls),
+    [busy, setBusy] = useState(false);
+  const save = async () => {
+    setBusy(true);
+    try {
+      await setBackupUrls(draft.filter((value) => value.trim()));
+      toast("备用地址已保存");
+      close();
+    } catch (error) {
+      report(error);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Sheet title="服务器地址" visible onClose={close}>
+      <ServerFields host={host} backups={draft} setBackups={setDraft} />
+      <Txt muted size={12} style={{ marginBottom: 16 }}>
+        这些地址连接同一个服务，共用当前登录。主地址无法连接时自动切换。
+      </Txt>
+      <Button title="保存" busy={busy} onPress={() => void save()} />
+    </Sheet>
+  );
+}
 export function More() {
+  const { C, S } = useUI();
   const { me, host, navigate, setMe, request, avatarVersion, report } =
       useApp(),
     [refreshing, setRefreshing] = useState(false);
@@ -813,6 +871,7 @@ type HistoryFilter = {
   page: number;
 };
 export function History() {
+  const { C, S } = useUI();
   const { request, report } = useApp(),
     [keyword, setKeyword] = useSaved("history:keyword", ""),
     debounced = useDebounced(keyword);
@@ -1002,6 +1061,8 @@ export function History() {
 }
 
 export function Tasks() {
+  const { C, S } = useUI();
+  const active = useScreenActive();
   const { request, report } = useApp(),
     remote = useRemote<Row[]>(() => request("GET", "/api/scheduled-tasks"), []),
     [detail, setDetail] = useState<Row | null>(null),
@@ -1009,10 +1070,10 @@ export function Tasks() {
   const rows = remote.data || [],
     running = rows.some((a) => a.running);
   useEffect(() => {
-    if (!running) return;
+    if (!active || !running) return;
     const timer = setTimeout(() => void remote.reload(), 3000);
     return () => clearTimeout(timer);
-  }, [remote.data, running]);
+  }, [remote.data, running, active]);
   const run = async (a: Row) => {
     setBusy(a.id);
     try {

@@ -1,0 +1,4 @@
+<resources>
+    <color name="app_background">#f1f5f9</color>
+    <bool name="light_system_bars">true</bool>
+</resources>

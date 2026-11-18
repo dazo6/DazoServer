@@ -18,6 +18,7 @@ import java.io.InputStream;
 import java.net.URI;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.json.JSONObject;
+import org.json.JSONArray;
 
 /** Android facilities only; all screens and navigation are implemented in React Native. */
 public final class DazoBridge extends ReactContextBaseJavaModule {
@@ -64,14 +65,14 @@ public final class DazoBridge extends ReactContextBaseJavaModule {
     @Override public String getName() { return "DazoBridge"; }
     private void complete(Promise promise, Object value, Exception error) {
         if (error != null) {
-            String message = error instanceof java.net.SocketTimeoutException ? "连接超时，请稍后重试"
+            String message = error instanceof ServerRoutes.Failure ? error.getMessage() : error instanceof java.net.SocketTimeoutException ? "连接超时，请稍后重试"
                     : error instanceof java.io.IOException ? "网络连接中断，请刷新确认结果后重试" : error.getMessage();
             promise.reject("上传已取消".equals(error.getMessage()) ? "CANCELLED" : api.signedIn() ? "REQUEST" : "SESSION", message, error);
         }
         else promise.resolve(value == null || value == JSONObject.NULL ? "null" : value.toString());
     }
     private JSONObject boot(JSONObject user) throws Exception {
-        return new JSONObject().put("host", api.host()).put("userId", api.lastUser()).put("me", user == null ? JSONObject.NULL : user)
+        return new JSONObject().put("host", api.host()).put("backupUrls", api.backupUrls()).put("userId", api.lastUser()).put("me", user == null ? JSONObject.NULL : user)
                 .put("scope", api.scope()).put("state", getReactApplicationContext().getSharedPreferences("rn-state", 0).getString(api.scope(), "{}"));
     }
     @ReactMethod public void bootstrap(Promise promise) {
@@ -92,8 +93,20 @@ public final class DazoBridge extends ReactContextBaseJavaModule {
         try { updates.install(getReactApplicationContext().getCurrentActivity()); promise.resolve(true); }
         catch (Exception e) { promise.reject("UPDATE", e.getMessage(), e); }
     }
-    @ReactMethod public void login(String host, String user, String password, Promise promise) {
-        api.login(host, user, password, (me, error) -> { if (error != null) complete(promise, null, error); else try { promise.resolve(boot(me).toString()); } catch (Exception e) { promise.reject("LOGIN", e); } });
+    @ReactMethod public void login(String host, String backups, String user, String password, Promise promise) {
+        api.login(host, backups, user, password, (me, error) -> { if (error != null) complete(promise, null, error); else try { promise.resolve(boot(me).toString()); } catch (Exception e) { promise.reject("LOGIN", e); } });
+    }
+    @ReactMethod public void setBackupUrls(String value, Promise promise) {
+        try { api.setBackupUrls(new JSONArray(value)); promise.resolve(api.backupUrls().toString()); }
+        catch (Exception e) { promise.reject("HOST", e.getMessage(), e); }
+    }
+    @ReactMethod public void themeMode(Promise promise) {
+        promise.resolve(getReactApplicationContext().getSharedPreferences("preferences", 0).getString("theme", "system"));
+    }
+    @ReactMethod public void setThemeMode(String value) {
+        if (!("system".equals(value) || "dark".equals(value) || "light".equals(value))) return;
+        getReactApplicationContext().getSharedPreferences("preferences", 0).edit().putString("theme", value).apply();
+        getReactApplicationContext().runOnUiQueueThread(() -> MainApplication.applyTheme(getReactApplicationContext(), value));
     }
     @ReactMethod public void request(String method, String path, String body, Promise promise) {
         if (!path.startsWith("/api/")) { promise.reject("URL", "接口路径无效"); return; }
@@ -133,9 +146,9 @@ public final class DazoBridge extends ReactContextBaseJavaModule {
         });
     }
     @ReactMethod public void download(String path, String filename, Promise promise) {
+        api.resolveDownload(path, (url, error) -> {
+        if (error != null) { complete(promise, null, error); return; }
         try {
-            String url = api.absolute(path); URI origin = URI.create(api.host()), target = URI.create(url);
-            if (!origin.getScheme().equalsIgnoreCase(target.getScheme()) || !origin.getAuthority().equalsIgnoreCase(target.getAuthority())) throw new IllegalArgumentException("下载地址不属于当前服务器");
             DownloadManager.Request request = new DownloadManager.Request(Uri.parse(url)); request.addRequestHeader("Cookie", api.cookie()); request.setTitle(filename);
             request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
             String safeName = System.currentTimeMillis() + "-" + filename.replaceAll("[/\\\\]", "_");
@@ -143,6 +156,7 @@ public final class DazoBridge extends ReactContextBaseJavaModule {
             else request.setDestinationInExternalFilesDir(getReactApplicationContext(), android.os.Environment.DIRECTORY_DOWNLOADS, safeName);
             ((DownloadManager) getReactApplicationContext().getSystemService(Context.DOWNLOAD_SERVICE)).enqueue(request); promise.resolve(true);
         } catch (Exception e) { promise.reject("DOWNLOAD", e); }
+        });
     }
     private void cropAvatar(Activity activity, Uri uri, Promise promise) {
         try {

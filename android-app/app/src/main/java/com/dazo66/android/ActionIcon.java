@@ -72,6 +72,11 @@ final class ActionIcon extends View {
                 line(canvas, 12, 22, 36, 22); line(canvas, 20, 29, 23, 32); line(canvas, 23, 32, 29, 26); break;
             case "play":
                 Path triangle = new Path(); triangle.moveTo(19, 14); triangle.lineTo(34, 24); triangle.lineTo(19, 34); triangle.close(); canvas.drawPath(triangle, p); break;
+            case "power":
+                canvas.drawArc(12, 12, 36, 36, -45, 270, false, p); line(canvas, 24, 9, 24, 24); break;
+            case "compress":
+                line(canvas, 11, 11, 21, 21); line(canvas, 21, 14, 21, 21); line(canvas, 14, 21, 21, 21);
+                line(canvas, 37, 37, 27, 27); line(canvas, 27, 34, 27, 27); line(canvas, 34, 27, 27, 27); break;
             case "lock":
                 canvas.drawRoundRect(14, 22, 34, 37, 3, 3, p); canvas.drawArc(18, 11, 30, 30, 180, 180, false, p); break;
             case "storage":

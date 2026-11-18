@@ -36,6 +36,8 @@ public final class DazoPackage implements ReactPackage {
     public static final class VideoFrame extends FrameLayout {
         final VideoView video;
         android.media.MediaPlayer player; float rate = 1;
+        List<String> addresses = Collections.emptyList(); int addressIndex, seekPosition;
+        boolean dropped;
         VideoFrame(Context context) { super(context); video = new VideoView(context); addView(video, new LayoutParams(-1,-1,android.view.Gravity.CENTER)); }
         void layoutVideo() {
             video.measure(MeasureSpec.makeMeasureSpec(getWidth(), MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(getHeight(), MeasureSpec.EXACTLY));
@@ -53,14 +55,26 @@ public final class DazoPackage implements ReactPackage {
         @Override protected VideoFrame createViewInstance(ThemedReactContext context) { return new VideoFrame(context); }
         @ReactProp(name="path") public void setPath(VideoFrame view, String path) {
             if (path == null) return;
-            view.video.stopPlayback(); view.video.setVideoURI(Uri.parse(api.absolute(path)), Collections.singletonMap("Cookie", api.cookie()));
+            view.addresses = api.mediaAddresses(path); view.addressIndex = 0; view.seekPosition = 0; view.dropped = false;
+            play(view);
+        }
+        private void play(VideoFrame view) {
+            if (view.dropped || view.addresses.isEmpty()) return;
+            view.video.stopPlayback(); view.player = null;
+            String address = view.addresses.get(view.addressIndex);
+            view.video.setVideoURI(Uri.parse(address), api.trusted(address) ? Collections.singletonMap("Cookie", api.cookie()) : Collections.emptyMap());
+            view.video.setOnErrorListener((player, what, extra) -> {
+                if (view.addressIndex + 1 >= view.addresses.size()) return false;
+                try { view.seekPosition = view.video.getCurrentPosition(); } catch (Exception ignored) {}
+                view.addressIndex++; view.post(() -> play(view)); return true;
+            });
             view.video.setMediaController(new android.widget.MediaController(view.getContext())); view.video.setOnPreparedListener(mp -> {
                 view.player = mp;
                 try { mp.setPlaybackParams(mp.getPlaybackParams().setSpeed(view.rate)); } catch (Exception ignored) {}
-                view.layoutVideo(); view.video.start();
+                view.layoutVideo(); if (view.seekPosition > 0) view.video.seekTo(view.seekPosition); view.video.start();
             });
         }
         @ReactProp(name="rate", defaultFloat=1) public void setRate(VideoFrame view, float rate) { view.rate = rate; if (view.player != null) try { view.player.setPlaybackParams(view.player.getPlaybackParams().setSpeed(rate)); } catch (Exception ignored) {} }
-        @Override public void onDropViewInstance(VideoFrame view) { view.video.stopPlayback(); super.onDropViewInstance(view); }
+        @Override public void onDropViewInstance(VideoFrame view) { view.dropped = true; view.video.stopPlayback(); super.onDropViewInstance(view); }
     }
 }

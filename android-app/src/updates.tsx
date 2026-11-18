@@ -1,3 +1,4 @@
+import { useUI } from "./theme";
 import React, {
   createContext,
   ReactNode,
@@ -15,7 +16,7 @@ import {
   View,
 } from "react-native";
 import { bytesLabel, Native } from "./core";
-import { Button, C, Card, Divider, Icon, S, Section, Sheet, Txt } from "./ui";
+import { Button, Card, Divider, Icon, Section, Sheet, Txt } from "./ui";
 
 type UpdateState = {
   phase: string;
@@ -113,6 +114,7 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
   );
 }
 export function UpdateSection() {
+  const { C, S } = useUI();
   const { state, install } = useContext(Updates);
   const downloading = state.phase === "downloading",
     checking = state.phase === "checking" || state.phase === "verifying";
@@ -191,7 +193,11 @@ export function UpdateSection() {
           {state.phase === "ready" ? (
             <Button title="安装更新" onPress={() => void install()} />
           ) : downloading ? (
-            <Button title="取消下载" quiet onPress={() => Native.cancelUpdate()} />
+            <Button
+              title="取消下载"
+              quiet
+              onPress={() => Native.cancelUpdate()}
+            />
           ) : (
             <Button
               title={checking ? state.message : "检查并下载更新"}

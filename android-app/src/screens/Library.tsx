@@ -1,3 +1,4 @@
+import { useUI } from "../theme";
 import React, { useState } from "react";
 import {
   Alert,
@@ -7,12 +8,17 @@ import {
   Switch,
   View,
 } from "react-native";
-import { allowed, dateLabel, memory, query, Row } from "../core";
-import { useApp, useDebounced, useRemote, useSaved } from "../context";
+import { allowed, dateLabel, updateAge, memory, query, Row } from "../core";
+import {
+  useApp,
+  useClock,
+  useDebounced,
+  useRemote,
+  useSaved,
+} from "../context";
 import {
   Badge,
   Button,
-  C,
   Card,
   confirm,
   Empty,
@@ -24,7 +30,6 @@ import {
   Options,
   Page,
   Pager,
-  S,
   SearchBar,
   Section,
   Sheet,
@@ -32,6 +37,8 @@ import {
 } from "../ui";
 
 export function Home() {
+  const { C, S } = useUI();
+  const now = useClock();
   const { request, navigate, report } = useApp(),
     remote = useRemote<Row>(() => request("GET", "/api/dashboard"), []);
   const [keyword, setKeyword] = useSaved("home:keyword", ""),
@@ -213,6 +220,7 @@ export function Home() {
               key={a.id || a.name || i}
               onPress={() => {
                 memory.set("artists:keyword", a.name || "");
+                memory.set("scroll:artists", 0);
                 memory.set("artists:filters", {
                   status: "全部",
                   order: "desc",
@@ -221,7 +229,7 @@ export function Home() {
                 });
                 navigate({ name: "artists" });
               }}
-              style={{ padding: 12 }}
+              style={{ padding: 10, marginBottom: 6 }}
             >
               <View style={[S.row, { gap: 12 }]}>
                 <Media
@@ -233,7 +241,7 @@ export function Home() {
                 <View style={{ flex: 1 }}>
                   <Txt bold>{a.name}</Txt>
                   <Txt size={12} muted lines={1}>
-                    {dateLabel(a.last)}
+                    {updateAge(a.last, now)}
                   </Txt>
                 </View>
                 <Icon name="next" size={22} color={C.muted} />
@@ -259,6 +267,8 @@ type ArtistFilters = {
   page: number;
 };
 export function Artists() {
+  const { C, S } = useUI();
+  const now = useClock();
   const { me, request, navigate, report } = useApp();
   const [keyword, setKeyword] = useSaved("artists:keyword", ""),
     [filters, setFilters] = useSaved<ArtistFilters>("artists:filters", {
@@ -295,7 +305,7 @@ export function Artists() {
   return (
     <>
       <Page
-        key={filters.page}
+        key={filters.page + ":" + keywordQuery}
         scrollKey="artists"
         loading={remote.loading}
         refreshing={remote.refreshing}
@@ -346,52 +356,46 @@ export function Artists() {
                     artistId: String(a.id),
                   });
               }}
-              style={{ padding: 0 }}
+              style={{ padding: 0, marginBottom: 6, borderRadius: 12 }}
             >
-              {!!a.banner && (
-                <Media
-                  path={a.banner}
-                  refreshKey={remote.revision}
-                  style={{ height: 90 }}
-                />
-              )}
-              <View style={{ padding: 14 }}>
-                <View style={[S.row, { gap: 12 }]}>
+              <View style={{ padding: 10 }}>
+                <View style={[S.row, { gap: 10 }]}>
                   <Media
                     avatar
                     path={a.icon}
                     refreshKey={remote.revision}
-                    style={{ width: 48, height: 48, borderRadius: 14 }}
+                    style={{ width: 42, height: 42, borderRadius: 11 }}
                   />
                   <View style={{ flex: 1 }}>
-                    <Txt size={17} bold lines={1}>
+                    <Txt size={16} bold lines={1}>
                       {a.name}
                     </Txt>
-                    <Txt size={12} muted>
-                      {a.type} · {dateLabel(a.lastUpdate)}
-                    </Txt>
+                    <View style={[S.row, { gap: 4 }]}>
+                      <View
+                        accessible
+                        accessibilityLabel={a.enable ? "已启用" : "已停用"}
+                      >
+                        <Icon
+                          name="power"
+                          size={14}
+                          color={a.enable ? C.blue : C.muted}
+                        />
+                      </View>
+                      {!!a.compression && (
+                        <View accessible accessibilityLabel="图片压缩已开启">
+                          <Icon name="compress" size={14} color={C.muted} />
+                        </View>
+                      )}
+                      <Txt size={11} muted lines={1} style={{ flexShrink: 1 }}>
+                        {updateAge(a.lastUpdate, now)}
+                      </Txt>
+                    </View>
                   </View>
                   <IconButton
                     name="more"
                     label="画师选项"
                     onPress={() => setMenu(a)}
                   />
-                </View>
-                <View style={[S.row, { marginTop: 12, gap: 10 }]}>
-                  <Badge
-                    label={a.enable ? "已启用" : "已停用"}
-                    active={!!a.enable}
-                  />
-                  {a.compression && (
-                    <Txt size={11} muted>
-                      图片压缩
-                    </Txt>
-                  )}
-                  <View style={{ flex: 1 }} />
-                  {a.capabilities?.canOpenGallery &&
-                    allowed(me, "read", a.folderPath || "") && (
-                      <Icon name="next" size={22} color={C.muted} />
-                    )}
                 </View>
               </View>
             </Card>
@@ -517,6 +521,7 @@ export function Artists() {
   );
 }
 function ArtistEditor({ close, saved }: { close(): void; saved(): void }) {
+  const { C, S } = useUI();
   const { request, report } = useApp(),
     [url, setUrl] = useState(""),
     [name, setName] = useState(""),
@@ -569,6 +574,7 @@ function ArtistEditor({ close, saved }: { close(): void; saved(): void }) {
 }
 
 export function FreeGalleries() {
+  const { C, S } = useUI();
   const { request, me, navigate, report } = useApp(),
     [keyword, setKeyword] = useSaved("free:keyword", ""),
     debounced = useDebounced(keyword),

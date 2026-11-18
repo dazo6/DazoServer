@@ -12,6 +12,7 @@ import android.os.Looper;
 import android.util.Base64;
 
 import org.json.JSONObject;
+import org.json.JSONArray;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
@@ -45,6 +46,7 @@ final class ApiClient {
     private final SharedPreferences prefs;
     private final File imageCache;
     private volatile String host;
+    private volatile ServerRoutes routes;
     private volatile String cookie = "";
     private volatile String csrf = "";
 
@@ -53,6 +55,8 @@ final class ApiClient {
         imageCache = new File(context.getCacheDir(), "media");
         imageCache.mkdirs();
         host = prefs.getString("host", "");
+        try { if (!host.isEmpty()) routes = new ServerRoutes(host, strings(new JSONArray(prefs.getString("backups", "[]")))); }
+        catch (Exception ignored) { routes = host.isEmpty() ? null : new ServerRoutes(host, java.util.Collections.emptyList()); }
         try { cookie = decrypt(prefs.getString("session", "")); }
         catch (Exception ignored) { prefs.edit().remove("session").apply(); cookie = ""; }
         pool.execute(this::trimCache);
@@ -63,18 +67,47 @@ final class ApiClient {
     String scope() { return host + "|" + lastUser(); }
     boolean signedIn() { return !cookie.isEmpty(); }
     String cookie() { return cookie; }
-    String absolute(String path) { return path.startsWith("http") ? path : host + path; }
-
-    void login(String rawHost, String user, String password, Done<JSONObject> done) {
+    String absolute(String path) { return routes == null ? path : routes.addresses(path).get(0); }
+    boolean trusted(String path) { return routes != null && routes.trusted(path); }
+    java.util.List<String> mediaAddresses(String path) { return routes.addresses(path); }
+    JSONArray backupUrls() { return new JSONArray(routes == null ? java.util.Collections.emptyList() : routes.backups()); }
+    void resolveDownload(String path, Done<String> done) {
         pool.execute(() -> {
             try {
-                String normalized = rawHost.trim().replaceAll("/+$", "");
-                URL parsed = new URL(normalized);
-                if (!("http".equals(parsed.getProtocol()) || "https".equals(parsed.getProtocol())))
-                    throw new IllegalArgumentException("Host 必须以 http:// 或 https:// 开头");
-                if (parsed.getHost().isEmpty() || parsed.getUserInfo() != null || parsed.getQuery() != null || parsed.getRef() != null || !parsed.getPath().isEmpty())
-                    throw new IllegalArgumentException("请输入服务器根地址，例如 https://example.com");
-                host = normalized; cookie = ""; csrf = "";
+                if (!trusted(path)) throw new IllegalArgumentException("下载地址不属于配置的服务器");
+                String result = routes.execute(path, (address, trusted) -> {
+                    HttpURLConnection connection = (HttpURLConnection) new URL(address).openConnection();
+                    connection.setConnectTimeout(6000); connection.setReadTimeout(15000); connection.setInstanceFollowRedirects(false);
+                    connection.setRequestProperty("Range", "bytes=0-0");
+                    if (!cookie.isEmpty()) connection.setRequestProperty("Cookie", cookie);
+                    try {
+                        int status = connection.getResponseCode();
+                        if (status == 502 || status == 503 || status == 504) throw new java.io.IOException("HTTP " + status);
+                        if (status >= 400) throw new IllegalArgumentException("下载暂不可用（HTTP " + status + "）");
+                        return address;
+                    } catch (java.io.IOException error) { throw new ServerRoutes.Failure("连接下载服务器失败", error, true); }
+                    finally { connection.disconnect(); }
+                });
+                post(done, result, null);
+            } catch (Exception error) { post(done, null, error); }
+        });
+    }
+    private static ArrayList<String> strings(JSONArray values) throws Exception {
+        ArrayList<String> result = new ArrayList<>();
+        for (int i = 0; i < values.length(); i++) result.add(values.getString(i));
+        return result;
+    }
+    void setBackupUrls(JSONArray values) throws Exception {
+        routes = new ServerRoutes(host, strings(values));
+        prefs.edit().putString("backups", backupUrls().toString()).apply();
+    }
+
+    void login(String rawHost, String backups, String user, String password, Done<JSONObject> done) {
+        pool.execute(() -> {
+            try {
+                ServerRoutes selected = new ServerRoutes(rawHost, strings(new JSONArray(backups)));
+                routes = selected; host = selected.primary(); cookie = ""; csrf = "";
+                prefs.edit().putString("host", host).putString("backups", backupUrls().toString()).putString("user", user.trim()).apply();
                 JSONObject body = new JSONObject().put("userId", user.trim()).put("password", password);
                 JSONObject data = send("POST", "/api/auth/login", body).getJSONObject("data");
                 csrf = data.optString("csrfToken");
@@ -164,7 +197,7 @@ final class ApiClient {
         mediaPool.execute(() -> {
             File file = null;
             try {
-                String address = absolute(url), cacheKey = hash(scope() + address);
+                String address = absolute(url), cacheKey = hash(scope() + routes.canonical(url));
                 file = new File(imageCache, cacheKey);
                 if (!file.isFile() || force) {
                     try {
@@ -200,8 +233,8 @@ final class ApiClient {
         if (url == null || url.isEmpty()) { post(done, null, null); return; }
         pool.execute(() -> {
             try {
-                String absolute = url.startsWith("http") ? url : host + url;
-                String key = hash(scope() + absolute);
+                String absolute = absolute(url);
+                String key = hash(scope() + routes.canonical(url));
                 File file = new File(imageCache, key);
                 byte[] bytes;
                 if (file.isFile()) {
@@ -238,39 +271,42 @@ final class ApiClient {
 
     private byte[] raw(String method, String address, byte[] body) throws Exception { return raw(method, address, body, "application/json; charset=UTF-8"); }
     private byte[] raw(String method, String address, byte[] body, String contentType) throws Exception {
-        try { return raw(method, address, body, contentType, 0); }
-        catch (java.io.IOException failure) {
-            if (!"GET".equals(method)) throw failure;
-            // A dropped connection is safe to retry for reads; writes are never replayed.
-            return raw(method, address, body, contentType, 0);
-        }
+        ServerRoutes selected = routes;
+        if (selected == null) throw new IllegalArgumentException("请先填写服务器地址");
+        return selected.execute(address, (target, trusted) -> raw(method, target, body, contentType, 0, trusted));
     }
-    private byte[] raw(String method, String address, byte[] body, String contentType, int redirects) throws Exception {
+    private byte[] raw(String method, String address, byte[] body, String contentType, int redirects, boolean trusted) throws Exception {
         HttpURLConnection connection = (HttpURLConnection) new URL(address).openConnection();
-        connection.setConnectTimeout(12000);
+        connection.setConnectTimeout(6000);
         connection.setReadTimeout(30000);
         connection.setInstanceFollowRedirects(false);
         connection.setRequestMethod(method);
         connection.setRequestProperty("Accept", "application/json, image/*, */*");
-        boolean sameOrigin = URI.create(host).getScheme().equalsIgnoreCase(URI.create(address).getScheme())
-                && URI.create(host).getAuthority().equalsIgnoreCase(URI.create(address).getAuthority());
+        boolean sameOrigin = trusted && routes.trusted(address);
         if (sameOrigin && !cookie.isEmpty()) connection.setRequestProperty("Cookie", cookie);
         if (sameOrigin && !csrf.isEmpty() && !"GET".equals(method)) connection.setRequestProperty("X-CSRF-Token", csrf);
+        boolean sent = false;
+        boolean retrySafe = "GET".equals(method) || "/api/auth/login".equals(URI.create(address).getPath());
         try {
             if (body != null) {
                 connection.setDoOutput(true);
                 connection.setRequestProperty("Content-Type", contentType);
-                try (java.io.OutputStream output = connection.getOutputStream()) { output.write(body); }
+                try (java.io.OutputStream output = connection.getOutputStream()) { sent = true; output.write(body); }
             }
+            if (body == null && !"GET".equals(method)) sent = true;
             int status = connection.getResponseCode();
             if ("GET".equals(method) && status >= 300 && status < 400 && connection.getHeaderField("Location") != null) {
                 if (redirects >= 5) throw new IllegalStateException("图片重定向过多");
                 String next = new URL(new URL(address), connection.getHeaderField("Location")).toString();
                 connection.disconnect();
-                return raw(method, next, null, contentType, redirects + 1);
+                return raw(method, next, null, contentType, redirects + 1, trusted && routes.trusted(next));
             }
             String setCookie = connection.getHeaderField("Set-Cookie");
-            if (sameOrigin && setCookie != null && !setCookie.isEmpty()) cookie = setCookie.split(";", 2)[0];
+            if (sameOrigin && setCookie != null && !setCookie.isEmpty()) {
+                cookie = setCookie.split(";", 2)[0];
+                if (!prefs.getString("user", "").isEmpty()) prefs.edit().putString("session", encrypt(cookie)).apply();
+            }
+            if (status == 502 || status == 503 || status == 504) throw new ServerRoutes.Failure("服务器暂不可用（HTTP " + status + "）", null, retrySafe);
             InputStream stream = status >= 400 ? connection.getErrorStream() : connection.getInputStream();
             byte[] bytes = readAll(stream);
             if (sameOrigin && status == 401) { cookie = ""; prefs.edit().remove("session").apply(); }
@@ -279,6 +315,9 @@ final class ApiClient {
                 catch (org.json.JSONException ignored) { throw new IllegalStateException("HTTP " + status); }
             }
             return bytes;
+        } catch (java.io.IOException e) {
+            if (e instanceof ServerRoutes.Failure) throw e;
+            throw new ServerRoutes.Failure(sent && !retrySafe ? "连接中断，操作结果尚未确认，请刷新后重试" : "连接服务器失败", e, retrySafe || !sent);
         } finally { connection.disconnect(); }
     }
 

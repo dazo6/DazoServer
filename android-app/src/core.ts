@@ -3,31 +3,20 @@ export {
   query,
   allowed,
   dateLabel,
+  updateAge,
   bytesLabel,
   fileUrl,
   readingOffset,
+  galleryRestoreOffset,
   galleryMediaUrl,
   upcomingImageUrls,
 } from "./domain";
 
 export type Row = Record<string, any>;
-export type Screen = {
-  name:
-    | "home"
-    | "artists"
-    | "free"
-    | "more"
-    | "gallery"
-    | "history"
-    | "tasks"
-    | "users"
-    | "account"
-    | "storage";
-  path?: string;
-  artistId?: string;
-};
+export type { Screen } from "./navigation";
 export type Boot = {
   host: string;
+  backupUrls: string[];
   userId: string;
   scope: string;
   me: Row | null;
@@ -41,7 +30,15 @@ export const Native = NativeModules.DazoBridge as {
   setAutoUpdate(value: boolean): void;
   cancelUpdate(): void;
   installUpdate(): Promise<void>;
-  login(host: string, user: string, password: string): Promise<string>;
+  login(
+    host: string,
+    backups: string,
+    user: string,
+    password: string,
+  ): Promise<string>;
+  themeMode(): Promise<string>;
+  setThemeMode(value: string): void;
+  setBackupUrls(value: string): Promise<string>;
   request(method: string, path: string, body: string): Promise<string>;
   media(path: string, force: boolean): Promise<string>;
   saveState(scope: string, json: string): void;
@@ -57,7 +54,14 @@ export const Native = NativeModules.DazoBridge as {
 let values: Row = {},
   scope = "",
   timer: ReturnType<typeof setTimeout> | undefined;
+const listeners = new Set<() => void>();
 export const memory = {
+  subscribe(listener: () => void) {
+    listeners.add(listener);
+    return () => {
+      listeners.delete(listener);
+    };
+  },
   init(boot: Boot) {
     if (timer) clearTimeout(timer);
     scope = boot.scope;
@@ -72,6 +76,7 @@ export const memory = {
   },
   set(key: string, value: any) {
     values[key] = value;
+    listeners.forEach((listener) => listener());
     if (timer) clearTimeout(timer);
     timer = setTimeout(() => this.flush(), 250);
   },

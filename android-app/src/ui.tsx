@@ -19,19 +19,11 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { memory, Native, Row } from "./core";
-import { useApp } from "./context";
+import { useApp, useScreenActive } from "./context";
 import { loadMedia } from "./media";
 
-export const C = {
-  blue: "#218ec5",
-  cyan: "#55bfda",
-  ink: "#172033",
-  muted: "#687386",
-  bg: "#f1f5f9",
-  line: "#e3eaf1",
-  pale: "#eaf6fb",
-  red: "#c43d4b",
-};
+export { useUI } from "./theme";
+import { useUI } from "./theme";
 const NativeIcon = requireNativeComponent<{
   kind: string;
   color: string;
@@ -40,16 +32,17 @@ const NativeIcon = requireNativeComponent<{
 export function Icon({
   name,
   size = 26,
-  color = C.blue,
+  color,
 }: {
   name: string;
   size?: number;
   color?: string;
 }) {
+  const { C, S } = useUI();
   return (
     <NativeIcon
       kind={name}
-      color={color}
+      color={color || C.blue}
       style={{ width: size, height: size }}
     />
   );
@@ -67,13 +60,14 @@ export function IconButton({
   filled?: boolean;
   disabled?: boolean;
 }) {
+  const { C, S } = useUI();
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={label}
       disabled={disabled}
       onPress={onPress}
-      android_ripple={{ color: "#d5eaf5", borderless: !filled }}
+      android_ripple={{ color: C.ripple, borderless: !filled }}
       style={[
         S.iconButton,
         filled && { backgroundColor: C.pale, borderRadius: 12 },
@@ -99,6 +93,7 @@ export function Txt({
   style?: any;
   lines?: number;
 }) {
+  const { C, S } = useUI();
   return (
     <Text
       numberOfLines={lines}
@@ -125,10 +120,11 @@ export function Card({
   style?: StyleProp<ViewStyle>;
   onPress?(): void;
 }) {
+  const { C, S } = useUI();
   return onPress ? (
     <Pressable
       onPress={onPress}
-      android_ripple={{ color: "#eff6fa" }}
+      android_ripple={{ color: C.ripple }}
       style={[S.card, style]}
     >
       {children}
@@ -144,6 +140,7 @@ export function Badge({
   label: string;
   active?: boolean;
 }) {
+  const { C, S } = useUI();
   return (
     <View
       style={{
@@ -175,6 +172,7 @@ export function Button({
   busy?: boolean;
   disabled?: boolean;
 }) {
+  const { C, S } = useUI();
   return (
     <Pressable
       onPress={onPress}
@@ -185,7 +183,7 @@ export function Button({
         {
           backgroundColor: quiet
             ? danger
-              ? "#fff1f3"
+              ? C.dangerBg
               : C.pale
             : danger
               ? C.red
@@ -195,11 +193,11 @@ export function Button({
       ]}
     >
       {busy ? (
-        <ActivityIndicator color={quiet ? C.blue : "white"} />
+        <ActivityIndicator color={quiet ? C.blue : C.onBlue} />
       ) : (
         <Txt
           bold
-          style={{ color: quiet ? (danger ? C.red : C.blue) : "white" }}
+          style={{ color: quiet ? (danger ? C.red : C.blue) : C.onBlue }}
         >
           {title}
         </Txt>
@@ -224,6 +222,7 @@ export function Input({
   multiline?: boolean;
   autoCapitalize?: "none" | "sentences";
 }) {
+  const { C, S } = useUI();
   return (
     <View style={{ gap: 6, marginBottom: 14 }}>
       {label && (
@@ -235,7 +234,7 @@ export function Input({
         value={value}
         onChangeText={onChange}
         placeholder={placeholder}
-        placeholderTextColor="#98a3b3"
+        placeholderTextColor={C.muted}
         secureTextEntry={secure}
         multiline={multiline}
         autoCapitalize={autoCapitalize}
@@ -259,6 +258,7 @@ export function SearchBar({
   placeholder: string;
   onFilter?(): void;
 }) {
+  const { C, S } = useUI();
   return (
     <View style={S.search}>
       <Icon name="search" color={C.muted} size={24} />
@@ -271,7 +271,7 @@ export function SearchBar({
           paddingHorizontal: 8,
         }}
         placeholder={placeholder}
-        placeholderTextColor="#98a3b3"
+        placeholderTextColor={C.muted}
         value={value}
         onChangeText={onChange}
         returnKeyType="search"
@@ -298,6 +298,7 @@ export function Section({
   detail?: string;
   action?: ReactNode;
 }) {
+  const { C, S } = useUI();
   return (
     <View style={[S.row, { marginBottom: 12 }]}>
       <View style={{ flex: 1 }}>
@@ -321,6 +322,7 @@ export function Empty({
   title?: string;
   loading?: boolean;
 }) {
+  const { C, S } = useUI();
   return (
     <View style={{ alignItems: "center", paddingVertical: 72, gap: 12 }}>
       {loading ? (
@@ -345,6 +347,8 @@ export function Page({
   scrollKey?: string;
   loading?: boolean;
 }) {
+  const { C, S } = useUI();
+  const active = useScreenActive();
   const ref = useRef<React.ElementRef<typeof ScrollView>>(null),
     restored = useRef(false),
     y = useRef(scrollKey ? memory.get("scroll:" + scrollKey, 0) : 0);
@@ -370,10 +374,18 @@ export function Page({
         }
       }}
       onScroll={(e) => {
-        if (restored.current && scrollKey)
+        if (active && restored.current && scrollKey)
           memory.set("scroll:" + scrollKey, e.nativeEvent.contentOffset.y);
       }}
-      scrollEventThrottle={150}
+      onScrollEndDrag={(e) => {
+        if (active && restored.current && scrollKey)
+          memory.set("scroll:" + scrollKey, e.nativeEvent.contentOffset.y);
+      }}
+      onMomentumScrollEnd={(e) => {
+        if (active && restored.current && scrollKey)
+          memory.set("scroll:" + scrollKey, e.nativeEvent.contentOffset.y);
+      }}
+      scrollEventThrottle={32}
     >
       {children}
     </ScrollView>
@@ -390,6 +402,7 @@ export function Sheet({
   onClose(): void;
   children?: ReactNode;
 }) {
+  const { C, S } = useUI();
   const inset = useSafeAreaInsets();
   return (
     <Modal
@@ -465,6 +478,7 @@ export function Menu({
   items: MenuItem[];
   onClose(): void;
 }) {
+  const { C, S } = useUI();
   return (
     <Sheet title={title} visible onClose={onClose}>
       {items.map((item, i) => (
@@ -501,6 +515,7 @@ export function Options<T extends string | number>({
   value: T;
   onChange(v: T): void;
 }) {
+  const { C, S } = useUI();
   return (
     <View style={{ marginBottom: 20, gap: 9 }}>
       <Txt size={13} muted>
@@ -548,6 +563,7 @@ export function SettingRow({
   onPress?(): void;
   danger?: boolean;
 }) {
+  const { C, S } = useUI();
   return (
     <Pressable
       disabled={!onPress}
@@ -566,7 +582,8 @@ export function SettingRow({
   );
 }
 export function Divider() {
-  return <View style={{ height: 1, backgroundColor: "#edf1f5" }} />;
+  const { C, S } = useUI();
+  return <View style={{ height: 1, backgroundColor: C.line }} />;
 }
 export function Pager({
   page,
@@ -579,6 +596,7 @@ export function Pager({
   size: number;
   onChange(page: number): void;
 }) {
+  const { C, S } = useUI();
   return (
     <View style={[S.row, { marginTop: 4, marginBottom: 14 }]}>
       <IconButton
@@ -617,6 +635,7 @@ export function Media({
   onRatio?(ratio: number): void;
   contain?: boolean;
 }) {
+  const { C, S } = useUI();
   const { scope } = useApp(),
     [image, setImage] = useState<Row | null>(null),
     [failed, setFailed] = useState(false);
@@ -687,58 +706,3 @@ export function confirm(title: string, action: () => void, message?: string) {
     { text: "确定", onPress: action },
   ]);
 }
-export const S = StyleSheet.create({
-  row: { flexDirection: "row", alignItems: "center" },
-  page: { padding: 16, paddingBottom: 24, gap: 0 },
-  card: {
-    backgroundColor: "white",
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: C.line,
-    padding: 16,
-    marginBottom: 12,
-    overflow: "hidden",
-  },
-  iconButton: {
-    height: 44,
-    width: 44,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  button: {
-    minHeight: 48,
-    borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 18,
-    marginBottom: 10,
-  },
-  input: {
-    minHeight: 48,
-    fontSize: 16,
-    color: C.ink,
-    borderWidth: 1,
-    borderColor: C.line,
-    backgroundColor: "white",
-    borderRadius: 10,
-    paddingHorizontal: 13,
-    paddingVertical: 10,
-  },
-  search: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "white",
-    borderWidth: 1,
-    borderColor: C.line,
-    borderRadius: 13,
-    paddingLeft: 12,
-    paddingRight: 4,
-    minHeight: 50,
-    marginBottom: 16,
-  },
-  sheet: {
-    backgroundColor: "white",
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-  },
-});

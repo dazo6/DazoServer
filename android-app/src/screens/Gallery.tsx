@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useUI } from "../theme";
+import React, { useContext, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -23,15 +24,20 @@ import {
   Native,
   query,
   Row,
-  readingOffset,
+  galleryRestoreOffset,
   galleryMediaUrl,
   upcomingImageUrls,
 } from "../core";
-import { useApp, useRemote, useSaved } from "../context";
+import {
+  NavigationTab,
+  useApp,
+  useRemote,
+  useSaved,
+  useScreenActive,
+} from "../context";
 import { useMediaPrefetch } from "../media";
 import {
   Button,
-  C,
   Card,
   Empty,
   Icon,
@@ -39,7 +45,6 @@ import {
   Media,
   Menu,
   Options,
-  S,
   Sheet,
   Txt,
 } from "../ui";
@@ -53,10 +58,17 @@ type Position = { offset: number; anchor: string; within: number };
 export function Gallery({
   path,
   artistId,
+  header,
 }: {
   path: string;
   artistId?: string;
+  header: React.ReactNode;
 }) {
+  const { C, S } = useUI();
+  const active = useScreenActive();
+  const tab = useContext(NavigationTab);
+  const activeRef = useRef(active);
+  activeRef.current = active;
   const { me, scope, originalImages, request, navigate, report, toast } =
       useApp(),
     width = useWindowDimensions().width - 4;
@@ -84,25 +96,39 @@ export function Gallery({
   );
   const items: Row[] = remote.data?.images || [],
     ref = useRef<FlatList<Row>>(null),
-    positionKey = "gallery:position:" + path;
+    positionKey = "gallery:position:" + tab + ":" + path,
+    readerKey = "gallery:reader:" + tab + ":" + path;
   const saved = useRef<Position>(
-      memory.get(positionKey, { offset: 0, anchor: "", within: 0 }),
+      memory.get(
+        positionKey,
+        memory.get("gallery:position:" + path, {
+          offset: 0,
+          anchor: "",
+          within: 0,
+        }),
+      ),
     ),
     live = useRef({ ...saved.current }),
     restored = useRef(false),
+    restoreTarget = useRef<number | null>(null),
     first = useRef(0),
+    [viewportHeight, setViewportHeight] = useState(0),
+    [contentHeight, setContentHeight] = useState(0),
     [prefetchFrom, setPrefetchFrom] = useState(0),
     [ratios, setRatios] = useState<Record<string, number>>({});
-  const reader = memory.get<string>("gallery:reader:" + path, "");
+  const reader = memory.get<string>(
+    readerKey,
+    memory.get("gallery:reader:" + path, ""),
+  );
   const mediaPath = (item: Row) => galleryMediaUrl(path, item, originalImages);
   useMediaPrefetch(
     scope,
-    originalImages && viewer === null
+    active && originalImages && viewer === null
       ? upcomingImageUrls(path, items, prefetchFrom)
       : [],
   );
   const layouts = useMemo(() => {
-    let offset = 2;
+    let offset = 94;
     return items.map((item) => {
       const url = mediaPath(item),
         ratio = ratios[item.name] || memory.get("ratio:" + url, 1);
@@ -117,12 +143,40 @@ export function Gallery({
   }, [items, width, ratios, path, originalImages]);
   const layoutRef = useRef(layouts);
   layoutRef.current = layouts;
-  const restore = () => {
-    if (!items.length || restored.current) return;
-    const offset = readingOffset(items, layouts, saved.current);
-    restored.current = true;
-    ref.current?.scrollToOffset({ offset, animated: false });
-  };
+  useEffect(() => {
+    if (
+      !active ||
+      !items.length ||
+      restored.current ||
+      !viewportHeight ||
+      !contentHeight
+    )
+      return;
+    const offset = galleryRestoreOffset(
+      items,
+      layouts,
+      saved.current,
+      viewportHeight,
+      contentHeight,
+    );
+    if (offset === null) return;
+    restoreTarget.current = offset;
+    let timer: ReturnType<typeof setTimeout> | undefined,
+      attempts = 0;
+    const apply = () => {
+      if (restored.current || !activeRef.current) return;
+      ref.current?.scrollToOffset({ offset, animated: false });
+      if (offset < 1) {
+        live.current.offset = 0;
+        restored.current = true;
+      } else if (++attempts < 12) timer = setTimeout(apply, 120);
+    };
+    const frame = requestAnimationFrame(apply);
+    return () => {
+      cancelAnimationFrame(frame);
+      if (timer) clearTimeout(timer);
+    };
+  }, [active, layouts, viewportHeight, contentHeight]);
   useEffect(() => {
     const subscription = DeviceEventEmitter.addListener(
       "DazoUploadProgress",
@@ -159,10 +213,11 @@ export function Gallery({
     }
   };
   const open = (item: Row, index: number) => {
+    memory.set(positionKey, { ...live.current });
     if (item.type === "folder") {
       navigate({ name: "gallery", path: item.folderPath, artistId });
     } else {
-      memory.set("gallery:reader:" + path, item.name);
+      memory.set(readerKey, item.name);
       setViewer(index);
     }
   };
@@ -187,6 +242,7 @@ export function Gallery({
     }
   };
   const onViewable = useRef(({ viewableItems }: any) => {
+    if (!activeRef.current || !restored.current) return;
     const visible = viewableItems[0];
     if (visible) {
       first.current = visible.index || 0;
@@ -194,59 +250,67 @@ export function Gallery({
       live.current.anchor = visible.item.name;
       live.current.within =
         live.current.offset - (layoutRef.current[first.current]?.offset || 0);
+      memory.set(positionKey, { ...live.current });
     }
   }).current;
   return (
     <View style={{ flex: 1 }}>
-      <View
-        style={[
-          S.row,
-          {
-            backgroundColor: "white",
-            paddingLeft: 8,
-            paddingRight: 2,
-            borderBottomWidth: 1,
-            borderColor: C.line,
-            minHeight: 44,
-          },
-        ]}
-      >
-        <Txt size={12} muted style={{ flex: 1 }}>
-          {items.length} 项
-        </Txt>
-        {!!reader && items.some((a) => a.name === reader) && (
-          <Pressable
-            onPress={() => setViewer(items.findIndex((a) => a.name === reader))}
-            style={{ paddingVertical: 6, paddingHorizontal: 8 }}
-          >
-            <Txt size={12} bold style={{ color: C.blue }}>
-              继续浏览
-            </Txt>
-          </Pressable>
-        )}
-        <IconButton
-          name="sort"
-          label="图库排序"
-          onPress={() => {
-            setDraft(sort);
-            setSortOpen(true);
-          }}
-        />
-        {allowed(me, "update", path) && (
-          <IconButton
-            name="upload"
-            label="上传文件"
-            onPress={() => void uploadFile()}
-          />
-        )}
-        <IconButton
-          name="more"
-          label="图库选项"
-          onPress={() => setMenu(true)}
-        />
-      </View>
       <FlatList
         ref={ref}
+        ListHeaderComponent={
+          <>
+            {header}
+            <View
+              style={[
+                S.row,
+                {
+                  backgroundColor: C.surface,
+                  paddingLeft: 8,
+                  paddingRight: 2,
+                  borderBottomWidth: 1,
+                  borderColor: C.line,
+                  minHeight: 44,
+                },
+              ]}
+            >
+              <Txt size={12} muted style={{ flex: 1 }}>
+                {items.length} 项
+              </Txt>
+              {!!reader && items.some((a) => a.name === reader) && (
+                <Pressable
+                  onPress={() =>
+                    setViewer(items.findIndex((a) => a.name === reader))
+                  }
+                  style={{ paddingVertical: 6, paddingHorizontal: 8 }}
+                >
+                  <Txt size={12} bold style={{ color: C.blue }}>
+                    继续浏览
+                  </Txt>
+                </Pressable>
+              )}
+              <IconButton
+                name="sort"
+                label="图库排序"
+                onPress={() => {
+                  setDraft(sort);
+                  setSortOpen(true);
+                }}
+              />
+              {allowed(me, "update", path) && (
+                <IconButton
+                  name="upload"
+                  label="上传文件"
+                  onPress={() => void uploadFile()}
+                />
+              )}
+              <IconButton
+                name="more"
+                label="图库选项"
+                onPress={() => setMenu(true)}
+              />
+            </View>
+          </>
+        }
         data={items}
         keyExtractor={(item) => item.name}
         contentContainerStyle={{
@@ -267,18 +331,34 @@ export function Gallery({
         windowSize={5}
         removeClippedSubviews={false}
         getItemLayout={(_, index) => ({ ...layouts[index], index })}
-        onContentSizeChange={restore}
+        onLayout={(event) => setViewportHeight(event.nativeEvent.layout.height)}
+        onContentSizeChange={(_, height) => setContentHeight(height)}
         onViewableItemsChanged={onViewable}
         viewabilityConfig={{ itemVisiblePercentThreshold: 1 }}
         onScroll={(event) => {
-          if (!restored.current) return;
-          live.current.offset = event.nativeEvent.contentOffset.y;
-          live.current.within =
-            live.current.offset -
-            (layoutRef.current[first.current]?.offset || 0);
+          if (!active) return;
+          const offset = event.nativeEvent.contentOffset.y;
+          // The initial layout emits y=0 before the saved scroll command is applied.
+          if (!restored.current) {
+            if (
+              restoreTarget.current === null ||
+              Math.abs(offset - restoreTarget.current) > 2
+            )
+              return;
+            restored.current = true;
+          }
+          const index = layoutRef.current.findIndex(
+            (layout) => layout.offset + layout.length > offset,
+          );
+          first.current = Math.max(0, index);
+          live.current = {
+            offset,
+            anchor: items[first.current]?.name || "",
+            within: offset - (layoutRef.current[first.current]?.offset || 0),
+          };
           memory.set(positionKey, { ...live.current });
         }}
-        scrollEventThrottle={150}
+        scrollEventThrottle={32}
         ListEmptyComponent={
           <Empty loading={remote.loading} title="这个文件夹还是空的" />
         }
@@ -308,7 +388,7 @@ export function Gallery({
               onLongPress={() => setFileMenu(item)}
               delayLongPress={450}
               style={{
-                backgroundColor: "white",
+                backgroundColor: C.surface,
                 marginBottom: 2,
               }}
             >
@@ -390,7 +470,9 @@ export function Gallery({
             setSortOpen(false);
             saved.current = { offset: 0, anchor: "", within: 0 };
             memory.set(positionKey, saved.current);
-            restored.current = false;
+            live.current = { ...saved.current };
+            restoreTarget.current = 0;
+            restored.current = true;
             ref.current?.scrollToOffset({ offset: 0, animated: false });
           }}
         />
@@ -492,7 +574,7 @@ export function Gallery({
           index={viewer}
           setIndex={(index) => {
             setViewer(index);
-            memory.set("gallery:reader:" + path, items[index].name);
+            memory.set(readerKey, items[index].name);
           }}
           close={() => setViewer(null)}
           download={(item) => void download(item)}
@@ -516,6 +598,7 @@ function Viewer({
   close(): void;
   download(item: Row): void;
 }) {
+  const { C, S } = useUI();
   const { scope } = useApp();
   useMediaPrefetch(scope, upcomingImageUrls(path, items, index));
   const inset = useSafeAreaInsets(),
@@ -640,6 +723,7 @@ function Viewer({
       animationType="fade"
       onRequestClose={close}
       statusBarTranslucent
+      navigationBarTranslucent
     >
       <StatusBar barStyle="light-content" />
       <View

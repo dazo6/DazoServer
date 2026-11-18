@@ -5,12 +5,15 @@ import React, {
   useEffect,
   useRef,
   useState,
+  useSyncExternalStore,
 } from "react";
 import { memory, Native, Row, Screen } from "./core";
 
 export type AppContextValue = {
   me: Row;
   host: string;
+  backupUrls: string[];
+  setBackupUrls(urls: string[]): Promise<void>;
   scope: string;
   avatarVersion: number;
   originalImages: boolean;
@@ -26,19 +29,35 @@ export type AppContextValue = {
 };
 export const AppContext = createContext<AppContextValue>(null!);
 export const useApp = () => useContext(AppContext);
+export const ScreenActive = createContext(true);
+export const NavigationTab = createContext("home");
+export const useScreenActive = () => useContext(ScreenActive);
+export function useClock() {
+  const active = useScreenActive(),
+    [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    if (!active) return;
+    setNow(Date.now());
+    const timer = setInterval(() => setNow(Date.now()), 60000);
+    return () => clearInterval(timer);
+  }, [active]);
+  return now;
+}
 export function useSaved<T>(
   key: string,
   fallback: T,
 ): [T, (value: T | ((old: T) => T)) => void] {
-  const [value, update] = useState(() => memory.get(key, fallback));
+  const initial = useRef(fallback);
+  const value = useSyncExternalStore(memory.subscribe, () =>
+    memory.get(key, initial.current),
+  );
   const set = useCallback(
-    (next: T | ((old: T) => T)) =>
-      update((old) => {
-        const result =
-          typeof next === "function" ? (next as (v: T) => T)(old) : next;
-        memory.set(key, result);
-        return result;
-      }),
+    (next: T | ((old: T) => T)) => {
+      const old = memory.get(key, initial.current);
+      const result =
+        typeof next === "function" ? (next as (v: T) => T)(old) : next;
+      memory.set(key, result);
+    },
     [key],
   );
   return [value, set];
@@ -53,6 +72,7 @@ export function useDebounced<T>(value: T, ms = 400) {
 }
 export function useRemote<T>(loader: () => Promise<T>, deps: unknown[]) {
   const { report } = useApp();
+  const active = useScreenActive();
   const token = useRef(0);
   const [data, setData] = useState<T | null>(null),
     [loading, setLoading] = useState(true),
@@ -78,11 +98,11 @@ export function useRemote<T>(loader: () => Promise<T>, deps: unknown[]) {
     }
   }, deps);
   useEffect(() => {
-    void load();
+    if (active) void load();
     return () => {
       token.current++;
     };
-  }, [load]);
+  }, [load, active]);
   return {
     data,
     loading,

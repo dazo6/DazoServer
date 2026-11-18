@@ -28,7 +28,10 @@ final class AuthenticatedMediaSource extends BaseDataSource {
         int count;
         try { count = stream.input.read(buffer, offset, remaining < 0 ? length : (int)Math.min(length, remaining)); }
         catch (IOException error) { api.streamFailed(stream); throw error; }
-        if (count < 0) return C.RESULT_END_OF_INPUT;
+        if (count < 0) {
+            if (remaining > 0) { api.streamFailed(stream); throw new java.io.EOFException("媒体连接提前结束"); }
+            return C.RESULT_END_OF_INPUT;
+        }
         if (remaining >= 0) remaining -= count;
         bytesTransferred(count); return count;
     }

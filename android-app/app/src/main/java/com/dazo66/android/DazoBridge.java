@@ -30,7 +30,8 @@ public final class DazoBridge extends ReactContextBaseJavaModule {
 
     DazoBridge(ReactApplicationContext context, ApiClient api) {
         super(context); this.api = api;
-        updates = new UpdateManager(context, json -> {
+        updates = UpdateManager.get(context);
+        updates.setListener(json -> {
             if (context.hasActiveReactInstance()) context.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class).emit("DazoUpdateState", json);
         });
         context.addLifecycleEventListener(new LifecycleEventListener() {

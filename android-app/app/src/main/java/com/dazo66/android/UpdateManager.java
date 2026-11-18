@@ -9,7 +9,6 @@ import android.content.SharedPreferences;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.Signature;
-import android.database.Cursor;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Environment;
@@ -17,47 +16,52 @@ import android.os.Handler;
 import android.os.Looper;
 import android.provider.Settings;
 import androidx.core.content.FileProvider;
+import androidx.core.content.ContextCompat;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.security.MessageDigest;
 import java.util.HashSet;
 import java.util.Set;
-import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledFuture;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-/** Uses public GitHub Releases and the system download/installation services, without account cookies. */
+/** Public releases, resumable app-owned downloads, and Android's installation confirmation. */
 final class UpdateManager {
     interface Listener { void changed(String json); }
+    interface Progress { void changed(long downloaded, long total); }
+    private static UpdateManager instance;
+    static synchronized UpdateManager get(Context context) {
+        if (instance == null) instance = new UpdateManager(context);
+        return instance;
+    }
     private static final long CHECK_INTERVAL = 6L * 60 * 60 * 1000;
     private final Context context;
     private final SharedPreferences prefs;
-    private final DownloadManager downloads;
-    private final ScheduledExecutorService worker = Executors.newSingleThreadScheduledExecutor();
+    private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private final Handler main = new Handler(Looper.getMainLooper());
     private final AtomicBoolean checking = new AtomicBoolean();
+    private final AtomicBoolean transferring = new AtomicBoolean();
     private final long installedCode;
     private final String installedName;
     private final File directory;
-    private final Listener listener;
+    private volatile Listener listener;
     private volatile JSONObject candidate;
     private volatile String phase = "idle", message = "", error = "";
-    private volatile long downloadId = -1, downloaded = 0;
-    private volatile boolean visible, awaitingPermission;
-    private ScheduledFuture<?> polling;
+    private volatile long downloaded = 0;
+    private volatile boolean visible, awaitingPermission, cancelled;
+    private volatile HttpURLConnection activeConnection;
 
-    UpdateManager(Context context, Listener listener) {
-        this.context = context.getApplicationContext(); this.listener = listener;
+    private UpdateManager(Context context) {
+        this.context = context.getApplicationContext();
         prefs = context.getSharedPreferences("app-updates", 0);
-        downloads = (DownloadManager) context.getSystemService(Context.DOWNLOAD_SERVICE);
         try {
             PackageInfo info = context.getPackageManager().getPackageInfo(context.getPackageName(), 0);
             installedCode = versionCode(info); installedName = info.versionName;
@@ -65,12 +69,16 @@ final class UpdateManager {
         directory = new File(context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "updates");
         directory.mkdirs();
         try { candidate = new JSONObject(prefs.getString("candidate", "{}")); } catch (Exception ignored) { candidate = new JSONObject(); }
-        downloadId = prefs.getLong("downloadId", -1);
         worker.execute(() -> {
             try {
+                long legacy = prefs.getLong("downloadId", -1);
+                if (legacy >= 0) {
+                    ((DownloadManager) context.getSystemService(Context.DOWNLOAD_SERVICE)).remove(legacy);
+                    prefs.edit().remove("downloadId").putBoolean("active", true).commit();
+                }
                 if (candidate.optLong("versionCode") <= installedCode) { discardDownload(); candidate = new JSONObject(); prefs.edit().remove("candidate").apply(); }
                 else validateManifest(candidate);
-                reconcile();
+                recover();
             } catch (Exception e) { fail(e); }
         });
     }
@@ -85,18 +93,16 @@ final class UpdateManager {
                     .put("totalBytes", candidate.optLong("size")).toString();
         } catch (Exception e) { throw new IllegalStateException(e); }
     }
-    private void emit() { String value = state(); main.post(() -> listener.changed(value)); }
+    void setListener(Listener value) { listener = value; emit(); }
+    private void emit() { String value = state(); main.post(() -> { Listener target = listener; if (target != null) target.changed(value); }); }
     void setAutoCheck(boolean value) { prefs.edit().putBoolean("autoCheck", value).apply(); emit(); }
     void setVisible(boolean value) {
         visible = value;
-        worker.execute(() -> {
-            if (value) { try { reconcile(); } catch (Exception e) { fail(e); } }
-            else stopPolling();
-        });
+        if (value) worker.execute(() -> { try { recover(); } catch (Exception e) { fail(e); } });
     }
     void check(boolean manual) {
         if (!manual && (!prefs.getBoolean("autoCheck", true) || System.currentTimeMillis() - prefs.getLong("lastCheckedAt", 0) < CHECK_INTERVAL)) return;
-        if (downloadId >= 0 || "ready".equals(phase) || !checking.compareAndSet(false, true)) return;
+        if ("downloading".equals(phase) || "verifying".equals(phase) || "ready".equals(phase) || !checking.compareAndSet(false, true)) return;
         worker.execute(() -> {
             phase = "checking"; error = ""; message = "正在检查更新…"; emit();
             prefs.edit().putLong("lastCheckedAt", System.currentTimeMillis()).apply();
@@ -125,8 +131,9 @@ final class UpdateManager {
                 }
                 if (!apkPresent) throw new IllegalArgumentException("新版安装包尚未发布完整，请稍后重试");
                 if (manifest.getInt("minSdk") > Build.VERSION.SDK_INT) throw new IllegalArgumentException("新版暂不支持当前 Android 系统");
+                if (candidate.optLong("versionCode") != manifest.getLong("versionCode")) discardDownload();
                 candidate = manifest;
-                prefs.edit().putString("candidate", manifest.toString()).apply();
+                prefs.edit().putString("candidate", manifest.toString()).commit();
                 beginDownload();
             } catch (Exception e) { fail(e); }
             finally { checking.set(false); }
@@ -160,61 +167,108 @@ final class UpdateManager {
         if (!matches) throw new IllegalArgumentException("新版签名与当前安装来源不同，无法覆盖更新");
     }
     private File apkFile() { return new File(directory, "DazoMobile-" + candidate.optLong("versionCode") + ".apk"); }
+    private File partialFile() { return new File(directory, apkFile().getName() + ".part"); }
     private void beginDownload() throws Exception {
-        discardDownload();
-        DownloadManager.Request request = new DownloadManager.Request(Uri.parse(candidate.getString("apkUrl")));
-        request.setTitle("Dazo " + candidate.getString("versionName"));
-        request.setDescription("正在下载应用更新");
-        request.setMimeType("application/vnd.android.package-archive");
-        request.addRequestHeader("User-Agent", "DazoMobile/" + installedName);
-        request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE);
-        request.setDestinationInExternalFilesDir(context, Environment.DIRECTORY_DOWNLOADS, "updates/" + apkFile().getName());
-        downloadId = downloads.enqueue(request);
-        prefs.edit().putLong("downloadId", downloadId).apply();
-        downloaded = 0; phase = "downloading"; error = ""; message = "正在下载新版…"; emit(); startPolling();
+        prefs.edit().putBoolean("active", true).commit();
+        cancelled = false;
+        if (!visible) { phase = "available"; message = "发现新版，返回应用后开始下载"; emit(); return; }
+        downloaded = partialFile().length(); phase = "downloading"; error = ""; message = "正在下载新版…"; emit();
+        try { ContextCompat.startForegroundService(context, new Intent(context, UpdateDownloadService.class)); }
+        catch (RuntimeException e) { phase = "available"; message = "发现新版，请回到应用继续下载"; emit(); }
     }
-    private void reconcile() throws Exception {
-        if (downloadId < 0) return;
-        try (Cursor cursor = downloads.query(new DownloadManager.Query().setFilterById(downloadId))) {
-            if (cursor == null || !cursor.moveToFirst()) throw new IllegalStateException("更新下载已被移除，请重新检查");
-            int status = cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS));
-            downloaded = cursor.getLong(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR));
-            if (downloaded > candidate.optLong("size") || downloaded > UpdatePolicy.MAX_APK_BYTES) throw new IllegalArgumentException("更新包大小不一致");
-            if (status == DownloadManager.STATUS_SUCCESSFUL) {
-                if (!"ready".equals(phase)) {
-                    phase = "verifying"; message = "正在校验安装包…"; emit();
-                    verifyApk();
-                    phase = "ready"; message = "新版已下载，可以安装"; error = ""; emit();
-                }
-                stopPolling();
-            } else if (status == DownloadManager.STATUS_FAILED) {
-                throw new IllegalStateException("更新下载失败，请检查网络或存储空间后重试");
-            } else {
-                phase = "downloading";
-                message = status == DownloadManager.STATUS_PAUSED ? "等待网络连接…" : status == DownloadManager.STATUS_PENDING ? "等待开始下载…" : "正在下载新版…";
-                emit(); startPolling();
+    private void recover() throws Exception {
+        if (candidate.optLong("versionCode") <= installedCode || transferring.get() || checking.get()) return;
+        if (apkFile().isFile()) {
+            verifyApk(); downloaded = apkFile().length(); phase = "ready"; error = ""; message = "新版已下载，可以安装"; emit();
+        } else if (prefs.getBoolean("active", false) && !"error".equals(phase)) beginDownload();
+    }
+    /** Runs on the foreground service's worker, independent of the React Native lifecycle. */
+    void transfer(Progress progress) {
+        if (!prefs.getBoolean("active", false) || !transferring.compareAndSet(false, true)) return;
+        try {
+            validateManifest(candidate);
+            File partial = partialFile();
+            long total = candidate.getLong("size"), offset = partial.length();
+            if (offset > total) { partial.delete(); offset = 0; }
+            if (offset < total) {
+                HttpURLConnection connection = openDownload(candidate.getString("apkUrl"), offset);
+                try {
+                    int status = connection.getResponseCode();
+                    if (status == 200) offset = 0;
+                    else if (status == 206) {
+                        String range = connection.getHeaderField("Content-Range");
+                        if (! ("bytes " + offset + "-" + (total - 1) + "/" + total).equals(range)) throw new IllegalArgumentException("续传范围不一致，请重新下载");
+                    } else throw new java.io.IOException("HTTP " + status);
+                    long length = connection.getContentLengthLong();
+                    if (length >= 0 && length != total - offset) throw new IllegalArgumentException("更新包大小不一致");
+                    downloaded = offset;
+                    try (InputStream input = connection.getInputStream(); FileOutputStream output = new FileOutputStream(partial, offset > 0)) {
+                        byte[] buffer = new byte[65536]; int count; long emittedAt = 0;
+                        while ((count = input.read(buffer)) != -1) {
+                            if (cancelled || Thread.currentThread().isInterrupted()) throw new java.io.InterruptedIOException();
+                            if (downloaded + count > total) throw new IllegalArgumentException("更新包大小不一致");
+                            output.write(buffer, 0, count); downloaded += count;
+                            if (System.currentTimeMillis() - emittedAt > 500) {
+                                emittedAt = System.currentTimeMillis(); emit(); progress.changed(downloaded, total);
+                            }
+                        }
+                        output.getFD().sync();
+                    }
+                } finally { connection.disconnect(); activeConnection = null; }
             }
+            if (cancelled) throw new java.io.InterruptedIOException();
+            if (partial.length() != total) throw new java.io.IOException("下载中断");
+            if (!partial.renameTo(apkFile())) throw new java.io.IOException("无法保存更新包");
+            phase = "verifying"; message = "正在校验安装包…"; emit();
+            verifyApk();
+            if (cancelled) throw new java.io.InterruptedIOException();
+            downloaded = total; phase = "ready"; message = "新版已下载，可以安装"; error = "";
+            prefs.edit().putBoolean("active", false).commit(); emit();
+        } catch (Exception e) {
+            if (cancelled) { discardDownload(); phase = "idle"; message = "已取消下载"; error = ""; emit(); }
+            else { if (!(e instanceof java.io.IOException)) discardDownload(); fail(e); }
+        } finally { activeConnection = null; transferring.set(false); }
+    }
+    private HttpURLConnection openDownload(String address, long offset) throws Exception {
+        for (int redirects = 0; redirects < 6; redirects++) {
+            if (cancelled) throw new java.io.InterruptedIOException();
+            if (!UpdatePolicy.isHttps(address)) throw new IllegalArgumentException("更新连接必须使用 HTTPS");
+            HttpURLConnection connection = (HttpURLConnection) new URL(address).openConnection();
+            activeConnection = connection;
+            connection.setConnectTimeout(15000); connection.setReadTimeout(30000); connection.setInstanceFollowRedirects(false);
+            connection.setRequestProperty("User-Agent", "DazoMobile/" + installedName);
+            connection.setRequestProperty("Accept-Encoding", "identity");
+            if (offset > 0) connection.setRequestProperty("Range", "bytes=" + offset + "-");
+            try {
+                int status = connection.getResponseCode();
+                if (status >= 300 && status < 400 && connection.getHeaderField("Location") != null) {
+                    address = new URL(new URL(address), connection.getHeaderField("Location")).toString(); connection.disconnect(); continue;
+                }
+                return connection;
+            } catch (Exception e) { connection.disconnect(); throw e; }
         }
+        throw new IllegalArgumentException("更新连接重定向过多");
     }
-    private void startPolling() {
-        if (visible && (polling == null || polling.isDone())) polling = worker.scheduleWithFixedDelay(() -> {
-            try { reconcile(); } catch (Exception e) { fail(e); }
-        }, 1, 1, TimeUnit.SECONDS);
+    void interrupt() {
+        HttpURLConnection connection = activeConnection;
+        if (connection != null) connection.disconnect();
     }
-    private void stopPolling() { if (polling != null) polling.cancel(false); polling = null; }
-    void cancel() { worker.execute(() -> { discardDownload(); phase = "idle"; message = "已取消下载"; error = ""; emit(); }); }
+    void cancel() {
+        cancelled = true; interrupt();
+        worker.execute(() -> {
+            prefs.edit().putBoolean("active", false).commit();
+            if (!transferring.get()) { discardDownload(); phase = "idle"; message = "已取消下载"; error = ""; emit(); }
+        });
+    }
     private void discardDownload() {
-        stopPolling();
-        if (downloadId >= 0) downloads.remove(downloadId);
-        downloadId = -1; downloaded = 0;
-        prefs.edit().remove("downloadId").apply();
+        downloaded = 0;
+        prefs.edit().putBoolean("active", false).apply();
         File[] files = directory.listFiles();
         if (files != null) for (File file : files) if (file.isFile()) file.delete();
     }
     private void fail(Exception e) {
-        if (downloadId >= 0) discardDownload();
         phase = "error";
-        error = e instanceof java.io.IOException ? "连接更新服务失败，请检查网络后重试" : e.getMessage();
+        error = e instanceof java.io.IOException ? "连接更新服务失败，请检查网络后重试；已下载部分会保留" : e.getMessage();
         message = error; emit();
     }
     private void verifyApk() throws Exception {

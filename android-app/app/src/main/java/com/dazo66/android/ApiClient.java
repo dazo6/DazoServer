@@ -293,7 +293,10 @@ final class ApiClient {
                 connection.setRequestProperty("Content-Type", contentType);
                 try (java.io.OutputStream output = connection.getOutputStream()) { sent = true; output.write(body); }
             }
-            if (body == null && !"GET".equals(method)) sent = true;
+            if (body == null && !"GET".equals(method)) {
+                connection.connect(); // A failed connection can switch origins before sending a write.
+                sent = true;
+            }
             int status = connection.getResponseCode();
             if ("GET".equals(method) && status >= 300 && status < 400 && connection.getHeaderField("Location") != null) {
                 if (redirects >= 5) throw new IllegalStateException("图片重定向过多");

@@ -30,8 +30,8 @@ android {
         applicationId 'com.dazo66.android'
         minSdk 26
         targetSdk rootProject.ext.targetSdkVersion
-        versionCode 2
-        versionName providers.gradleProperty('appVersionName').getOrElse('1.1.0')
+        versionCode providers.gradleProperty('appVersionCode').getOrElse('3').toInteger()
+        versionName providers.gradleProperty('appVersionName').getOrElse('1.2.0')
     }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
@@ -44,4 +44,5 @@ dependencies {
     implementation('com.facebook.fresco:animated-gif:3.7.0')
     implementation('com.facebook.fresco:animated-webp:3.7.0')
     implementation('com.facebook.fresco:webpsupport:3.7.0')
+    testImplementation('junit:junit:4.13.2')
 }

@@ -85,14 +85,14 @@ jobs:
       - name: Build standalone APK
         run: |
           curl --fail --location --retry 3 --connect-timeout 20 --output "$RUNNER_TEMP/foojay-plugin.pom" 'https://plugins.gradle.org/m2/org/gradle/toolchains/foojay-resolver-convention/org.gradle.toolchains.foojay-resolver-convention.gradle.plugin/1.0.0/org.gradle.toolchains.foojay-resolver-convention.gradle.plugin-1.0.0.pom'
-          ./gradlew assembleDebug --no-daemon --max-workers=4 --stacktrace --info -PappVersionName="1.1.0-${GITHUB_SHA:0:7}"
+          export APP_VERSION_CODE=$((100000 + GITHUB_RUN_NUMBER))
+          export APP_VERSION_NAME="1.2.0.${GITHUB_RUN_NUMBER}"
+          echo "APP_VERSION_NAME=$APP_VERSION_NAME" >> "$GITHUB_ENV"
+          ./gradlew testDebugUnitTest assembleDebug --no-daemon --max-workers=4 --stacktrace --info -PappVersionCode="$APP_VERSION_CODE" -PappVersionName="$APP_VERSION_NAME"
 
       - name: Prepare APK and checksum
         run: |
-          mkdir -p dist
-          cp app/build/outputs/apk/debug/app-debug.apk dist/DazoMobile.apk
-          cd dist
-          sha256sum DazoMobile.apk > DazoMobile.apk.sha256
+          node ci/prepare-update.mjs
 
       - name: Upload APK
         id: upload
@@ -113,3 +113,30 @@ jobs:
       - name: Remove temporary signing key
         if: always()
         run: rm -f "$RUNNER_TEMP/dazo-debug.keystore"
+
+  publish:
+    name: Publish Android update
+    needs: build
+    if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: '24.22.1'
+          package-manager-cache: false
+      - name: Download this build's verified APK
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "DazoMobile-$GITHUB_RUN_NUMBER" --dir android-app/dist
+      - name: Publish complete update release
+        working-directory: android-app
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node ci/publish-update.mjs

@@ -27,6 +27,7 @@ import { AppContext, useSaved } from "./context";
 import { Button, C, Icon, IconButton, Input, Media, S, Txt } from "./ui";
 import { Artists, FreeGalleries, Home } from "./screens/Library";
 import { Gallery } from "./screens/Gallery";
+import { UpdateEntry, UpdateProvider } from "./updates";
 import {
   Account,
   History,
@@ -52,53 +53,55 @@ export default function App() {
   useEffect(bootstrap, [bootstrap]);
   return (
     <SafeAreaProvider>
-      <StatusBar barStyle="dark-content" />
-      {boot?.me ? (
-        <Authenticated
-          key={boot.scope}
-          initial={boot}
-          signedOut={() => setBoot({ ...boot, me: null })}
-        />
-      ) : boot ? (
-        <Login
-          initial={boot}
-          onLogin={(value) => {
-            memory.init(value);
-            setBoot(value);
-          }}
-        />
-      ) : (
-        <View
-          style={{
-            flex: 1,
-            backgroundColor: C.bg,
-            justifyContent: "center",
-            alignItems: "center",
-            gap: 12,
-          }}
-        >
-          {failure ? (
-            <>
-              <Txt muted>连接暂时不可用</Txt>
-              <Button title="重新连接" onPress={bootstrap} />
-              <Button
-                title="切换服务器"
-                quiet
-                onPress={() => {
-                  Native.connectionInfo()
-                    .then((raw) => setBoot(JSON.parse(raw)))
-                    .catch((e) => setFailure(e.message));
-                }}
-              />
-            </>
-          ) : (
-            <>
-              <ActivityIndicator color={C.blue} />
-              <Txt muted>正在连接…</Txt>
-            </>
-          )}
-        </View>
-      )}
+      <UpdateProvider>
+        <StatusBar barStyle="dark-content" />
+        {boot?.me ? (
+          <Authenticated
+            key={boot.scope}
+            initial={boot}
+            signedOut={() => setBoot({ ...boot, me: null })}
+          />
+        ) : boot ? (
+          <Login
+            initial={boot}
+            onLogin={(value) => {
+              memory.init(value);
+              setBoot(value);
+            }}
+          />
+        ) : (
+          <View
+            style={{
+              flex: 1,
+              backgroundColor: C.bg,
+              justifyContent: "center",
+              alignItems: "center",
+              gap: 12,
+            }}
+          >
+            {failure ? (
+              <>
+                <Txt muted>连接暂时不可用</Txt>
+                <Button title="重新连接" onPress={bootstrap} />
+                <Button
+                  title="切换服务器"
+                  quiet
+                  onPress={() => {
+                    Native.connectionInfo()
+                      .then((raw) => setBoot(JSON.parse(raw)))
+                      .catch((e) => setFailure(e.message));
+                  }}
+                />
+              </>
+            ) : (
+              <>
+                <ActivityIndicator color={C.blue} />
+                <Txt muted>正在连接…</Txt>
+              </>
+            )}
+          </View>
+        )}
+      </UpdateProvider>
     </SafeAreaProvider>
   );
 }
@@ -202,6 +205,7 @@ function Login({
         )}
         <View style={{ marginTop: 12 }}>
           <Button title="登录" busy={busy} onPress={() => void login()} />
+          <UpdateEntry />
         </View>
       </ScrollView>
     </KeyboardAvoidingView>

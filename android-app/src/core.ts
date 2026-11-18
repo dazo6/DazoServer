@@ -36,6 +36,11 @@ export type Boot = {
 export const Native = NativeModules.DazoBridge as {
   bootstrap(): Promise<string>;
   connectionInfo(): Promise<string>;
+  updateState(): Promise<string>;
+  checkUpdate(manual: boolean): void;
+  setAutoUpdate(value: boolean): void;
+  cancelUpdate(): void;
+  installUpdate(): Promise<void>;
   login(host: string, user: string, password: string): Promise<string>;
   request(method: string, path: string, body: string): Promise<string>;
   media(path: string, force: boolean): Promise<string>;

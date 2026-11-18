@@ -22,6 +22,7 @@ import org.json.JSONObject;
 /** Android facilities only; all screens and navigation are implemented in React Native. */
 public final class DazoBridge extends ReactContextBaseJavaModule {
     private final ApiClient api;
+    private final UpdateManager updates;
     private Promise picker;
     private String uploadFolder;
     private AtomicBoolean upload;
@@ -29,6 +30,14 @@ public final class DazoBridge extends ReactContextBaseJavaModule {
 
     DazoBridge(ReactApplicationContext context, ApiClient api) {
         super(context); this.api = api;
+        updates = new UpdateManager(context, json -> {
+            if (context.hasActiveReactInstance()) context.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class).emit("DazoUpdateState", json);
+        });
+        context.addLifecycleEventListener(new LifecycleEventListener() {
+            @Override public void onHostResume() { updates.setVisible(true); updates.resumeInstallation(context.getCurrentActivity()); }
+            @Override public void onHostPause() { updates.setVisible(false); }
+            @Override public void onHostDestroy() { updates.setVisible(false); }
+        });
         context.addActivityEventListener(new BaseActivityEventListener() {
             @Override public void onActivityResult(Activity activity, int code, int result, Intent data) {
                 if (code != PICK_FILE && code != PICK_AVATAR) return;
@@ -73,6 +82,14 @@ public final class DazoBridge extends ReactContextBaseJavaModule {
     }
     @ReactMethod public void connectionInfo(Promise promise) {
         try { promise.resolve(boot(null).toString()); } catch (Exception e) { promise.reject("BOOT", e); }
+    }
+    @ReactMethod public void updateState(Promise promise) { promise.resolve(updates.state()); }
+    @ReactMethod public void checkUpdate(boolean manual) { updates.check(manual); }
+    @ReactMethod public void setAutoUpdate(boolean value) { updates.setAutoCheck(value); }
+    @ReactMethod public void cancelUpdate() { updates.cancel(); }
+    @ReactMethod public void installUpdate(Promise promise) {
+        try { updates.install(getReactApplicationContext().getCurrentActivity()); promise.resolve(true); }
+        catch (Exception e) { promise.reject("UPDATE", e.getMessage(), e); }
     }
     @ReactMethod public void login(String host, String user, String password, Promise promise) {
         api.login(host, user, password, (me, error) -> { if (error != null) complete(promise, null, error); else try { promise.resolve(boot(me).toString()); } catch (Exception e) { promise.reject("LOGIN", e); } });

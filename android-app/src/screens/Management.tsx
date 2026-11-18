@@ -10,6 +10,7 @@ import {
   Row,
 } from "../core";
 import { useApp, useDebounced, useRemote, useSaved } from "../context";
+import { UpdateSection } from "../updates";
 import {
   Badge,
   Button,
@@ -631,6 +632,7 @@ export function Settings() {
   };
   return (
     <Page refreshing={refreshing} onRefresh={() => void refresh()}>
+      <UpdateSection />
       <Section title="图片浏览" />
       <Card style={{ paddingVertical: 0 }}>
         <View style={[S.row, { minHeight: 64, gap: 12 }]}>

@@ -335,6 +335,9 @@ export function Gallery({
         onContentSizeChange={(_, height) => setContentHeight(height)}
         onViewableItemsChanged={onViewable}
         viewabilityConfig={{ itemVisiblePercentThreshold: 1 }}
+        onScrollBeginDrag={() => {
+          restored.current = true;
+        }}
         onScroll={(event) => {
           if (!active) return;
           const offset = event.nativeEvent.contentOffset.y;

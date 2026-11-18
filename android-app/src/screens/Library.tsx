@@ -599,13 +599,13 @@ function ArtistCard({
     banner = !!a.banner;
   const ink = banner ? "#f8fafc" : C.ink,
     muted = banner ? "#dbe7f3" : C.muted;
-  const shadow = {
-    shadowColor: "#000000",
-    shadowOpacity: 0.3,
-    shadowRadius: 3,
-    shadowOffset: { width: 0, height: 1 },
-    elevation: 2,
-  };
+  const textShadow = banner
+    ? {
+        textShadowColor: "#00000088",
+        textShadowRadius: 2,
+        textShadowOffset: { width: 0, height: 1 },
+      }
+    : {};
   return (
     <Card
       onPress={open}
@@ -619,21 +619,18 @@ function ArtistCard({
             style={StyleSheet.absoluteFill}
           />
           <View
-            style={[StyleSheet.absoluteFill, { backgroundColor: "#07111d55" }]}
+            style={[StyleSheet.absoluteFill, { backgroundColor: "#07111d26" }]}
           />
         </>
       )}
       <View style={[S.row, { flex: 1, padding: 8, gap: 8 }]}>
         <View
-          style={[
-            shadow,
-            {
-              borderRadius: 13,
-              borderWidth: 1.5,
-              borderColor: banner ? "#ffffffce" : C.line,
-              backgroundColor: C.surface,
-            },
-          ]}
+          style={{
+            borderRadius: 13,
+            borderWidth: 1,
+            borderColor: banner ? "#ffffffce" : C.line,
+            backgroundColor: C.surface,
+          }}
         >
           <Media
             avatar
@@ -647,10 +644,6 @@ function ArtistCard({
             flex: 1,
             paddingHorizontal: 6,
             paddingVertical: 3,
-            borderRadius: 9,
-            borderWidth: banner ? 1 : 0,
-            borderColor: "#ffffff38",
-            backgroundColor: banner ? "#07111db8" : "transparent",
           }}
         >
           <Txt
@@ -659,13 +652,7 @@ function ArtistCard({
             lines={1}
             style={{
               color: ink,
-              ...(banner
-                ? {
-                    textShadowColor: "#000000aa",
-                    textShadowRadius: 3,
-                    textShadowOffset: { width: 0, height: 1 },
-                  }
-                : {}),
+              ...textShadow,
             }}
           >
             {a.name}
@@ -678,15 +665,20 @@ function ArtistCard({
               <Icon
                 name="power"
                 size={14}
+                shadow={banner}
                 color={a.enable ? (banner ? "#8bdfff" : C.blue) : muted}
               />
             </View>
             {!!a.compression && (
               <View accessible accessibilityLabel="图片压缩已开启">
-                <Icon name="compress" size={14} color={muted} />
+                <Icon name="compress" size={14} color={muted} shadow={banner} />
               </View>
             )}
-            <Txt size={11} lines={1} style={{ color: muted, flexShrink: 1 }}>
+            <Txt
+              size={11}
+              lines={1}
+              style={{ color: muted, flexShrink: 1, ...textShadow }}
+            >
               {updateAge(a.lastUpdate, now)}
             </Txt>
           </View>
@@ -697,16 +689,19 @@ function ArtistCard({
           onPress={menu}
           style={[
             S.iconButton,
-            shadow,
             {
-              backgroundColor: banner ? "#07111dc9" : C.pale,
+              backgroundColor: banner ? "transparent" : C.pale,
               borderRadius: 11,
-              borderWidth: 1,
-              borderColor: banner ? "#ffffff88" : C.line,
+              borderWidth: banner ? 0 : 1,
+              borderColor: C.line,
             },
           ]}
         >
-          <Icon name="more" color={banner ? "#ffffff" : C.blue} />
+          <Icon
+            name="more"
+            color={banner ? "#ffffff" : C.blue}
+            shadow={banner}
+          />
         </Pressable>
       </View>
     </Card>

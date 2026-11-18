@@ -27,22 +27,26 @@ import { useUI } from "./theme";
 const NativeIcon = requireNativeComponent<{
   kind: string;
   color: string;
+  shadow: boolean;
   style: StyleProp<ViewStyle>;
 }>("DazoIcon");
 export function Icon({
   name,
   size = 26,
   color,
+  shadow = false,
 }: {
   name: string;
   size?: number;
   color?: string;
+  shadow?: boolean;
 }) {
   const { C, S } = useUI();
   return (
     <NativeIcon
       kind={name}
       color={color || C.blue}
+      shadow={shadow}
       style={{ width: size, height: size }}
     />
   );

@@ -16,10 +16,10 @@ public final class DazoPackage implements ReactPackage {
     @Override public List<NativeModule> createNativeModules(ReactApplicationContext context) { return Collections.singletonList(new DazoBridge(context, client(context))); }
     @Override public List<ViewManager> createViewManagers(ReactApplicationContext context) { return Arrays.asList(new IconManager(), new VideoManager(client(context))); }
     public static final class IconFrame extends FrameLayout {
-        String kind = "home"; int color = 0xff218ec5;
+        String kind = "home"; int color = 0xff218ec5; boolean shadow;
         IconFrame(Context context) { super(context); }
         void update() {
-            removeAllViews(); ActionIcon icon = new ActionIcon(getContext(), kind, color); addView(icon, new LayoutParams(-1,-1));
+            removeAllViews(); ActionIcon icon = new ActionIcon(getContext(), kind, color, shadow); addView(icon, new LayoutParams(-1,-1));
             post(() -> { icon.measure(MeasureSpec.makeMeasureSpec(getWidth(), MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(getHeight(), MeasureSpec.EXACTLY)); icon.layout(0,0,getWidth(),getHeight()); });
         }
     }
@@ -28,6 +28,7 @@ public final class DazoPackage implements ReactPackage {
         @Override protected IconFrame createViewInstance(ThemedReactContext context) { return new IconFrame(context); }
         @ReactProp(name="kind") public void setKind(IconFrame view, String kind) { view.kind = kind; view.update(); }
         @ReactProp(name="color", customType="Color", defaultInt=0xff218ec5) public void setColor(IconFrame view, int color) { view.color = color; view.update(); }
+        @ReactProp(name="shadow", defaultBoolean=false) public void setShadow(IconFrame view, boolean shadow) { view.shadow = shadow; view.update(); }
     }
     @androidx.media3.common.util.UnstableApi
     public static final class VideoManager extends SimpleViewManager<VideoFrame> {

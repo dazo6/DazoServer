@@ -44,6 +44,8 @@ final class VideoFrame extends FrameLayout {
         surface.setShutterBackgroundColor(Color.BLACK); surface.setKeepContentOnPlayerReset(false);
         surface.setUseArtwork(false); surface.setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER);
         surface.setShowPreviousButton(false); surface.setShowNextButton(false);
+        surface.setControllerAutoShow(false); surface.setControllerHideOnTouch(true);
+        surface.setControllerShowTimeoutMs(2500);
         addView(surface, new LayoutParams(-1, -1));
         spinner = new ProgressBar(context); addView(spinner, new LayoutParams(dp(38), dp(38), Gravity.CENTER));
         status = label(context); LayoutParams text = new LayoutParams(-2, -2, Gravity.CENTER); text.topMargin = dp(82); addView(status, text);
@@ -71,7 +73,7 @@ final class VideoFrame extends FrameLayout {
         player = new ExoPlayer.Builder(getContext()).setLoadControl(new DefaultLoadControl.Builder()
                 .setBufferDurationsMs(15000, 30000, 2000, 2000).setPrioritizeTimeOverSizeThresholds(true).build()).build();
         player.setMediaSource(new ProgressiveMediaSource.Factory(() -> new AuthenticatedMediaSource(api)).createMediaSource(MediaItem.fromUri(address)));
-        surface.setPlayer(player); applyRate();
+        surface.setPlayer(player); surface.hideController(); applyRate();
         player.addListener(new Player.Listener() {
             @Override public void onPlaybackStateChanged(int state) {
                 if (state == Player.STATE_BUFFERING) buffering("正在缓冲…");

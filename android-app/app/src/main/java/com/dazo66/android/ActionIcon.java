@@ -11,7 +11,15 @@ final class ActionIcon extends View {
     private final int color;
     private final Paint p = new Paint(3);
     ActionIcon(Context context, String kind) { this(context, kind, 0xff218ec5); }
-    ActionIcon(Context context, String kind, int color) { super(context); this.kind = kind; this.color = color; }
+    ActionIcon(Context context, String kind, int color) { this(context, kind, color, false); }
+    ActionIcon(Context context, String kind, int color, boolean shadow) {
+        super(context); this.kind = kind; this.color = color;
+        if (shadow) {
+            // Shadow follows the icon strokes, including on Android 8–9; no rectangular backing.
+            setLayerType(View.LAYER_TYPE_SOFTWARE, null);
+            p.setShadowLayer(3f, 0f, 1.5f, 0x88000000);
+        }
+    }
     @Override protected void onDraw(Canvas canvas) {
         float unit = Math.min(getWidth(), getHeight()) / 48f;
         canvas.save(); canvas.translate((getWidth() - 48 * unit) / 2, (getHeight() - 48 * unit) / 2); canvas.scale(unit, unit);

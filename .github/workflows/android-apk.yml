@@ -83,7 +83,9 @@ jobs:
           echo "DAZO_DEBUG_KEYSTORE=$RUNNER_TEMP/dazo-debug.keystore" >> "$GITHUB_ENV"
 
       - name: Build standalone APK
-        run: ./gradlew assembleDebug --no-daemon --max-workers=4 --stacktrace -PappVersionName="1.1.0-${GITHUB_SHA:0:7}"
+        run: |
+          curl --fail --location --retry 3 --connect-timeout 20 --output "$RUNNER_TEMP/foojay-plugin.pom" 'https://plugins.gradle.org/m2/org/gradle/toolchains/foojay-resolver-convention/org.gradle.toolchains.foojay-resolver-convention.gradle.plugin/1.0.0/org.gradle.toolchains.foojay-resolver-convention.gradle.plugin-1.0.0.pom'
+          ./gradlew assembleDebug --no-daemon --max-workers=4 --stacktrace --info -PappVersionName="1.1.0-${GITHUB_SHA:0:7}"
 
       - name: Prepare APK and checksum
         run: |

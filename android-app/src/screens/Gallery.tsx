@@ -32,6 +32,7 @@ import {
 } from "../core";
 import {
   NavigationTab,
+  ScreenActive,
   useApp,
   useRemote,
   useSaved,
@@ -113,6 +114,7 @@ export function Gallery({
     [viewportHeight, setViewportHeight] = useState(0),
     [contentHeight, setContentHeight] = useState(0),
     [prefetchFrom, setPrefetchFrom] = useState(0),
+    [visibleImages, setVisibleImages] = useState<Set<string>>(() => new Set()),
     [ratios, setRatios] = useState<Record<string, number>>({});
   const reader = memory.get<string>(
     readerKey,
@@ -250,6 +252,9 @@ export function Gallery({
     }
   };
   const onViewable = useRef(({ viewableItems }: any) => {
+    setVisibleImages(
+      new Set(viewableItems.map((entry: any) => entry.item.name)),
+    );
     if (!activeRef.current || !restored.current) return;
     const visible = viewableItems[0];
     if (visible) {
@@ -263,194 +268,202 @@ export function Gallery({
   }).current;
   return (
     <View style={{ flex: 1 }}>
-      <FlatList
-        ref={ref}
-        ListHeaderComponent={
-          <>
-            {header}
-            <View
-              style={[
-                S.row,
-                {
-                  backgroundColor: C.surface,
-                  paddingLeft: 8,
-                  paddingRight: 2,
-                  borderBottomWidth: 1,
-                  borderColor: C.line,
-                  minHeight: 44,
-                },
-              ]}
-            >
-              <Txt size={12} muted style={{ flex: 1 }}>
-                {items.length} 项
-              </Txt>
-              {!!reader && items.some((a) => a.name === reader) && (
-                <Pressable
-                  onPress={() => {
-                    const current = items.findIndex((a) => a.name === reader);
-                    locate(current);
-                    setViewer(current);
-                  }}
-                  style={{ paddingVertical: 6, paddingHorizontal: 8 }}
-                >
-                  <Txt size={12} bold style={{ color: C.blue }}>
-                    继续浏览
-                  </Txt>
-                </Pressable>
-              )}
-              <IconButton
-                name="sort"
-                label="图库排序"
-                onPress={() => {
-                  setDraft(sort);
-                  setSortOpen(true);
-                }}
-              />
-              {allowed(me, "update", path) && (
-                <IconButton
-                  name="upload"
-                  label="上传文件"
-                  onPress={() => void uploadFile()}
-                />
-              )}
-              <IconButton
-                name="more"
-                label="图库选项"
-                onPress={() => setMenu(true)}
-              />
-            </View>
-          </>
-        }
-        data={items}
-        keyExtractor={(item) => item.name}
-        contentContainerStyle={{
-          paddingHorizontal: 2,
-          paddingTop: 2,
-          paddingBottom: 2,
-          flexGrow: 1,
-        }}
-        refreshControl={
-          <RefreshControl
-            refreshing={remote.refreshing}
-            onRefresh={remote.refresh}
-            colors={[C.blue]}
-          />
-        }
-        initialNumToRender={4}
-        maxToRenderPerBatch={4}
-        windowSize={5}
-        removeClippedSubviews={false}
-        getItemLayout={(_, index) => ({ ...layouts[index], index })}
-        onLayout={(event) => setViewportHeight(event.nativeEvent.layout.height)}
-        onContentSizeChange={(_, height) => setContentHeight(height)}
-        onViewableItemsChanged={onViewable}
-        viewabilityConfig={{ itemVisiblePercentThreshold: 1 }}
-        onScrollBeginDrag={() => {
-          restored.current = true;
-        }}
-        onScroll={(event) => {
-          if (!active) return;
-          const offset = event.nativeEvent.contentOffset.y;
-          // The initial layout emits y=0 before the saved scroll command is applied.
-          if (!restored.current) {
-            if (
-              restoreTarget.current === null ||
-              Math.abs(offset - restoreTarget.current) > 2
-            )
-              return;
-            restored.current = true;
-          }
-          const index = layoutRef.current.findIndex(
-            (layout) => layout.offset + layout.length > offset,
-          );
-          first.current = Math.max(0, index);
-          live.current = {
-            offset,
-            anchor: items[first.current]?.name || "",
-            within: offset - (layoutRef.current[first.current]?.offset || 0),
-          };
-          memory.set(positionKey, { ...live.current });
-        }}
-        scrollEventThrottle={32}
-        ListEmptyComponent={
-          <Empty loading={remote.loading} title="这个文件夹还是空的" />
-        }
-        renderItem={({ item, index }) =>
-          item.type === "folder" && !item.posterUrl ? (
-            <Card
-              onPress={() => open(item, index)}
-              style={{
-                height: 62,
-                borderRadius: 0,
-                marginBottom: 2,
-                padding: 8,
-              }}
-            >
-              <View style={[S.row, { gap: 12 }]}>
-                <Icon name="folder" size={34} />
-                <Txt bold style={{ flex: 1 }} lines={1}>
-                  {item.name}
+      <ScreenActive.Provider value={active && viewer === null}>
+        <FlatList
+          ref={ref}
+          ListHeaderComponent={
+            <>
+              {header}
+              <View
+                style={[
+                  S.row,
+                  {
+                    backgroundColor: C.surface,
+                    paddingLeft: 8,
+                    paddingRight: 2,
+                    borderBottomWidth: 1,
+                    borderColor: C.line,
+                    minHeight: 44,
+                  },
+                ]}
+              >
+                <Txt size={12} muted style={{ flex: 1 }}>
+                  {items.length} 项
                 </Txt>
-                <Icon name="next" size={22} />
-              </View>
-            </Card>
-          ) : (
-            <Pressable
-              accessibilityLabel={item.name}
-              onPress={() => open(item, index)}
-              onLongPress={() => setFileMenu(item)}
-              delayLongPress={450}
-              style={{
-                backgroundColor: C.surface,
-                marginBottom: 2,
-              }}
-            >
-              <View>
-                <Media
-                  path={mediaPath(item)}
-                  aspect
-                  refreshKey={remote.revision}
-                  onRatio={(ratio) => ratioChanged(index, item, ratio)}
-                />
-                {item.type === "video" && (
-                  <View
-                    style={{
-                      position: "absolute",
-                      top: "45%",
-                      alignSelf: "center",
-                      borderRadius: 24,
-                      backgroundColor: "#17203399",
-                      width: 48,
-                      height: 48,
-                      alignItems: "center",
-                      justifyContent: "center",
+                {!!reader && items.some((a) => a.name === reader) && (
+                  <Pressable
+                    onPress={() => {
+                      const current = items.findIndex((a) => a.name === reader);
+                      locate(current);
+                      setViewer(current);
                     }}
+                    style={{ paddingVertical: 6, paddingHorizontal: 8 }}
                   >
-                    <Icon name="play" color="white" size={32} />
-                  </View>
+                    <Txt size={12} bold style={{ color: C.blue }}>
+                      继续浏览
+                    </Txt>
+                  </Pressable>
                 )}
+                <IconButton
+                  name="sort"
+                  label="图库排序"
+                  onPress={() => {
+                    setDraft(sort);
+                    setSortOpen(true);
+                  }}
+                />
+                {allowed(me, "update", path) && (
+                  <IconButton
+                    name="upload"
+                    label="上传文件"
+                    onPress={() => void uploadFile()}
+                  />
+                )}
+                <IconButton
+                  name="more"
+                  label="图库选项"
+                  onPress={() => setMenu(true)}
+                />
               </View>
-              {item.type === "folder" && (
-                <View
-                  style={[S.row, { height: 44, paddingHorizontal: 12, gap: 8 }]}
-                >
-                  {item.type === "folder" && <Icon name="folder" size={22} />}
-                  <Txt size={13} lines={1} style={{ flex: 1 }}>
+            </>
+          }
+          data={items}
+          keyExtractor={(item) => item.name}
+          contentContainerStyle={{
+            paddingHorizontal: 2,
+            paddingTop: 2,
+            paddingBottom: 2,
+            flexGrow: 1,
+          }}
+          refreshControl={
+            <RefreshControl
+              refreshing={remote.refreshing}
+              onRefresh={remote.refresh}
+              colors={[C.blue]}
+            />
+          }
+          initialNumToRender={4}
+          maxToRenderPerBatch={4}
+          windowSize={5}
+          removeClippedSubviews={false}
+          getItemLayout={(_, index) => ({ ...layouts[index], index })}
+          onLayout={(event) =>
+            setViewportHeight(event.nativeEvent.layout.height)
+          }
+          onContentSizeChange={(_, height) => setContentHeight(height)}
+          onViewableItemsChanged={onViewable}
+          viewabilityConfig={{ itemVisiblePercentThreshold: 1 }}
+          onScrollBeginDrag={() => {
+            restored.current = true;
+          }}
+          onScroll={(event) => {
+            if (!active) return;
+            const offset = event.nativeEvent.contentOffset.y;
+            // The initial layout emits y=0 before the saved scroll command is applied.
+            if (!restored.current) {
+              if (
+                restoreTarget.current === null ||
+                Math.abs(offset - restoreTarget.current) > 2
+              )
+                return;
+              restored.current = true;
+            }
+            const index = layoutRef.current.findIndex(
+              (layout) => layout.offset + layout.length > offset,
+            );
+            first.current = Math.max(0, index);
+            live.current = {
+              offset,
+              anchor: items[first.current]?.name || "",
+              within: offset - (layoutRef.current[first.current]?.offset || 0),
+            };
+            memory.set(positionKey, { ...live.current });
+          }}
+          scrollEventThrottle={32}
+          ListEmptyComponent={
+            <Empty loading={remote.loading} title="这个文件夹还是空的" />
+          }
+          renderItem={({ item, index }) =>
+            item.type === "folder" && !item.posterUrl ? (
+              <Card
+                onPress={() => open(item, index)}
+                style={{
+                  height: 62,
+                  borderRadius: 0,
+                  marginBottom: 2,
+                  padding: 8,
+                }}
+              >
+                <View style={[S.row, { gap: 12 }]}>
+                  <Icon name="folder" size={34} />
+                  <Txt bold style={{ flex: 1 }} lines={1}>
                     {item.name}
                   </Txt>
-                  <Pressable
-                    accessibilityLabel="文件选项"
-                    hitSlop={8}
-                    onPress={() => setFileMenu(item)}
-                  >
-                    <Icon name="more" size={24} color={C.muted} />
-                  </Pressable>
+                  <Icon name="next" size={22} />
                 </View>
-              )}
-            </Pressable>
-          )
-        }
-      />
+              </Card>
+            ) : (
+              <Pressable
+                accessibilityLabel={item.name}
+                onPress={() => open(item, index)}
+                onLongPress={() => setFileMenu(item)}
+                delayLongPress={450}
+                style={{
+                  backgroundColor: C.surface,
+                  marginBottom: 2,
+                }}
+              >
+                <View>
+                  <Media
+                    path={mediaPath(item)}
+                    animate={viewer === null && visibleImages.has(item.name)}
+                    aspect
+                    refreshKey={remote.revision}
+                    onRatio={(ratio) => ratioChanged(index, item, ratio)}
+                  />
+                  {item.type === "video" && (
+                    <View
+                      style={{
+                        position: "absolute",
+                        top: "45%",
+                        alignSelf: "center",
+                        borderRadius: 24,
+                        backgroundColor: "#17203399",
+                        width: 48,
+                        height: 48,
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
+                    >
+                      <Icon name="play" color="white" size={32} />
+                    </View>
+                  )}
+                </View>
+                {item.type === "folder" && (
+                  <View
+                    style={[
+                      S.row,
+                      { height: 44, paddingHorizontal: 12, gap: 8 },
+                    ]}
+                  >
+                    {item.type === "folder" && <Icon name="folder" size={22} />}
+                    <Txt size={13} lines={1} style={{ flex: 1 }}>
+                      {item.name}
+                    </Txt>
+                    <Pressable
+                      accessibilityLabel="文件选项"
+                      hitSlop={8}
+                      onPress={() => setFileMenu(item)}
+                    >
+                      <Icon name="more" size={24} color={C.muted} />
+                    </Pressable>
+                  </View>
+                )}
+              </Pressable>
+            )
+          }
+        />
+      </ScreenActive.Provider>
       <Sheet
         title="图库排序"
         visible={sortOpen}

@@ -279,7 +279,7 @@ final class ApiClient {
                 BitmapFactory.decodeFile(file.getAbsolutePath(), bounds);
                 if (bounds.outWidth < 1 || bounds.outHeight < 1) { file.delete(); throw new IllegalArgumentException("图片格式不支持"); }
                 file.setLastModified(System.currentTimeMillis()); trimCache();
-                post(done, new JSONObject().put("uri", Uri.fromFile(file).toString()+"?v="+file.lastModified()).put("width", bounds.outWidth).put("height", bounds.outHeight), null);
+                post(done, new JSONObject().put("uri", Uri.fromFile(file).toString()+"?v="+file.lastModified()).put("width", bounds.outWidth).put("height", bounds.outHeight).put("animated", "image/gif".equals(bounds.outMimeType) || "image/webp".equals(bounds.outMimeType)), null);
             } catch (Exception e) { post(done, null, e); }
         });
     }

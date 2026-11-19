@@ -380,6 +380,7 @@ function ZoomImage({
       >
         <Media
           path={path}
+          animate={active}
           contain
           style={{ flex: 1, backgroundColor: "#080d15" }}
         />

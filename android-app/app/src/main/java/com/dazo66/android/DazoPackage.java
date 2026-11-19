@@ -14,7 +14,15 @@ import java.util.*;
 public final class DazoPackage implements ReactPackage {
     private ApiClient client(Context context) { return ApiClient.get(context); }
     @Override public List<NativeModule> createNativeModules(ReactApplicationContext context) { return Collections.singletonList(new DazoBridge(context, client(context))); }
-    @Override public List<ViewManager> createViewManagers(ReactApplicationContext context) { return Arrays.asList(new IconManager(), new VideoManager(client(context))); }
+    @Override public List<ViewManager> createViewManagers(ReactApplicationContext context) { return Arrays.asList(new IconManager(), new VideoManager(client(context)), new AnimatedImageManager()); }
+    public static final class AnimatedImageManager extends SimpleViewManager<AnimatedImageFrame> {
+        @Override public String getName() { return "DazoAnimatedImage"; }
+        @Override protected AnimatedImageFrame createViewInstance(ThemedReactContext context) { return new AnimatedImageFrame(context); }
+        @ReactProp(name="source") public void setSource(AnimatedImageFrame view, String source) { view.setSource(source); }
+        @ReactProp(name="active", defaultBoolean=false) public void setActive(AnimatedImageFrame view, boolean active) { view.setActive(active); }
+        @ReactProp(name="contain", defaultBoolean=false) public void setContain(AnimatedImageFrame view, boolean contain) { view.setContain(contain); }
+        @Override public void onDropViewInstance(AnimatedImageFrame view) { view.release(); super.onDropViewInstance(view); }
+    }
     public static final class IconFrame extends FrameLayout {
         String kind = "home"; int color = 0xff218ec5; boolean shadow;
         IconFrame(Context context) { super(context); }

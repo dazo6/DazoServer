@@ -30,6 +30,12 @@ const NativeIcon = requireNativeComponent<{
   shadow: boolean;
   style: StyleProp<ViewStyle>;
 }>("DazoIcon");
+const NativeAnimatedImage = requireNativeComponent<{
+  source: string;
+  active: boolean;
+  contain: boolean;
+  style: StyleProp<ViewStyle>;
+}>("DazoAnimatedImage");
 export function Icon({
   name,
   size = 26,
@@ -630,6 +636,7 @@ export function Media({
   avatar = false,
   onRatio,
   contain = false,
+  animate = true,
 }: {
   path?: string;
   style?: any;
@@ -638,8 +645,10 @@ export function Media({
   avatar?: boolean;
   onRatio?(ratio: number): void;
   contain?: boolean;
+  animate?: boolean;
 }) {
   const { C, S } = useUI();
+  const screenActive = useScreenActive();
   const { scope } = useApp(),
     [image, setImage] = useState<Row | null>(null),
     [failed, setFailed] = useState(false);
@@ -679,7 +688,14 @@ export function Media({
         style,
       ]}
     >
-      {image ? (
+      {image?.animated ? (
+        <NativeAnimatedImage
+          source={image.uri}
+          active={screenActive && animate}
+          contain={aspect || contain}
+          style={StyleSheet.absoluteFill}
+        />
+      ) : image ? (
         <Image
           source={{ uri: image.uri }}
           resizeMode={aspect || contain ? "contain" : "cover"}

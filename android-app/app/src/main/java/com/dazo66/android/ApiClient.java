@@ -61,6 +61,7 @@ final class ApiClient {
     private final Handler main = new Handler(Looper.getMainLooper());
     private final SharedPreferences prefs;
     private final File imageCache;
+    private final MediaVersions mediaVersions = new MediaVersions();
     private volatile String host;
     private volatile ServerRoutes routes;
     private volatile String cookie = "";
@@ -263,6 +264,7 @@ final class ApiClient {
             try {
                 String address = absolute(url), cacheKey = hash(scope() + routes.canonical(url));
                 file = new File(imageCache, cacheKey);
+                boolean replaced = false;
                 if (!file.isFile() || force) {
                     try {
                         byte[] bytes = raw("GET", address, null);
@@ -273,13 +275,14 @@ final class ApiClient {
                         File temporary = new File(imageCache, cacheKey + ".tmp-" + Thread.currentThread().getId());
                         try (FileOutputStream stream = new FileOutputStream(temporary)) { stream.write(bytes); }
                         java.nio.file.Files.move(temporary.toPath(), file.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                        replaced = true;
                     } catch (java.io.IOException failure) { if (!file.isFile()) throw failure; }
                 }
                 BitmapFactory.Options bounds = new BitmapFactory.Options(); bounds.inJustDecodeBounds = true;
                 BitmapFactory.decodeFile(file.getAbsolutePath(), bounds);
                 if (bounds.outWidth < 1 || bounds.outHeight < 1) { file.delete(); throw new IllegalArgumentException("图片格式不支持"); }
                 file.setLastModified(System.currentTimeMillis()); trimCache();
-                post(done, new JSONObject().put("uri", Uri.fromFile(file).toString()+"?v="+file.lastModified()).put("width", bounds.outWidth).put("height", bounds.outHeight).put("animated", "image/gif".equals(bounds.outMimeType) || "image/webp".equals(bounds.outMimeType)), null);
+                post(done, new JSONObject().put("uri", Uri.fromFile(file).toString()+"?v="+mediaVersions.version(cacheKey, replaced)).put("width", bounds.outWidth).put("height", bounds.outHeight).put("animated", "image/gif".equals(bounds.outMimeType) || "image/webp".equals(bounds.outMimeType)), null);
             } catch (Exception e) { post(done, null, e); }
         });
     }
@@ -290,7 +293,7 @@ final class ApiClient {
         return size;
     }
     void clearCache(Done<Object> done) {
-        pool.execute(() -> { File[] files = imageCache.listFiles(); if (files != null) for (File file : files) file.delete(); post(done, true, null); });
+        pool.execute(() -> { File[] files = imageCache.listFiles(); if (files != null) for (File file : files) file.delete(); mediaVersions.clear(); post(done, true, null); });
     }
 
     void image(String url, Done<Bitmap> done) {

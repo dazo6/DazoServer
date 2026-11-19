@@ -201,7 +201,7 @@ function Login({
           </View>
           <View>
             <Txt size={20} bold>
-              Fanbox Admin
+              DazoGallery
             </Txt>
             <Txt size={12} muted>
               Crawler Console
@@ -359,6 +359,10 @@ function Authenticated({
     "settings:originalImages",
     false,
   );
+  const [autoplayVideos, setAutoplayVideos] = useSaved(
+    "settings:autoplayVideos",
+    false,
+  );
   const [backupUrls, setBackups] = useState(initial.backupUrls || []);
   const [activeHost, setActiveHost] = useState(
     initial.activeHost || initial.host,
@@ -461,6 +465,8 @@ function Authenticated({
       avatarVersion,
       originalImages,
       setOriginalImages,
+      autoplayVideos,
+      setAutoplayVideos,
       navigate,
       back: () => {
         back();
@@ -489,6 +495,8 @@ function Authenticated({
       avatarVersion,
       originalImages,
       setOriginalImages,
+      autoplayVideos,
+      setAutoplayVideos,
       navigate,
       back,
       request,

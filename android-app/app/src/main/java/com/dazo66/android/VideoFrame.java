@@ -36,7 +36,7 @@ final class VideoFrame extends FrameLayout {
     private int addressIndex;
     private long position;
     private float rate = 1;
-    private boolean boosting, controlsTouch, released;
+    private boolean boosting, controlsTouch, released, inline, muted;
 
     VideoFrame(Context context, ApiClient api) {
         super(context); this.api = api; setBackgroundColor(Color.BLACK);
@@ -63,8 +63,10 @@ final class VideoFrame extends FrameLayout {
     private TextView label(Context context) { TextView view = new TextView(context); view.setTextColor(Color.WHITE); view.setTextSize(13); view.setGravity(Gravity.CENTER); return view; }
     void setPath(String path) { released = false; addresses = api.mediaAddresses(path); addressIndex = 0; position = 0; play(); }
     void setRate(float value) { rate = Math.max(0.25f, value); applyRate(); }
+    void setInline(boolean value) { inline = value; surface.setUseController(!value); if (value) { surface.hideController(); status.setVisibility(GONE); } }
+    void setMuted(boolean value) { muted = value; if (player != null) player.setVolume(value ? 0 : 1); }
     private void applyRate() { if (player != null) player.setPlaybackSpeed(boosting ? rate * 2 : rate); }
-    private void buffering(String text) { spinner.setVisibility(VISIBLE); status.setText(text); status.setVisibility(VISIBLE); }
+    private void buffering(String text) { spinner.setVisibility(VISIBLE); status.setText(text); status.setVisibility(inline ? GONE : VISIBLE); }
     private void play() {
         if (released || addresses.isEmpty()) return;
         if (player != null) { surface.setPlayer(null); player.release(); }
@@ -73,7 +75,7 @@ final class VideoFrame extends FrameLayout {
         player = new ExoPlayer.Builder(getContext()).setLoadControl(new DefaultLoadControl.Builder()
                 .setBufferDurationsMs(15000, 30000, 2000, 2000).setPrioritizeTimeOverSizeThresholds(true).build()).build();
         player.setMediaSource(new ProgressiveMediaSource.Factory(() -> new AuthenticatedMediaSource(api)).createMediaSource(MediaItem.fromUri(address)));
-        surface.setPlayer(player); surface.hideController(); applyRate();
+        surface.setPlayer(player); surface.hideController(); player.setVolume(muted ? 0 : 1); applyRate();
         player.addListener(new Player.Listener() {
             @Override public void onPlaybackStateChanged(int state) {
                 if (state == Player.STATE_BUFFERING) buffering("正在缓冲…");

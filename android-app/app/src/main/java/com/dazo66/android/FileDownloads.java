@@ -131,7 +131,6 @@ final class FileDownloads {
             if ("cancelled".equals(job.optString("phase"))) throw new java.io.InterruptedIOException();
             if (Build.VERSION.SDK_INT >= 29) { ContentValues values = new ContentValues(); values.put(MediaStore.Downloads.IS_PENDING, 0); context.getContentResolver().update(uri, values, null, null); }
             synchronized (this) { put(job, "phase", "complete"); put(job, "finishedAt", System.currentTimeMillis()); persist(); }
-            try { FileDownloadService.completed(context, job); } catch (RuntimeException ignored) { /* In-app completion is independent of notification permission. */ }
         } catch (Exception error) {
             cleanup(job);
             synchronized (this) {

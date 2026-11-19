@@ -46,6 +46,8 @@ public final class DazoPackage implements ReactPackage {
         @Override protected VideoFrame createViewInstance(ThemedReactContext context) { return new VideoFrame(context, api); }
         @ReactProp(name="path") public void setPath(VideoFrame view, String path) { if (path != null) view.setPath(path); }
         @ReactProp(name="rate", defaultFloat=1) public void setRate(VideoFrame view, float rate) { view.setRate(rate); }
+        @ReactProp(name="inline", defaultBoolean=false) public void setInline(VideoFrame view, boolean inline) { view.setInline(inline); }
+        @ReactProp(name="muted", defaultBoolean=false) public void setMuted(VideoFrame view, boolean muted) { view.setMuted(muted); }
         @Override public void onDropViewInstance(VideoFrame view) { view.release(); super.onDropViewInstance(view); }
     }
 }

@@ -6,6 +6,7 @@ import {
   ActivityIndicator,
   Alert,
   Animated,
+  AppState,
   DeviceEventEmitter,
   FlatList,
   Modal,
@@ -14,7 +15,6 @@ import {
   RefreshControl,
   StatusBar,
   View,
-  requireNativeComponent,
   useWindowDimensions,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -39,6 +39,8 @@ import {
   useScreenActive,
 } from "../context";
 import { useMediaPrefetch } from "../media";
+import { centeredVideoIndex, ImageTransition } from "../gallery-playback";
+import { NativeVideo as InlineVideo } from "../video";
 import {
   Button,
   Card,
@@ -68,8 +70,16 @@ export function Gallery({
   const tab = useContext(NavigationTab);
   const activeRef = useRef(active);
   activeRef.current = active;
-  const { me, scope, originalImages, request, navigate, report, toast } =
-      useApp(),
+  const {
+      me,
+      scope,
+      originalImages,
+      autoplayVideos,
+      request,
+      navigate,
+      report,
+      toast,
+    } = useApp(),
     width = useWindowDimensions().width - 4;
   const [sort, setSort] = useSaved("gallery:sort:" + path, {
       field: "album",
@@ -81,6 +91,22 @@ export function Gallery({
     [fileMenu, setFileMenu] = useState<Row | null>(null),
     [viewer, setViewer] = useState<number | null>(null),
     [upload, setUpload] = useState<number | null>(null);
+  const [origin, setOrigin] = useState<ImageTransition | null>(null);
+  const rowRefs = useRef(new Map<string, React.ComponentRef<typeof View>>());
+  const opened = useRef<{ index: number; position: Position } | null>(null);
+  const [foreground, setForeground] = useState(
+    AppState.currentState === "active",
+  );
+  const [centered, setCentered] = useState<number | null>(null),
+    [playing, setPlaying] = useState<number | null>(null),
+    [muted, setMuted] = useState(true);
+  const [videoRate] = useSaved("settings:videoRate", 1);
+  useEffect(() => {
+    const event = AppState.addEventListener("change", (state) =>
+      setForeground(state === "active"),
+    );
+    return () => event.remove();
+  }, []);
   const remote = useRemote<Row>(
     () =>
       request(
@@ -143,6 +169,32 @@ export function Gallery({
   }, [items, width, ratios, path, originalImages]);
   const layoutRef = useRef(layouts);
   layoutRef.current = layouts;
+  useEffect(() => {
+    setCentered(
+      centeredVideoIndex(items, layouts, live.current.offset, viewportHeight),
+    );
+  }, [layouts, viewportHeight]);
+  useEffect(() => {
+    setPlaying(null);
+    if (
+      !autoplayVideos ||
+      !active ||
+      !foreground ||
+      viewer !== null ||
+      centered === null
+    )
+      return;
+    const timer = setTimeout(() => setPlaying(centered), 220);
+    return () => clearTimeout(timer);
+  }, [autoplayVideos, active, foreground, viewer, centered]);
+  const inlineIndex =
+    autoplayVideos &&
+    active &&
+    foreground &&
+    viewer === null &&
+    centered === playing
+      ? playing
+      : null;
   useEffect(() => {
     if (
       !active ||
@@ -207,7 +259,6 @@ export function Gallery({
         );
         await saveFile(result.url, result.filename || "gallery.zip");
       }
-      toast("已加入下载队列");
     } catch (e) {
       report(e);
     }
@@ -221,13 +272,43 @@ export function Gallery({
     memory.set(positionKey, { ...live.current });
     ref.current?.scrollToOffset({ offset, animated: false });
   };
-  const open = (item: Row, index: number) => {
+  const measureImage = (index: number): Promise<ImageTransition | null> =>
+    new Promise((resolve) => {
+      const item = items[index],
+        node = item && rowRefs.current.get(item.name);
+      if (!node || item.type === "video" || item.type === "folder") {
+        resolve(null);
+        return;
+      }
+      let done = false;
+      const finish = (result: ImageTransition | null) => {
+        if (!done) {
+          done = true;
+          clearTimeout(timer);
+          resolve(result);
+        }
+      };
+      const timer = setTimeout(() => finish(null), 150);
+      node.measureInWindow((x, y, width, height) =>
+        finish(
+          width > 0 && height > 0
+            ? {
+                name: item.name,
+                path: mediaPath(item),
+                rect: { x, y, width, height },
+              }
+            : null,
+        ),
+      );
+    });
+  const open = async (item: Row, index: number, pressed?: ImageTransition) => {
     memory.set(positionKey, { ...live.current });
     if (item.type === "folder") {
       navigate({ name: "gallery", path: item.folderPath, artistId });
     } else {
       memory.set(readerKey, item.name);
-      locate(index);
+      opened.current = { index, position: { ...live.current } };
+      setOrigin(pressed || (await measureImage(index)));
       setViewer(index);
     }
   };
@@ -295,7 +376,9 @@ export function Gallery({
                     onPress={() => {
                       const current = items.findIndex((a) => a.name === reader);
                       locate(current);
-                      setViewer(current);
+                      requestAnimationFrame(
+                        () => void open(items[current], current),
+                      );
                     }}
                     style={{ paddingVertical: 6, paddingHorizontal: 8 }}
                   >
@@ -359,6 +442,14 @@ export function Gallery({
           onScroll={(event) => {
             if (!active) return;
             const offset = event.nativeEvent.contentOffset.y;
+            setCentered(
+              centeredVideoIndex(
+                items,
+                layoutRef.current,
+                offset,
+                viewportHeight,
+              ),
+            );
             // The initial layout emits y=0 before the saved scroll command is applied.
             if (!restored.current) {
               if (
@@ -405,7 +496,30 @@ export function Gallery({
             ) : (
               <Pressable
                 accessibilityLabel={item.name}
-                onPress={() => open(item, index)}
+                onPress={(event) =>
+                  void open(
+                    item,
+                    index,
+                    item.type === "video"
+                      ? undefined
+                      : {
+                          name: item.name,
+                          path: mediaPath(item),
+                          rect: {
+                            x:
+                              event.nativeEvent.pageX -
+                              event.nativeEvent.locationX,
+                            y:
+                              event.nativeEvent.pageY -
+                              event.nativeEvent.locationY,
+                            width,
+                            height:
+                              (layoutRef.current[index]?.length || width + 2) -
+                              2,
+                          },
+                        },
+                  )
+                }
                 onLongPress={() => setFileMenu(item)}
                 delayLongPress={450}
                 style={{
@@ -413,15 +527,68 @@ export function Gallery({
                   marginBottom: 2,
                 }}
               >
-                <View>
+                <View
+                  collapsable={false}
+                  ref={(node) => {
+                    if (node) rowRefs.current.set(item.name, node);
+                    else rowRefs.current.delete(item.name);
+                  }}
+                >
                   <Media
                     path={mediaPath(item)}
-                    animate={viewer === null && visibleImages.has(item.name)}
+                    animate={
+                      viewer === null &&
+                      inlineIndex !== index &&
+                      visibleImages.has(item.name)
+                    }
                     aspect
                     refreshKey={remote.revision}
                     onRatio={(ratio) => ratioChanged(index, item, ratio)}
                   />
-                  {item.type === "video" && (
+                  {item.type === "video" && inlineIndex === index && (
+                    <>
+                      <InlineVideo
+                        path={fileUrl(path, item.name)}
+                        rate={videoRate}
+                        inline
+                        muted={muted}
+                        style={{
+                          position: "absolute",
+                          top: 0,
+                          left: 0,
+                          right: 0,
+                          bottom: 0,
+                        }}
+                        pointerEvents="none"
+                      />
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel={muted ? "开启视频声音" : "静音视频"}
+                        onPress={(event) => {
+                          event.stopPropagation();
+                          setMuted((value) => !value);
+                        }}
+                        style={{
+                          position: "absolute",
+                          right: 8,
+                          bottom: 8,
+                          width: 44,
+                          height: 44,
+                          borderRadius: 22,
+                          backgroundColor: "#080d1599",
+                          alignItems: "center",
+                          justifyContent: "center",
+                        }}
+                      >
+                        <Icon
+                          name={muted ? "mute" : "volume"}
+                          size={25}
+                          color="white"
+                        />
+                      </Pressable>
+                    </>
+                  )}
+                  {item.type === "video" && inlineIndex !== index && (
                     <View
                       style={{
                         position: "absolute",
@@ -598,6 +765,25 @@ export function Gallery({
           items={items}
           path={path}
           index={viewer}
+          origin={origin}
+          originalImages={originalImages}
+          closeTarget={async (index) => {
+            if (
+              opened.current?.index === index &&
+              Math.abs(live.current.offset - opened.current.position.offset) > 1
+            ) {
+              ref.current?.scrollToOffset({
+                offset: opened.current.position.offset,
+                animated: false,
+              });
+              await new Promise<void>((resolve) =>
+                requestAnimationFrame(() =>
+                  requestAnimationFrame(() => resolve()),
+                ),
+              );
+            }
+            return measureImage(index);
+          }}
           setIndex={(index) => {
             locate(index);
             setViewer(index);
@@ -606,7 +792,15 @@ export function Gallery({
           close={() => {
             const current = viewer;
             setViewer(null);
-            requestAnimationFrame(() => locate(current));
+            if (opened.current?.index === current) {
+              live.current = { ...opened.current.position };
+              saved.current = { ...live.current };
+              memory.set(positionKey, { ...live.current });
+              ref.current?.scrollToOffset({
+                offset: live.current.offset,
+                animated: false,
+              });
+            } else requestAnimationFrame(() => locate(current));
           }}
         />
       )}

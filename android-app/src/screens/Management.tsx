@@ -1,4 +1,4 @@
-import { useDownloads } from "../downloads";
+import { clearLoadedMedia } from "../media";
 import { PlaybackSpeedSheet } from "../playback";
 import { useUI } from "../theme";
 import { ServerFields } from "../servers";
@@ -618,10 +618,11 @@ export function Settings() {
     toast,
     originalImages,
     setOriginalImages,
+    autoplayVideos,
+    setAutoplayVideos,
     activeHost,
     backupUrls,
   } = useApp();
-  const { jobs, download } = useDownloads();
   const [rate, setRate] = useSaved("settings:videoRate", 1),
     [themeOpen, setThemeOpen] = useState(false),
     [rateOpen, setRateOpen] = useState(false);
@@ -646,6 +647,7 @@ export function Settings() {
     setBusy(true);
     try {
       await Native.clearCache();
+      clearLoadedMedia();
       await refresh();
       toast("缓存已清理");
     } catch (error) {
@@ -692,6 +694,23 @@ export function Settings() {
           value={rate + "×"}
           onPress={() => setRateOpen(true)}
         />
+        <Divider />
+        <View style={[S.row, { minHeight: 64, gap: 10 }]}>
+          <Icon name="play" />
+          <View style={{ flex: 1, paddingVertical: 10 }}>
+            <Txt>居中视频自动播放</Txt>
+            <Txt size={12} muted>
+              在单列图库中静音播放，可点击开启声音
+            </Txt>
+          </View>
+          <Switch
+            accessibilityLabel="居中视频自动播放"
+            value={autoplayVideos}
+            onValueChange={setAutoplayVideos}
+            trackColor={{ false: C.line, true: C.cyan }}
+            thumbColor={autoplayVideos ? C.blue : "#f8fafc"}
+          />
+        </View>
       </Card>
       <Section title="服务器连接" />
       <Card style={{ paddingVertical: 0 }}>
@@ -709,59 +728,7 @@ export function Settings() {
           onPress={() => setServersOpen(true)}
         />
       </Card>
-      <Section title="下载与缓存" />
-      <Card style={{ paddingVertical: 0 }}>
-        <SettingRow
-          icon="folder"
-          title="下载目录"
-          value="下载 / Dazo"
-          onPress={() => Native.openDownloads().catch(report)}
-        />
-        {jobs.slice(0, 3).map((job) => (
-          <React.Fragment key={job.id}>
-            <Divider />
-            <View style={[S.row, { minHeight: 64, gap: 8 }]}>
-              <Icon name="download" size={23} />
-              <Pressable
-                style={{ flex: 1, paddingVertical: 10 }}
-                disabled={job.phase !== "complete" && job.phase !== "error"}
-                onPress={() => {
-                  if (job.phase === "complete")
-                    Native.openDownload(job.id).catch(report);
-                  else void download(job.path, job.name).catch(report);
-                }}
-              >
-                <Txt size={13} lines={1}>
-                  {job.name}
-                </Txt>
-                <Txt size={11} muted>
-                  {job.phase === "complete"
-                    ? "已保存 · 点击打开"
-                    : job.phase === "error"
-                      ? "下载失败 · 点击重试"
-                      : job.phase === "cancelled"
-                        ? "已取消"
-                        : job.total > 0
-                          ? "正在下载 " +
-                            Math.min(
-                              100,
-                              Math.round((job.bytes * 100) / job.total),
-                            ) +
-                            "%"
-                          : "准备下载…"}
-                </Txt>
-              </Pressable>
-              {(job.phase === "queued" || job.phase === "downloading") && (
-                <IconButton
-                  name="close"
-                  label="取消下载"
-                  onPress={() => Native.cancelDownload(job.id)}
-                />
-              )}
-            </View>
-          </React.Fragment>
-        ))}
-      </Card>
+      <Section title="存储与缓存" />
       <Card style={{ paddingVertical: 0 }}>
         <SettingRow
           icon="storage"

@@ -20,7 +20,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { memory, Native, Row } from "./core";
 import { useApp, useScreenActive } from "./context";
-import { loadMedia } from "./media";
+import { loadMedia, loadedMedia } from "./media";
 
 export { useUI } from "./theme";
 import { useUI } from "./theme";
@@ -630,6 +630,8 @@ export function Pager({
 
 export function Media({
   path,
+  fallbackPath,
+  onReady,
   style,
   aspect = false,
   refreshKey = 0,
@@ -639,6 +641,8 @@ export function Media({
   animate = true,
 }: {
   path?: string;
+  fallbackPath?: string;
+  onReady?(): void;
   style?: any;
   aspect?: boolean;
   refreshKey?: number;
@@ -649,15 +653,29 @@ export function Media({
 }) {
   const { C, S } = useUI();
   const screenActive = useScreenActive();
-  const { scope } = useApp(),
-    [image, setImage] = useState<Row | null>(null),
+  const { scope } = useApp();
+  const snapshot = loadedMedia(scope, path) || loadedMedia(scope, fallbackPath);
+  const [image, setImage] = useState<Row | null>(() => snapshot || null),
     [failed, setFailed] = useState(false);
   const [ratio, setRatio] = useState(() => memory.get("ratio:" + path, 1));
   const sourceKey = useRef("");
+  const readyCallback = useRef(onReady);
+  readyCallback.current = onReady;
+  useEffect(() => {
+    if (!image?.animated) return;
+    let second = 0;
+    const first = requestAnimationFrame(() => {
+      second = requestAnimationFrame(() => readyCallback.current?.());
+    });
+    return () => {
+      cancelAnimationFrame(first);
+      cancelAnimationFrame(second);
+    };
+  }, [image?.uri, image?.animated]);
   useEffect(() => {
     let alive = true;
     if (sourceKey.current !== scope + path) {
-      setImage(null);
+      setImage(snapshot || null);
       setRatio(memory.get("ratio:" + path, 1));
       sourceKey.current = scope + path;
     }
@@ -698,6 +716,9 @@ export function Media({
       ) : image ? (
         <Image
           source={{ uri: image.uri }}
+          fadeDuration={0}
+          onLoad={onReady}
+          onError={onReady}
           resizeMode={aspect || contain ? "contain" : "cover"}
           style={StyleSheet.absoluteFill}
         />

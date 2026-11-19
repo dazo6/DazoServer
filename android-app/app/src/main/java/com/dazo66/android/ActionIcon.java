@@ -80,6 +80,12 @@ final class ActionIcon extends View {
                 line(canvas, 12, 22, 36, 22); line(canvas, 20, 29, 23, 32); line(canvas, 23, 32, 29, 26); break;
             case "play":
                 Path triangle = new Path(); triangle.moveTo(19, 14); triangle.lineTo(34, 24); triangle.lineTo(19, 34); triangle.close(); canvas.drawPath(triangle, p); break;
+            case "volume":
+            case "mute":
+                Path speaker = new Path(); speaker.moveTo(12, 20); speaker.lineTo(19, 20); speaker.lineTo(27, 13); speaker.lineTo(27, 35); speaker.lineTo(19, 28); speaker.lineTo(12, 28); speaker.close(); canvas.drawPath(speaker, p);
+                if (kind.equals("mute")) { line(canvas, 33, 20, 40, 28); line(canvas, 40, 20, 33, 28); }
+                else { canvas.drawArc(26, 14, 39, 34, -60, 120, false, p); canvas.drawArc(27, 9, 46, 39, -60, 120, false, p); }
+                break;
             case "power":
                 canvas.drawArc(12, 12, 36, 36, -45, 270, false, p); line(canvas, 24, 9, 24, 24); break;
             case "compress":

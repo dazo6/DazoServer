@@ -13,7 +13,6 @@ import android.os.IBinder;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
-import org.json.JSONObject;
 
 public final class FileDownloadService extends Service {
     private static final String CHANNEL = "file-downloads";
@@ -34,8 +33,8 @@ public final class FileDownloadService extends Service {
     }
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
         latestStartId = startId;
-        if (Build.VERSION.SDK_INT >= 29) startForeground(ID, notification("Dazo 文件下载", 0, -1), ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
-        else startForeground(ID, notification("Dazo 文件下载", 0, -1));
+        if (Build.VERSION.SDK_INT >= 29) startForeground(ID, notification("DazoGallery 文件下载", 0, -1), ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
+        else startForeground(ID, notification("DazoGallery 文件下载", 0, -1));
         if (running.compareAndSet(false, true)) worker.execute(() -> {
             try { downloads.runQueue((name, bytes, total) -> getSystemService(NotificationManager.class).notify(ID, notification(name, bytes, total))); }
             finally {
@@ -47,14 +46,6 @@ public final class FileDownloadService extends Service {
             }
         });
         return START_NOT_STICKY;
-    }
-    static void completed(Context context, JSONObject job) {
-        Intent intent = FileDownloads.viewIntent(job).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        int id = job.optString("id").hashCode() & 0x7fffffff;
-        PendingIntent open = PendingIntent.getActivity(context, id, intent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-        Notification notification = new Notification.Builder(context, CHANNEL).setSmallIcon(android.R.drawable.stat_sys_download_done)
-                .setContentTitle("下载完成").setContentText(job.optString("name") + " · 下载 / Dazo").setContentIntent(open).setAutoCancel(true).build();
-        context.getSystemService(NotificationManager.class).notify(id, notification);
     }
     @Override public void onTimeout(int startId, int fgsType) { downloads.interrupt(); stopSelf(); }
     @Override public void onDestroy() { if (running.get()) downloads.interrupt(); worker.shutdownNow(); super.onDestroy(); }

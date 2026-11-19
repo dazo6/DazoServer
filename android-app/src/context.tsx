@@ -21,6 +21,8 @@ export type AppContextValue = {
   avatarVersion: number;
   originalImages: boolean;
   setOriginalImages(value: boolean): void;
+  autoplayVideos: boolean;
+  setAutoplayVideos(value: boolean): void;
   navigate(screen: Screen): void;
   back(): void;
   setMe(me: Row): void;

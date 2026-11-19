@@ -10,4 +10,13 @@
         <item name="android:colorAccent">#218ec5</item>
         <item name="android:windowActionModeOverlay">true</item>
     </style>
+    <!-- The viewer owns its image transition; suppress the platform dialog entrance animation. -->
+    <style name="Theme.FullScreenDialog">
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowIsFloating">false</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowDrawsSystemBarBackgrounds">true</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:windowAnimationStyle">@null</item>
+    </style>
 </resources>

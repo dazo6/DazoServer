@@ -22,6 +22,7 @@ public final class AnimatedImageFrame extends SimpleDraweeView implements Lifecy
 
     AnimatedImageFrame(ThemedReactContext context) {
         super(context);
+        getHierarchy().setFadeDuration(0);
         reactContext = context;
         resumed = context.getReactApplicationContext().getLifecycleState() == LifecycleState.RESUMED;
     }

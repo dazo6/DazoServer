@@ -53,7 +53,7 @@ final class VideoFrame extends FrameLayout {
         LayoutParams badge = new LayoutParams(-2, -2, Gravity.TOP | Gravity.CENTER_HORIZONTAL); badge.topMargin = dp(16); addView(boostBadge, badge); boostBadge.setVisibility(GONE);
         gestures = new GestureDetector(context, new GestureDetector.SimpleOnGestureListener() {
             @Override public void onLongPress(MotionEvent event) {
-                if (controlsTouch || player == null || player.getPlaybackState() != Player.STATE_READY) return;
+                if (inline || controlsTouch || player == null || player.getPlaybackState() != Player.STATE_READY) return;
                 boosting = true; applyRate(); boostBadge.setText(String.format(java.util.Locale.ROOT, "%s× 快进", rate * 2)); boostBadge.setVisibility(VISIBLE);
                 performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
             }

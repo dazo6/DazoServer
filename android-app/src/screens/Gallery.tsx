@@ -352,6 +352,8 @@ export function Gallery({
       <ScreenActive.Provider value={active && viewer === null}>
         <FlatList
           ref={ref}
+          stickyHeaderIndices={[0]}
+          stickyHeaderHiddenOnScroll
           ListHeaderComponent={
             <>
               {header}
@@ -547,11 +549,11 @@ export function Gallery({
                   />
                   {item.type === "video" && inlineIndex === index && (
                     <>
-                      <InlineVideo
-                        path={fileUrl(path, item.name)}
-                        rate={videoRate}
-                        inline
-                        muted={muted}
+                      <View
+                        // Native PlayerView handles its own touches. A React
+                        // View must own pointerEvents so the row keeps taps,
+                        // long presses and scroll gestures while previewing.
+                        pointerEvents="none"
                         style={{
                           position: "absolute",
                           top: 0,
@@ -559,8 +561,15 @@ export function Gallery({
                           right: 0,
                           bottom: 0,
                         }}
-                        pointerEvents="none"
-                      />
+                      >
+                        <InlineVideo
+                          path={fileUrl(path, item.name)}
+                          rate={videoRate}
+                          inline
+                          muted={muted}
+                          style={{ flex: 1 }}
+                        />
+                      </View>
                       <Pressable
                         accessibilityRole="button"
                         accessibilityLabel={muted ? "开启视频声音" : "静音视频"}

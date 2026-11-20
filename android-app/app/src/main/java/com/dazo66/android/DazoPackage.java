@@ -14,7 +14,7 @@ import java.util.*;
 public final class DazoPackage implements ReactPackage {
     private ApiClient client(Context context) { return ApiClient.get(context); }
     @Override public List<NativeModule> createNativeModules(ReactApplicationContext context) { return Collections.singletonList(new DazoBridge(context, client(context))); }
-    @Override public List<ViewManager> createViewManagers(ReactApplicationContext context) { return Arrays.asList(new IconManager(), new VideoManager(client(context)), new AnimatedImageManager()); }
+    @Override public List<ViewManager> createViewManagers(ReactApplicationContext context) { return Arrays.asList(new IconManager(), new VideoManager(client(context), false), new VideoManager(client(context), true), new AnimatedImageManager()); }
     public static final class AnimatedImageManager extends SimpleViewManager<AnimatedImageFrame> {
         @Override public String getName() { return "DazoAnimatedImage"; }
         @Override protected AnimatedImageFrame createViewInstance(ThemedReactContext context) { return new AnimatedImageFrame(context); }
@@ -41,12 +41,12 @@ public final class DazoPackage implements ReactPackage {
     @androidx.media3.common.util.UnstableApi
     public static final class VideoManager extends SimpleViewManager<VideoFrame> {
         private final ApiClient api;
-        VideoManager(ApiClient api) { this.api = api; }
-        @Override public String getName() { return "DazoVideo"; }
-        @Override protected VideoFrame createViewInstance(ThemedReactContext context) { return new VideoFrame(context, api); }
+        private final boolean inline;
+        VideoManager(ApiClient api, boolean inline) { this.api = api; this.inline = inline; }
+        @Override public String getName() { return inline ? "DazoInlineVideo" : "DazoVideo"; }
+        @Override protected VideoFrame createViewInstance(ThemedReactContext context) { return new VideoFrame(context, api, inline); }
         @ReactProp(name="path") public void setPath(VideoFrame view, String path) { if (path != null) view.setPath(path); }
         @ReactProp(name="rate", defaultFloat=1) public void setRate(VideoFrame view, float rate) { view.setRate(rate); }
-        @ReactProp(name="inline", defaultBoolean=false) public void setInline(VideoFrame view, boolean inline) { view.setInline(inline); }
         @ReactProp(name="muted", defaultBoolean=false) public void setMuted(VideoFrame view, boolean muted) { view.setMuted(muted); }
         @Override public void onDropViewInstance(VideoFrame view) { view.release(); super.onDropViewInstance(view); }
     }

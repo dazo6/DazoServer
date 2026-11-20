@@ -6,6 +6,7 @@ import android.graphics.Rect;
 import android.view.GestureDetector;
 import android.view.Gravity;
 import android.view.HapticFeedbackConstants;
+import android.view.LayoutInflater;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
@@ -36,12 +37,17 @@ final class VideoFrame extends FrameLayout {
     private int addressIndex;
     private long position;
     private float rate = 1;
-    private boolean boosting, controlsTouch, released, inline, muted;
+    private final boolean inline;
+    private boolean boosting, controlsTouch, released, muted;
 
-    VideoFrame(Context context, ApiClient api) {
-        super(context); this.api = api; setBackgroundColor(Color.BLACK);
-        surface = new PlayerView(context); surface.setBackgroundColor(Color.BLACK);
-        surface.setShutterBackgroundColor(Color.BLACK); surface.setKeepContentOnPlayerReset(false);
+    VideoFrame(Context context, ApiClient api, boolean inline) {
+        super(context); this.api = api; this.inline = inline; muted = inline;
+        setBackgroundColor(inline ? Color.TRANSPARENT : Color.BLACK);
+        surface = inline ? (PlayerView) LayoutInflater.from(context).inflate(R.layout.inline_video, this, false) : new PlayerView(context);
+        surface.setBackgroundColor(inline ? Color.TRANSPARENT : Color.BLACK);
+        surface.setShutterBackgroundColor(inline ? Color.TRANSPARENT : Color.BLACK); surface.setKeepContentOnPlayerReset(false);
+        surface.setUseController(!inline);
+        if (inline) { setDescendantFocusability(FOCUS_BLOCK_DESCENDANTS); setFocusable(false); surface.setAlpha(0); }
         surface.setUseArtwork(false); surface.setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER);
         surface.setShowPreviousButton(false); surface.setShowNextButton(false);
         surface.setControllerAutoShow(false); surface.setControllerHideOnTouch(true);
@@ -63,13 +69,13 @@ final class VideoFrame extends FrameLayout {
     private TextView label(Context context) { TextView view = new TextView(context); view.setTextColor(Color.WHITE); view.setTextSize(13); view.setGravity(Gravity.CENTER); return view; }
     void setPath(String path) { released = false; addresses = api.mediaAddresses(path); addressIndex = 0; position = 0; play(); }
     void setRate(float value) { rate = Math.max(0.25f, value); applyRate(); }
-    void setInline(boolean value) { inline = value; surface.setUseController(!value); if (value) { surface.hideController(); status.setVisibility(GONE); } }
     void setMuted(boolean value) { muted = value; if (player != null) player.setVolume(value ? 0 : 1); }
     private void applyRate() { if (player != null) player.setPlaybackSpeed(boosting ? rate * 2 : rate); }
     private void buffering(String text) { spinner.setVisibility(VISIBLE); status.setText(text); status.setVisibility(inline ? GONE : VISIBLE); }
     private void play() {
         if (released || addresses.isEmpty()) return;
         if (player != null) { surface.setPlayer(null); player.release(); }
+        if (inline) { setBackgroundColor(Color.TRANSPARENT); surface.setAlpha(0); }
         buffering("正在缓冲…"); surface.setVisibility(VISIBLE);
         String address = addresses.get(addressIndex);
         player = new ExoPlayer.Builder(getContext()).setLoadControl(new DefaultLoadControl.Builder()
@@ -81,11 +87,11 @@ final class VideoFrame extends FrameLayout {
                 if (state == Player.STATE_BUFFERING) buffering("正在缓冲…");
                 else if (state == Player.STATE_READY || state == Player.STATE_ENDED) { spinner.setVisibility(GONE); status.setVisibility(GONE); }
             }
-            @Override public void onRenderedFirstFrame() { spinner.setVisibility(GONE); status.setVisibility(GONE); post(() -> layoutPlayer()); }
+            @Override public void onRenderedFirstFrame() { if (inline) setBackgroundColor(Color.BLACK); surface.setAlpha(1); spinner.setVisibility(GONE); status.setVisibility(GONE); post(() -> layoutPlayer()); }
             @Override public void onPlayerError(PlaybackException error) {
                 if (player != null) position = Math.max(0, player.getCurrentPosition());
                 if (++addressIndex < addresses.size()) { post(() -> play()); return; }
-                spinner.setVisibility(GONE); status.setText("视频加载失败，点击重试"); status.setVisibility(VISIBLE);
+                spinner.setVisibility(GONE); status.setText("视频加载失败，点击重试"); status.setVisibility(inline ? GONE : VISIBLE);
                 status.setOnClickListener(view -> { addressIndex = 0; play(); });
             }
         });

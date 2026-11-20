@@ -1,6 +1,42 @@
 type Item = { type?: string };
 type Layout = { offset: number; length: number };
 
+/** Hold a new preview until dragging/flinging has finished, including Android's delayed momentum events. */
+export function createScrollActivity(onIdle: (idle: boolean) => void) {
+  let dragging = false,
+    timer: ReturnType<typeof setTimeout> | undefined;
+  const cancel = () => {
+    if (timer) clearTimeout(timer);
+    timer = undefined;
+  };
+  const idle = () => {
+    cancel();
+    if (!dragging) onIdle(true);
+  };
+  const scroll = () => {
+    cancel();
+    onIdle(false);
+    if (!dragging) timer = setTimeout(idle, 160);
+  };
+  return {
+    beginDrag() {
+      dragging = true;
+      scroll();
+    },
+    endDrag() {
+      dragging = false;
+      scroll();
+    },
+    scroll,
+    endMomentum: idle,
+    reset() {
+      dragging = false;
+      idle();
+    },
+    dispose: cancel,
+  };
+}
+
 /** Only the video covering the viewport centre may own the inline player. */
 export function centeredVideoIndex(
   items: Item[],

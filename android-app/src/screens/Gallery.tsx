@@ -39,8 +39,12 @@ import {
   useScreenActive,
 } from "../context";
 import { useMediaPrefetch } from "../media";
-import { centeredVideoIndex, ImageTransition } from "../gallery-playback";
-import { NativeVideo as InlineVideo } from "../video";
+import {
+  centeredVideoIndex,
+  createScrollActivity,
+  ImageTransition,
+} from "../gallery-playback";
+import { NativeInlineVideo as InlineVideo } from "../video";
 import {
   Button,
   Card,
@@ -101,6 +105,12 @@ export function Gallery({
     [playing, setPlaying] = useState<number | null>(null),
     [muted, setMuted] = useState(true);
   const [videoRate] = useSaved("settings:videoRate", 1);
+  const [scrollIdle, setScrollIdle] = useState(true);
+  const scrollActivity = useMemo(() => createScrollActivity(setScrollIdle), []);
+  useEffect(() => () => scrollActivity.dispose(), [scrollActivity]);
+  useEffect(() => {
+    if (!active || !foreground || viewer !== null) scrollActivity.reset();
+  }, [active, foreground, viewer, scrollActivity]);
   useEffect(() => {
     const event = AppState.addEventListener("change", (state) =>
       setForeground(state === "active"),
@@ -123,6 +133,13 @@ export function Gallery({
     ref = useRef<FlatList<Row>>(null),
     positionKey = "gallery:position:" + tab + ":" + path,
     readerKey = "gallery:reader:" + tab + ":" + path;
+  const [anchoredData, setAnchoredData] = useState(remote.data);
+  useEffect(() => {
+    // A refreshed/sorted dataset must lay out before native anchoring starts;
+    // anchoring a reordered child would otherwise move the list to its old key.
+    const frame = requestAnimationFrame(() => setAnchoredData(remote.data));
+    return () => cancelAnimationFrame(frame);
+  }, [remote.data]);
   const saved = useRef<Position>(
       memory.get(
         positionKey,
@@ -175,18 +192,16 @@ export function Gallery({
     );
   }, [layouts, viewportHeight]);
   useEffect(() => {
-    setPlaying(null);
-    if (
-      !autoplayVideos ||
-      !active ||
-      !foreground ||
-      viewer !== null ||
-      centered === null
-    )
-      return;
+    const eligible = autoplayVideos && active && foreground && viewer === null;
+    // Keep the current preview while it remains centred; do not create the
+    // next player while the user is dragging or the list is still coasting.
+    setPlaying((current) =>
+      eligible && current === centered ? current : null,
+    );
+    if (!eligible || !scrollIdle || centered === null) return;
     const timer = setTimeout(() => setPlaying(centered), 220);
     return () => clearTimeout(timer);
-  }, [autoplayVideos, active, foreground, viewer, centered]);
+  }, [autoplayVideos, active, foreground, viewer, centered, scrollIdle]);
   const inlineIndex =
     autoplayVideos &&
     active &&
@@ -312,25 +327,10 @@ export function Gallery({
       setViewer(index);
     }
   };
-  const ratioChanged = (index: number, item: Row, ratio: number) => {
-    const previous = layoutRef.current[index]?.length || width + 2,
-      newLength = width / ratio + (item.type === "folder" ? 44 : 0) + 2;
+  const ratioChanged = (item: Row, ratio: number) => {
     setRatios((old) =>
       old[item.name] === ratio ? old : { ...old, [item.name]: ratio },
     );
-    if (
-      restored.current &&
-      index < first.current &&
-      Math.abs(newLength - previous) > 1
-    ) {
-      live.current.offset += newLength - previous;
-      requestAnimationFrame(() =>
-        ref.current?.scrollToOffset({
-          offset: live.current.offset,
-          animated: false,
-        }),
-      );
-    }
   };
   const onViewable = useRef(({ viewableItems }: any) => {
     setVisibleImages(
@@ -354,6 +354,15 @@ export function Gallery({
           ref={ref}
           stickyHeaderIndices={[0]}
           stickyHeaderHiddenOnScroll
+          maintainVisibleContentPosition={
+            remote.data &&
+            anchoredData === remote.data &&
+            !remote.loading &&
+            !remote.refreshing &&
+            first.current > 0
+              ? { minIndexForVisible: 0 }
+              : undefined
+          }
           ListHeaderComponent={
             <>
               {header}
@@ -439,10 +448,21 @@ export function Gallery({
           onViewableItemsChanged={onViewable}
           viewabilityConfig={{ itemVisiblePercentThreshold: 1 }}
           onScrollBeginDrag={() => {
+            scrollActivity.beginDrag();
             restored.current = true;
+          }}
+          onScrollEndDrag={() => {
+            scrollActivity.endDrag();
+          }}
+          onMomentumScrollBegin={() => {
+            scrollActivity.scroll();
+          }}
+          onMomentumScrollEnd={() => {
+            scrollActivity.endMomentum();
           }}
           onScroll={(event) => {
             if (!active) return;
+            scrollActivity.scroll();
             const offset = event.nativeEvent.contentOffset.y;
             setCentered(
               centeredVideoIndex(
@@ -545,7 +565,7 @@ export function Gallery({
                     }
                     aspect
                     refreshKey={remote.revision}
-                    onRatio={(ratio) => ratioChanged(index, item, ratio)}
+                    onRatio={(ratio) => ratioChanged(item, ratio)}
                   />
                   {item.type === "video" && inlineIndex === index && (
                     <>
@@ -565,7 +585,6 @@ export function Gallery({
                         <InlineVideo
                           path={fileUrl(path, item.name)}
                           rate={videoRate}
-                          inline
                           muted={muted}
                           style={{ flex: 1 }}
                         />
@@ -673,6 +692,7 @@ export function Gallery({
             saved.current = { offset: 0, anchor: "", within: 0 };
             memory.set(positionKey, saved.current);
             live.current = { ...saved.current };
+            first.current = 0;
             restoreTarget.current = 0;
             restored.current = true;
             ref.current?.scrollToOffset({ offset: 0, animated: false });

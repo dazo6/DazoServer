@@ -1,6 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { centeredVideoIndex, fitImageRect } from "../src/gallery-playback.ts";
+import {
+  centeredVideoIndex,
+  createScrollActivity,
+  fitImageRect,
+} from "../src/gallery-playback.ts";
 import { createMediaCache } from "../src/media-cache.ts";
 
 const items = [
@@ -10,6 +14,60 @@ const items = [
   { type: "folder" },
 ];
 const layouts = items.map((_, i) => ({ offset: 100 + i * 400, length: 400 }));
+test("a held drag cannot start another preview even while the finger stops moving", (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  let idle = true;
+  const activity = createScrollActivity((value) => {
+    idle = value;
+  });
+  activity.beginDrag();
+  activity.scroll();
+  t.mock.timers.tick(1000);
+  assert.equal(idle, false);
+  activity.endDrag();
+  t.mock.timers.tick(159);
+  assert.equal(idle, false);
+  t.mock.timers.tick(1);
+  assert.equal(idle, true);
+  activity.dispose();
+});
+test("momentum after release postpones playback until scrolling finishes", (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  let idle = true;
+  const activity = createScrollActivity((value) => {
+    idle = value;
+  });
+  activity.beginDrag();
+  activity.endDrag();
+  for (let i = 0; i < 10; i++) {
+    t.mock.timers.tick(100);
+    activity.scroll();
+    assert.equal(idle, false);
+  }
+  activity.endMomentum();
+  assert.equal(idle, true);
+  activity.dispose();
+});
+test("missing momentum-end events recover after silence and discarded screens cancel pending callbacks", (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  let idle = true,
+    callbacks = 0;
+  const activity = createScrollActivity((value) => {
+    idle = value;
+    callbacks++;
+  });
+  activity.scroll();
+  t.mock.timers.tick(160);
+  assert.equal(idle, true);
+  activity.beginDrag();
+  activity.reset();
+  assert.equal(idle, true);
+  activity.scroll();
+  const before = callbacks;
+  activity.dispose();
+  t.mock.timers.tick(1000);
+  assert.equal(callbacks, before);
+});
 test("autoplay selects only the video covering the viewport centre", () => {
   assert.equal(centeredVideoIndex(items, layouts, 0, 600), null);
   assert.equal(centeredVideoIndex(items, layouts, 400, 600), 1);

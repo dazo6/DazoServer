@@ -17,23 +17,20 @@ import android.os.Looper;
 import android.provider.Settings;
 import androidx.core.content.FileProvider;
 import androidx.core.content.ContextCompat;
-import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
-import java.net.URL;
 import java.security.MessageDigest;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
-import org.json.JSONArray;
 import org.json.JSONObject;
 
-/** Public releases, resumable app-owned downloads, and Android's installation confirmation. */
+/** Authenticated server updates, resumable downloads, and Android installation confirmation. */
 final class UpdateManager {
     interface Listener { void changed(String json); }
     interface Progress { void changed(long downloaded, long total); }
@@ -44,6 +41,7 @@ final class UpdateManager {
     }
     private static final long CHECK_INTERVAL = 6L * 60 * 60 * 1000;
     private final Context context;
+    private final ApiClient api;
     private final SharedPreferences prefs;
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private final Handler main = new Handler(Looper.getMainLooper());
@@ -61,6 +59,7 @@ final class UpdateManager {
 
     private UpdateManager(Context context) {
         this.context = context.getApplicationContext();
+        api = ApiClient.get(context);
         prefs = context.getSharedPreferences("app-updates", 0);
         try {
             PackageInfo info = context.getPackageManager().getPackageInfo(context.getPackageName(), 0);
@@ -76,7 +75,7 @@ final class UpdateManager {
                     ((DownloadManager) context.getSystemService(Context.DOWNLOAD_SERVICE)).remove(legacy);
                     prefs.edit().remove("downloadId").putBoolean("active", true).commit();
                 }
-                if (candidate.optLong("versionCode") <= installedCode) { discardDownload(); candidate = new JSONObject(); prefs.edit().remove("candidate").apply(); }
+                if (!api.signedIn() || candidate.optInt("schemaVersion") != 2 || !api.scope().equals(candidate.optString("serverScope")) || candidate.optLong("versionCode") <= installedCode) { discardDownload(); candidate = new JSONObject(); prefs.edit().remove("candidate").apply(); }
                 else validateManifest(candidate);
                 recover();
             } catch (Exception e) { fail(e); }
@@ -87,7 +86,7 @@ final class UpdateManager {
         try {
             return new JSONObject().put("phase", phase).put("message", message).put("error", error)
                     .put("versionCode", installedCode).put("versionName", installedName)
-                    .put("autoCheck", prefs.getBoolean("autoCheck", true))
+                    .put("autoCheck", prefs.getBoolean("autoCheck", true)).put("signedIn", api.signedIn())
                     .put("lastCheckedAt", prefs.getLong("lastCheckedAt", 0))
                     .put("candidate", candidate).put("downloadedBytes", downloaded)
                     .put("totalBytes", candidate.optLong("size")).toString();
@@ -100,38 +99,53 @@ final class UpdateManager {
         visible = value;
         if (value) worker.execute(() -> { try { recover(); } catch (Exception e) { fail(e); } });
     }
+    void sessionChanged() {
+        cancelled = true; interrupt();
+        worker.execute(() -> {
+            if (transferring.get()) { main.postDelayed(this::sessionChanged, 150); return; }
+            if (!api.signedIn() || !api.scope().equals(candidate.optString("serverScope"))) {
+                discardDownload(); candidate = new JSONObject();
+                prefs.edit().remove("candidate").remove("lastCheckedAt").remove("lastCheckScope").commit();
+                phase = "idle"; error = ""; message = api.signedIn() ? "" : "登录后检查应用更新"; emit();
+            }
+            emit();
+            if (api.signedIn()) check(false);
+        });
+    }
     void check(boolean manual) {
-        if (!manual && (!prefs.getBoolean("autoCheck", true) || System.currentTimeMillis() - prefs.getLong("lastCheckedAt", 0) < CHECK_INTERVAL)) return;
-        if ("downloading".equals(phase) || "verifying".equals(phase) || "ready".equals(phase) || !checking.compareAndSet(false, true)) return;
+        if (!api.signedIn()) { phase = "idle"; error = ""; message = "登录后检查应用更新"; emit(); return; }
+        if (!manual && (!prefs.getBoolean("autoCheck", true) || (api.scope().equals(prefs.getString("lastCheckScope", ""))
+                && System.currentTimeMillis() - prefs.getLong("lastCheckedAt", 0) < CHECK_INTERVAL))) return;
+        if (transferring.get() || "downloading".equals(phase) || "verifying".equals(phase) || "ready".equals(phase) || !checking.compareAndSet(false, true)) return;
+        final String ownerScope = api.scope();
         worker.execute(() -> {
             phase = "checking"; error = ""; message = "正在检查更新…"; emit();
-            prefs.edit().putLong("lastCheckedAt", System.currentTimeMillis()).apply();
             try {
-                JSONArray releases = new JSONArray(get("https://api.github.com/repos/" + UpdatePolicy.REPOSITORY + "/releases?per_page=100", 4 * 1024 * 1024));
-                JSONObject selected = null; long latest = -1;
-                for (int i = 0; i < releases.length(); i++) {
-                    JSONObject release = releases.getJSONObject(i);
-                    long number = UpdatePolicy.buildNumber(release.optString("tag_name"));
-                    if (release.optBoolean("draft") || release.optBoolean("prerelease") || number <= latest || !hasManifest(release)) continue;
-                    selected = release; latest = number;
+                JSONObject latest = api.latestUpdate(ownerScope);
+                String version = latest.getString("latestVersion");
+                if (version.isEmpty() || installedName.equals(version)) {
+                    phase = "current"; message = "已是最新版本";
+                    prefs.edit().putLong("lastCheckedAt", System.currentTimeMillis()).putString("lastCheckScope", ownerScope).apply(); emit(); return;
                 }
-                if (selected == null || 100000 + latest <= installedCode) {
-                    phase = "current"; message = "已是最新版本"; emit(); return;
-                }
-                String tag = selected.getString("tag_name");
-                JSONObject manifest = new JSONObject(get(UpdatePolicy.assetUrl(tag, "update.json"), 32768));
-                if (!tag.equals(manifest.optString("tag"))) throw new IllegalArgumentException("更新版本信息不一致");
+                String path = UpdatePolicy.apkPath(version);
+                JSONObject manifest;
+                HttpURLConnection connection = api.updateConnection("HEAD", path, 0, ownerScope);
+                try {
+                    if (!version.equals(header(connection, "X-App-Version"))) throw new IllegalArgumentException("更新版本信息不一致");
+                    manifest = new JSONObject().put("schemaVersion", 2).put("serverScope", ownerScope)
+                        .put("versionName", version).put("description", latest.optString("description"))
+                        .put("versionCode", Long.parseLong(header(connection, "X-App-Version-Code")))
+                        .put("packageName", header(connection, "X-App-Package"))
+                        .put("minSdk", Integer.parseInt(header(connection, "X-App-Min-Sdk")))
+                        .put("size", connection.getContentLengthLong()).put("sha256", header(connection, "X-App-Sha256"))
+                        .put("certificateSha256", header(connection, "X-App-Certificate-Sha256")).put("apkPath", path);
+                } finally { connection.disconnect(); }
                 validateManifest(manifest);
-                JSONArray assets = selected.getJSONArray("assets"); boolean apkPresent = false;
-                for (int i = 0; i < assets.length(); i++) {
-                    JSONObject asset = assets.getJSONObject(i);
-                    if ("DazoMobile.apk".equals(asset.optString("name")) && "uploaded".equals(asset.optString("state"))
-                            && manifest.getLong("size") == asset.optLong("size")
-                            && manifest.getString("apkUrl").equals(asset.optString("browser_download_url"))) apkPresent = true;
-                }
-                if (!apkPresent) throw new IllegalArgumentException("新版安装包尚未发布完整，请稍后重试");
                 if (manifest.getInt("minSdk") > Build.VERSION.SDK_INT) throw new IllegalArgumentException("新版暂不支持当前 Android 系统");
-                if (candidate.optLong("versionCode") != manifest.getLong("versionCode")) discardDownload();
+                prefs.edit().putLong("lastCheckedAt", System.currentTimeMillis()).putString("lastCheckScope", ownerScope).apply();
+                if (manifest.getLong("versionCode") <= installedCode) { phase = "current"; message = "已是最新版本"; emit(); return; }
+                if (!ownerScope.equals(api.scope()) || !api.signedIn()) throw new IllegalStateException("登录状态已变化，请重新检查更新");
+                if (candidate.optLong("versionCode") != manifest.getLong("versionCode") || !ownerScope.equals(candidate.optString("serverScope"))) discardDownload();
                 candidate = manifest;
                 prefs.edit().putString("candidate", manifest.toString()).commit();
                 beginDownload();
@@ -139,19 +153,16 @@ final class UpdateManager {
             finally { checking.set(false); }
         });
     }
-    private boolean hasManifest(JSONObject release) {
-        JSONArray assets = release.optJSONArray("assets");
-        if (assets == null) return false;
-        for (int i = 0; i < assets.length(); i++) {
-            JSONObject asset = assets.optJSONObject(i);
-            if (asset != null && "update.json".equals(asset.optString("name")) && "uploaded".equals(asset.optString("state"))) return true;
-        }
-        return false;
+    private static String header(HttpURLConnection connection, String name) {
+        String value = connection.getHeaderField(name);
+        if (value == null || value.isEmpty()) throw new IllegalArgumentException("服务器返回的更新信息不完整");
+        return value;
     }
     private void validateManifest(JSONObject value) throws Exception {
-        if (value.getInt("schemaVersion") != 1) throw new IllegalArgumentException("暂不支持此更新格式");
-        UpdatePolicy.validate(value.getString("packageName"), context.getPackageName(), value.getString("tag"),
-                value.getString("apkUrl"), value.getLong("versionCode"), value.getLong("size"), value.getString("sha256"), value.getInt("minSdk"));
+        if (value.getInt("schemaVersion") != 2) throw new IllegalArgumentException("暂不支持此更新格式");
+        UpdatePolicy.validate(value.getString("packageName"), context.getPackageName(), value.getString("versionName"),
+                value.getString("apkPath"), value.getLong("versionCode"), value.getLong("size"), value.getString("sha256"), value.getInt("minSdk"));
+        if (!api.scope().equals(value.getString("serverScope")) || !api.signedIn()) throw new IllegalStateException("请登录发布此更新的服务器");
         String certificate = value.getString("certificateSha256");
         if (!certificate.matches("[a-fA-F0-9]{64}")) throw new IllegalArgumentException("更新签名信息无效");
         int flags = Build.VERSION.SDK_INT >= 28 ? PackageManager.GET_SIGNING_CERTIFICATES : PackageManager.GET_SIGNATURES;
@@ -177,7 +188,8 @@ final class UpdateManager {
         catch (RuntimeException e) { phase = "available"; message = "发现新版，请回到应用继续下载"; emit(); }
     }
     private void recover() throws Exception {
-        if (candidate.optLong("versionCode") <= installedCode || transferring.get() || checking.get()) return;
+        if (!api.signedIn() || candidate.optInt("schemaVersion") != 2 || !api.scope().equals(candidate.optString("serverScope"))
+                || candidate.optLong("versionCode") <= installedCode || transferring.get() || checking.get()) return;
         if (apkFile().isFile()) {
             verifyApk(); downloaded = apkFile().length(); phase = "ready"; error = ""; message = "新版已下载，可以安装"; emit();
         } else if (prefs.getBoolean("active", false) && !"error".equals(phase)) beginDownload();
@@ -191,7 +203,7 @@ final class UpdateManager {
             long total = candidate.getLong("size"), offset = partial.length();
             if (offset > total) { partial.delete(); offset = 0; }
             if (offset < total) {
-                HttpURLConnection connection = openDownload(candidate.getString("apkUrl"), offset);
+                HttpURLConnection connection = openDownload(candidate.getString("apkPath"), offset);
                 try {
                     int status = connection.getResponseCode();
                     if (status == 200) offset = 0;
@@ -205,7 +217,7 @@ final class UpdateManager {
                     try (InputStream input = connection.getInputStream(); FileOutputStream output = new FileOutputStream(partial, offset > 0)) {
                         byte[] buffer = new byte[65536]; int count; long emittedAt = 0;
                         while ((count = input.read(buffer)) != -1) {
-                            if (cancelled || Thread.currentThread().isInterrupted()) throw new java.io.InterruptedIOException();
+                            if (cancelled || !api.signedIn() || !api.scope().equals(candidate.optString("serverScope")) || Thread.currentThread().isInterrupted()) throw new java.io.InterruptedIOException();
                             if (downloaded + count > total) throw new IllegalArgumentException("更新包大小不一致");
                             output.write(buffer, 0, count); downloaded += count;
                             if (System.currentTimeMillis() - emittedAt > 500) {
@@ -229,25 +241,15 @@ final class UpdateManager {
             else { if (!(e instanceof java.io.IOException)) discardDownload(); fail(e); }
         } finally { activeConnection = null; transferring.set(false); }
     }
-    private HttpURLConnection openDownload(String address, long offset) throws Exception {
-        for (int redirects = 0; redirects < 6; redirects++) {
-            if (cancelled) throw new java.io.InterruptedIOException();
-            if (!UpdatePolicy.isHttps(address)) throw new IllegalArgumentException("更新连接必须使用 HTTPS");
-            HttpURLConnection connection = (HttpURLConnection) new URL(address).openConnection();
-            activeConnection = connection;
-            connection.setConnectTimeout(15000); connection.setReadTimeout(30000); connection.setInstanceFollowRedirects(false);
-            connection.setRequestProperty("User-Agent", "DazoMobile/" + installedName);
-            connection.setRequestProperty("Accept-Encoding", "identity");
-            if (offset > 0) connection.setRequestProperty("Range", "bytes=" + offset + "-");
-            try {
-                int status = connection.getResponseCode();
-                if (status >= 300 && status < 400 && connection.getHeaderField("Location") != null) {
-                    address = new URL(new URL(address), connection.getHeaderField("Location")).toString(); connection.disconnect(); continue;
-                }
-                return connection;
-            } catch (Exception e) { connection.disconnect(); throw e; }
+    private HttpURLConnection openDownload(String path, long offset) throws Exception {
+        if (cancelled) throw new java.io.InterruptedIOException();
+        HttpURLConnection connection = api.updateConnection("GET", path, offset, candidate.getString("serverScope"));
+        activeConnection = connection;
+        if (!candidate.getString("sha256").equalsIgnoreCase(header(connection, "X-App-Sha256"))) {
+            connection.disconnect(); activeConnection = null;
+            throw new IllegalArgumentException("此版本安装包发生变化，请重新检查更新");
         }
-        throw new IllegalArgumentException("更新连接重定向过多");
+        return connection;
     }
     void interrupt() {
         HttpURLConnection connection = activeConnection;
@@ -286,7 +288,7 @@ final class UpdateManager {
         PackageInfo archive = packages.getPackageArchiveInfo(file.getAbsolutePath(), flags);
         PackageInfo installed = packages.getPackageInfo(context.getPackageName(), flags);
         if (archive == null || archive.applicationInfo == null || archive.applicationInfo.minSdkVersion > Build.VERSION.SDK_INT
-                || !context.getPackageName().equals(archive.packageName) || versionCode(archive) != candidate.getLong("versionCode")
+                || !context.getPackageName().equals(archive.packageName) || !candidate.getString("versionName").equals(archive.versionName) || versionCode(archive) != candidate.getLong("versionCode")
                 || versionCode(archive) <= installedCode) throw new IllegalArgumentException("安装包版本不匹配，已停止更新");
         if (!signatures(archive).equals(signatures(installed)) || signatures(installed).isEmpty()) throw new IllegalArgumentException("安装包签名不匹配，已停止更新");
     }
@@ -326,32 +328,5 @@ final class UpdateManager {
             if (context.getPackageManager().canRequestPackageInstalls()) install(activity);
             else { error = "允许安装此来源的应用后，可再次点击安装"; emit(); }
         }
-    }
-    private String get(String address, int limit) throws Exception {
-        for (int redirects = 0; redirects < 6; redirects++) {
-            if (!UpdatePolicy.isHttps(address)) throw new IllegalArgumentException("更新连接必须使用 HTTPS");
-            HttpURLConnection connection = (HttpURLConnection) new URL(address).openConnection();
-            connection.setConnectTimeout(15000); connection.setReadTimeout(30000); connection.setInstanceFollowRedirects(false);
-            connection.setRequestProperty("User-Agent", "DazoMobile/" + installedName);
-            connection.setRequestProperty("Accept", "application/vnd.github+json, application/json, */*");
-            connection.setRequestProperty("X-GitHub-Api-Version", "2026-03-10");
-            try {
-                int status = connection.getResponseCode();
-                if (status >= 300 && status < 400 && connection.getHeaderField("Location") != null) {
-                    address = new URL(new URL(address), connection.getHeaderField("Location")).toString(); continue;
-                }
-                if (status == 403 || status == 429) throw new IllegalStateException("GitHub 检查次数已达上限，请稍后重试");
-                if (status != 200) throw new IllegalStateException("更新服务暂不可用（HTTP " + status + "）");
-                try (InputStream input = connection.getInputStream(); ByteArrayOutputStream output = new ByteArrayOutputStream()) {
-                    byte[] bytes = new byte[8192]; int count;
-                    while ((count = input.read(bytes)) != -1) {
-                        if (output.size() + count > limit) throw new IllegalArgumentException("更新信息过大");
-                        output.write(bytes, 0, count);
-                    }
-                    return output.toString("UTF-8");
-                }
-            } finally { connection.disconnect(); }
-        }
-        throw new IllegalStateException("更新连接重定向过多");
     }
 }

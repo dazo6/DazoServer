@@ -104,7 +104,7 @@ public final class DazoBridge extends ReactContextBaseJavaModule {
         catch (Exception e) { promise.reject("UPDATE", e.getMessage(), e); }
     }
     @ReactMethod public void login(String host, String backups, String user, String password, Promise promise) {
-        api.login(host, backups, user, password, (me, error) -> { if (error != null) complete(promise, null, error); else try { promise.resolve(boot(me).toString()); } catch (Exception e) { promise.reject("LOGIN", e); } });
+        api.login(host, backups, user, password, (me, error) -> { if (error != null) complete(promise, null, error); else try { updates.sessionChanged(); promise.resolve(boot(me).toString()); } catch (Exception e) { promise.reject("LOGIN", e); } });
     }
     @ReactMethod public void setBackupUrls(String value, Promise promise) {
         try { api.setBackupUrls(new JSONArray(value)); promise.resolve(api.backupUrls().toString()); }
@@ -125,7 +125,7 @@ public final class DazoBridge extends ReactContextBaseJavaModule {
     }
     @ReactMethod public void media(String path, boolean force, Promise promise) { api.media(path, force, (value, error) -> complete(promise, value, error)); }
     @ReactMethod public void saveState(String scope, String value) { getReactApplicationContext().getSharedPreferences("rn-state", 0).edit().putString(scope, value).apply(); }
-    @ReactMethod public void logout(Promise promise) { api.logout((x,e) -> promise.resolve(true)); }
+    @ReactMethod public void logout(Promise promise) { api.logout((x,e) -> { updates.sessionChanged(); promise.resolve(true); }); }
     @ReactMethod public void cacheSize(Promise promise) { promise.resolve((double) api.cacheBytes()); }
     @ReactMethod public void pickDateTime(String initial, boolean end, Promise promise) {
         Activity activity = getReactApplicationContext().getCurrentActivity();

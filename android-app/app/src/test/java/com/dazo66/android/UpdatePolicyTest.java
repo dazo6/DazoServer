@@ -4,35 +4,30 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 public class UpdatePolicyTest {
-    private void valid(String url, long code, long size, String hash) {
-        UpdatePolicy.validate("com.dazo66.android", "com.dazo66.android", "android-build-6", url, code, size, hash, 26);
-    }
-    private final String apk = UpdatePolicy.assetUrl("android-build-6", "DazoMobile.apk");
     private final String hash = "a".repeat(64);
-
-    @Test public void acceptsMatchingImmutableRelease() { valid(apk, 100006, 75000000, hash); }
-    @Test public void filtersUnrelatedAndMalformedTags() {
-        assertEquals(-1, UpdatePolicy.buildNumber("server-v1.0"));
-        assertEquals(-1, UpdatePolicy.buildNumber("android-build-6/../../other"));
-        assertEquals(6, UpdatePolicy.buildNumber("android-build-6"));
+    private void valid(String path, long code, long size, String sha) {
+        UpdatePolicy.validate("com.dazo66.android", "com.dazo66.android", "1.4.0.21", path, code, size, sha, 26);
     }
-    @Test public void rejectsDifferentHostOrArtifactPath() {
-        assertThrows(IllegalArgumentException.class, () -> valid(apk.replace("github.com", "github.com.evil.test"), 100006, 3, hash));
-        assertThrows(IllegalArgumentException.class, () -> valid(apk.replace("DazoServer", "AnotherApp"), 100006, 3, hash));
-        assertThrows(IllegalArgumentException.class, () -> valid(apk.replace("android-build-6", "android-build-7"), 100006, 3, hash));
+    @Test public void acceptsAuthenticatedServerVersionAndRelativePath() {
+        valid(UpdatePolicy.apkPath("1.4.0.21"), 100021, 18000000, hash);
     }
-    @Test public void rejectsMismatchedVersionAndUnboundedDownloads() {
-        assertThrows(IllegalArgumentException.class, () -> valid(apk, 2, 3, hash));
-        assertThrows(IllegalArgumentException.class, () -> valid(apk, 100006, 0, hash));
-        assertThrows(IllegalArgumentException.class, () -> valid(apk, 100006, UpdatePolicy.MAX_APK_BYTES + 1, hash));
+    @Test public void rejectsTraversalQueriesAndRemoteOrigins() {
+        for (String version : new String[]{"../other", "1.4.0.21?host=evil", "https://evil.test", "1.4.0.21/apk", "", "1.4"})
+            assertThrows(IllegalArgumentException.class, () -> UpdatePolicy.apkPath(version));
+        for (String path : new String[]{"https://evil.test/api/app-updates/1.4.0.21/apk", "/api/app-updates/1.4.0.22/apk", "//evil.test/apk"})
+            assertThrows(IllegalArgumentException.class, () -> valid(path, 100021, 3, hash));
     }
-    @Test public void rejectsWrongPackageAndInvalidChecksum() {
-        assertThrows(IllegalArgumentException.class, () -> UpdatePolicy.validate("other.app", "com.dazo66.android", "android-build-6", apk, 100006, 3, hash, 26));
-        assertThrows(IllegalArgumentException.class, () -> valid(apk, 100006, 3, "not-a-checksum"));
+    @Test public void rejectsWrongPackageAndUnboundedOrUnverifiableDownloads() {
+        String path = UpdatePolicy.apkPath("1.4.0.21");
+        assertThrows(IllegalArgumentException.class, () -> valid(path, 0, 3, hash));
+        assertThrows(IllegalArgumentException.class, () -> valid(path, 2100000001L, 3, hash));
+        assertThrows(IllegalArgumentException.class, () -> valid(path, 100021, 0, hash));
+        assertThrows(IllegalArgumentException.class, () -> valid(path, 100021, UpdatePolicy.MAX_APK_BYTES+1, hash));
+        assertThrows(IllegalArgumentException.class, () -> valid(path, 100021, 3, ""));
+        assertThrows(IllegalArgumentException.class, () -> UpdatePolicy.validate("other.app", "com.dazo66.android", "1.4.0.21", path, 100021, 3, hash, 26));
     }
-    @Test public void neverFollowsUnencryptedOrCredentialBearingRedirects() {
-        assertTrue(UpdatePolicy.isHttps("https://release-assets.githubusercontent.com/file.apk?sig=example"));
-        assertFalse(UpdatePolicy.isHttps("http://github.com/file.apk"));
-        assertFalse(UpdatePolicy.isHttps("https://user:pass@github.com/file.apk"));
+    @Test public void acceptsThreeAndFourPartVersionNames() {
+        assertEquals("/api/app-updates/2.0.0/apk", UpdatePolicy.apkPath("2.0.0"));
+        assertEquals("/api/app-updates/1.4.0.21/apk", UpdatePolicy.apkPath("1.4.0.21"));
     }
 }

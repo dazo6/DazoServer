@@ -15,3 +15,10 @@ AGENTS.md
 .claude/
 CLAUDE.md
 .github/agents/
+
+# Local release credentials and uploaded APKs
+.env*
+!.env.example
+!**/.env.example
+/data/app-releases/
+/android-app/.local-release/

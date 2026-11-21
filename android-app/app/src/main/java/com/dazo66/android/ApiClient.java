@@ -87,6 +87,48 @@ final class ApiClient {
     String scope() { return host + "|" + lastUser(); }
     boolean signedIn() { return !cookie.isEmpty(); }
     String cookie() { return cookie; }
+    /** Update credentials only go to a configured server; redirects are never followed. */
+    HttpURLConnection updateConnection(String method, String path, long offset, String ownerScope) throws Exception {
+        if (!signedIn() || !ownerScope.equals(scope())) throw new IllegalStateException("请先登录服务器后检查更新");
+        if (!path.startsWith("/api/app-updates/")) throw new IllegalArgumentException("更新接口路径无效");
+        ServerRoutes selected = routes;
+        final String session = cookie;
+        return selected.execute(path, (address, trusted) -> {
+            if (routes != selected || !ownerScope.equals(scope()) || !session.equals(cookie) || session.isEmpty() || !trusted || !selected.trusted(address))
+                throw new IllegalStateException("服务器登录状态已变化，请重新检查更新");
+            HttpURLConnection connection = (HttpURLConnection) new URL(address).openConnection();
+            connection.setRequestMethod(method); connection.setConnectTimeout(6000); connection.setReadTimeout(30000);
+            connection.setInstanceFollowRedirects(false);
+            connection.setRequestProperty("Cookie", session);
+            connection.setRequestProperty("Accept-Encoding", "identity");
+            if (offset > 0) connection.setRequestProperty("Range", "bytes=" + offset + "-");
+            try {
+                int status = connection.getResponseCode();
+                if (status == 502 || status == 503 || status == 504) throw new java.io.IOException("HTTP " + status);
+                if (status == 401) throw new IllegalStateException("登录已失效，请重新登录后检查更新");
+                if (status == 404) throw new IllegalStateException("服务器尚未提供此应用更新，请稍后重试");
+                if (status != 200 && status != 206) throw new IllegalStateException("更新服务暂不可用（HTTP " + status + "）");
+                return connection;
+            } catch (Exception e) {
+                connection.disconnect();
+                if (e instanceof java.io.IOException) throw new ServerRoutes.Failure("连接更新服务器失败", e, true);
+                throw e;
+            }
+        });
+    }
+    JSONObject latestUpdate(String ownerScope) throws Exception {
+        HttpURLConnection connection = updateConnection("GET", "/api/app-updates/latest", 0, ownerScope);
+        try (InputStream input = connection.getInputStream(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            byte[] buffer = new byte[4096]; int count;
+            while ((count = input.read(buffer)) != -1) {
+                if (out.size() + count > 65536) throw new IllegalArgumentException("更新信息过大");
+                out.write(buffer, 0, count);
+            }
+            JSONObject value = new JSONObject(out.toString("UTF-8"));
+            if (!"SUCCESS".equals(value.optString("result"))) throw new IllegalStateException(value.optString("message", "检查更新失败"));
+            return value.getJSONObject("data");
+        } finally { connection.disconnect(); }
+    }
     String absolute(String path) { return routes == null ? path : routes.addresses(path).get(0); }
     boolean trusted(String path) { return routes != null && routes.trusted(path); }
     static final class HttpStream implements java.io.Closeable {

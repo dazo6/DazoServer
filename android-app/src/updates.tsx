@@ -23,18 +23,25 @@ type UpdateState = {
   versionCode: number;
   versionName: string;
   autoCheck: boolean;
+  signedIn: boolean;
   lastCheckedAt: number;
   message: string;
   error: string;
   downloadedBytes: number;
   totalBytes: number;
-  candidate?: { versionCode?: number; versionName?: string; size?: number };
+  candidate?: {
+    versionCode?: number;
+    versionName?: string;
+    size?: number;
+    description?: string;
+  };
 };
 const initial: UpdateState = {
   phase: "idle",
   versionCode: 0,
   versionName: "",
   autoCheck: true,
+  signedIn: false,
   lastCheckedAt: 0,
   message: "",
   error: "",
@@ -100,6 +107,9 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
           <Txt size={23} bold>
             {state.candidate?.versionName}
           </Txt>
+          {!!state.candidate?.description && (
+            <Txt size={14}>{state.candidate.description}</Txt>
+          )}
           <Txt muted size={13}>
             下载和校验已完成，覆盖安装会保留登录与阅读位置。
           </Txt>
@@ -157,13 +167,16 @@ export function UpdateSection() {
             muted
             style={state.error ? { color: C.red } : undefined}
           >
-            {state.error ||
-              state.message ||
-              "从项目的 Android 更新版本获取安装包"}
+            {state.error || state.message || "从当前登录的服务器获取应用更新"}
           </Txt>
           {(downloading || state.phase === "ready") && (
             <Txt size={13} bold>
               {state.candidate?.versionName}　{bytesLabel(state.totalBytes)}
+            </Txt>
+          )}
+          {!!state.candidate?.description && (
+            <Txt size={13} muted>
+              {state.candidate.description}
             </Txt>
           )}
           {downloading && (
@@ -224,6 +237,7 @@ export function UpdateEntry() {
   return (
     <Pressable
       accessibilityRole="button"
+      disabled={!state.signedIn}
       onPress={() =>
         state.phase === "ready" ? showReady() : Native.checkUpdate(true)
       }
@@ -236,17 +250,19 @@ export function UpdateEntry() {
     >
       <Txt size={12} muted>
         {state.versionName}　·　
-        {state.phase === "ready"
-          ? "安装更新"
-          : state.phase === "downloading"
-            ? "正在下载更新…"
-            : state.phase === "checking"
-              ? "正在检查更新…"
-              : state.phase === "current"
-                ? "已是最新版本"
-                : state.phase === "error"
-                  ? "检查失败，点此重试"
-                  : "检查更新"}
+        {!state.signedIn
+          ? "登录后可检查更新"
+          : state.phase === "ready"
+            ? "安装更新"
+            : state.phase === "downloading"
+              ? "正在下载更新…"
+              : state.phase === "checking"
+                ? "正在检查更新…"
+                : state.phase === "current"
+                  ? "已是最新版本"
+                  : state.phase === "error"
+                    ? "检查失败，点此重试"
+                    : "检查更新"}
       </Txt>
     </Pressable>
   );

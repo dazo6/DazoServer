@@ -184,12 +184,12 @@ public final class DazoBridge extends ReactContextBaseJavaModule {
     @ReactMethod public void openDownload(String id, Promise promise) {
         Activity activity = getReactApplicationContext().getCurrentActivity();
         if (activity == null) { promise.reject("DOWNLOAD", "请回到应用后打开"); return; }
-        activity.runOnUiThread(() -> { try { downloads.open(activity, id); promise.resolve(true); } catch (Exception error) { promise.reject("DOWNLOAD", "没有可打开此文件的应用，可到文件管理器的下载/Dazo目录查看", error); } });
+        activity.runOnUiThread(() -> { try { downloads.open(activity, id); promise.resolve(true); } catch (Exception error) { promise.reject("DOWNLOAD", "没有可打开此文件的应用，可在文件管理器的系统下载目录查看", error); } });
     }
     @ReactMethod public void openDownloads(Promise promise) {
         Activity activity = getReactApplicationContext().getCurrentActivity();
         if (activity == null) { promise.reject("DOWNLOAD", "请回到应用后打开"); return; }
-        activity.runOnUiThread(() -> { try { activity.startActivity(new Intent(DownloadManager.ACTION_VIEW_DOWNLOADS)); promise.resolve(true); } catch (Exception error) { promise.reject("DOWNLOAD", "请在文件管理器中打开 下载/Dazo", error); } });
+        activity.runOnUiThread(() -> { try { activity.startActivity(new Intent(DownloadManager.ACTION_VIEW_DOWNLOADS)); promise.resolve(true); } catch (Exception error) { promise.reject("DOWNLOAD", "请在文件管理器中打开系统下载目录", error); } });
     }
     private void cropAvatar(Activity activity, Uri uri, Promise promise) {
         try {

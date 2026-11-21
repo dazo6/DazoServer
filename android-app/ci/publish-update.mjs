@@ -7,13 +7,21 @@ if (repo !== "dazo6/DazoServer" || !token)
   throw new Error("Publishing repository credentials unavailable");
 const manifest = JSON.parse(readFileSync("dist/update.json", "utf8"));
 const releaseNotes = readFileSync("ci/release-notes.md", "utf8").trim();
+const assets = [
+  "DazoGallery.apk",
+  "DazoGallery.apk.sha256",
+  "DazoMobile.apk",
+  "DazoMobile.apk.sha256",
+  "update.json",
+];
 const tag = `android-build-${process.env.GITHUB_RUN_NUMBER}`;
 if (manifest.tag !== tag || manifest.commit !== process.env.GITHUB_SHA)
   throw new Error("Artifact does not belong to this build");
 const apk = readFileSync("dist/DazoMobile.apk");
 if (
   apk.length !== manifest.size ||
-  createHash("sha256").update(apk).digest("hex") !== manifest.sha256
+  createHash("sha256").update(apk).digest("hex") !== manifest.sha256 ||
+  !apk.equals(readFileSync("dist/DazoGallery.apk"))
 )
   throw new Error("APK checksum mismatch");
 
@@ -38,7 +46,7 @@ async function api(path, method = "GET", body) {
 let release = await api(`releases/tags/${tag}`);
 if (release && !release.draft) {
   if (
-    ["DazoMobile.apk", "DazoMobile.apk.sha256", "update.json"].some(
+    assets.some(
       (name) =>
         !release.assets.some(
           (asset) => asset.name === name && asset.state === "uploaded",
@@ -54,17 +62,13 @@ if (release && !release.draft) {
     release = await api("releases", "POST", {
       tag_name: tag,
       target_commitish: process.env.GITHUB_SHA,
-      name: `Android ${manifest.versionName}`,
-      body: `Android 自动构建版本 ${manifest.versionName}\n\n${releaseNotes}\n\n提交：${manifest.commit}\n\n支持在应用内检查、下载并覆盖安装更新。`,
+      name: `DazoGallery ${manifest.versionName}`,
+      body: `DazoGallery Android 版本 ${manifest.versionName}\n\n${releaseNotes}\n\n提交：${manifest.commit}\n\n手动安装请下载 DazoGallery.apk。DazoMobile.apk 为旧版应用内更新保留的兼容地址，两份 APK 内容一致。`,
       draft: true,
       prerelease: false,
       make_latest: "false",
     });
-  for (const name of [
-    "DazoMobile.apk",
-    "DazoMobile.apk.sha256",
-    "update.json",
-  ]) {
+  for (const name of assets) {
     const old = release.assets.find((asset) => asset.name === name);
     if (old) await api(`releases/assets/${old.id}`, "DELETE");
     const url = new URL(release.upload_url.replace(/\{.*$/, ""));

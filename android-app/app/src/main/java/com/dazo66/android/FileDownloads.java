@@ -20,8 +20,10 @@ import java.util.ArrayList;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-/** User-owned downloads are saved in public Downloads/Dazo, separately from the bounded image cache. */
+/** User-owned downloads are saved in public Downloads/DazoGallery, separately from the bounded image cache. */
 final class FileDownloads {
+    static final String DIRECTORY = "DazoGallery";
+    static final String LOCATION = "下载 / " + DIRECTORY;
     interface Listener { void changed(String json); }
     interface Progress { void changed(String name, long bytes, long total); }
     private static FileDownloads instance;
@@ -60,7 +62,7 @@ final class FileDownloads {
         for (JSONObject job : jobs) if (api.scope().equals(job.optString("scope")) && path.equals(job.optString("path")) && ("queued".equals(job.optString("phase")) || "downloading".equals(job.optString("phase")))) return job.toString();
         JSONObject job = new JSONObject();
         put(job, "id", java.util.UUID.randomUUID().toString()); put(job, "scope", api.scope()); put(job, "path", path);
-        put(job, "name", safeName(filename)); put(job, "phase", "queued"); put(job, "bytes", 0); put(job, "total", 0); put(job, "seen", false); put(job, "location", "下载 / Dazo");
+        put(job, "name", safeName(filename)); put(job, "phase", "queued"); put(job, "bytes", 0); put(job, "total", 0); put(job, "seen", false); put(job, "location", LOCATION);
         jobs.add(0, job);
         while (jobs.size() > 30) {
             JSONObject oldest = jobs.get(jobs.size()-1);
@@ -85,18 +87,18 @@ final class FileDownloads {
             OutputStream output;
             if (Build.VERSION.SDK_INT >= 29) {
                 ContentValues values = new ContentValues(); values.put(MediaStore.Downloads.DISPLAY_NAME, name); values.put(MediaStore.Downloads.MIME_TYPE, mime);
-                values.put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/Dazo"); values.put(MediaStore.Downloads.IS_PENDING, 1);
+                values.put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/" + DIRECTORY); values.put(MediaStore.Downloads.IS_PENDING, 1);
                 uri = context.getContentResolver().insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
                 if (uri == null) throw new java.io.IOException("无法创建下载文件");
                 output = context.getContentResolver().openOutputStream(uri);
             } else {
-                File directory = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "Dazo");
+                File directory = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), DIRECTORY);
                 if (!directory.isDirectory() && !directory.mkdirs()) throw new java.io.IOException("无法创建下载目录");
                 File file = new File(directory, name);
                 if (file.exists()) file = new File(directory, System.currentTimeMillis() + "-" + name);
                 put(job, "file", file.getAbsolutePath()); uri = FileProvider.getUriForFile(context, context.getPackageName() + ".updates", file); output = new FileOutputStream(file);
             }
-            synchronized (this) { put(job, "uri", uri.toString()); put(job, "mime", mime); persist(); }
+            synchronized (this) { put(job, "uri", uri.toString()); put(job, "mime", mime); put(job, "location", LOCATION); persist(); }
             if (output == null) throw new java.io.IOException("无法写入下载文件");
             try (OutputStream target = output) {
                 byte[] buffer = new byte[65536]; long bytes = 0, emittedAt = 0, total = -1; String version = null;

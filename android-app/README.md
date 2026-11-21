@@ -13,20 +13,20 @@ $env:ANDROID_HOME = "$env:LOCALAPPDATA\Android\Sdk"
 pnpm install --frozen-lockfile
 pnpm typecheck
 pnpm test
-.\gradlew.bat assembleDebug --max-workers=4
+.\gradlew.bat testReleaseUnitTest assembleRelease --max-workers=4
 ```
 
-APK 位于 `app/build/outputs/apk/debug/app-debug.apk`，包含 JS / Hermes bundle，安装后无需运行 Metro。该产物为调试签名，尚未配置分发签名。支持 Android 8.0+，默认包含 arm64-v8a 和 x86_64。
+APK 位于 `app/build/outputs/apk/release/app-release.apk`，包含 JS / Hermes bundle，安装后无需运行 Metro。默认只包含 ARM64，支持 Android 8.0+；Release 开启 R8 代码优化与资源裁剪，保留 React Native 桥接、视图属性及 GIF / WebP 动图解码的反射入口。单元测试以 Release 为目标。继续使用历史版本的固定签名证书，包名 `com.dazo66.android` 不变，可覆盖升级并保留应用数据。
 
 如需 Fast Refresh 开发，可将 `MainApplication.kt` 中 `useDevSupport` 改为 `BuildConfig.DEBUG`、将 `app/build.gradle` 中 `debuggableVariants` 改为 `['debug']`，再运行 `pnpm start` / `pnpm android`。交付配置默认以独立 APK 为准。
 
 ## GitHub 自动打包
 
-[Android APK 工作流](../.github/workflows/android-apk.yml) 会在 `master` / `main` 的 Android 代码或工作流变更后自动运行，也支持在 [Actions](https://github.com/dazo6/DazoServer/actions/workflows/android-apk.yml) 中手动运行。构建先执行类型检查和测试，再生成包含 arm64-v8a / x86_64 的独立 APK。运行成功后，从 Artifacts 下载 `DazoMobile-运行编号`，包含 `DazoMobile.apk` 和 SHA-256 校验文件，保留 30 天。
+[Android APK 工作流](../.github/workflows/android-apk.yml) 会在 `master` / `main` 的 Android 代码或工作流变更后自动运行，也支持在 [Actions](https://github.com/dazo6/DazoServer/actions/workflows/android-apk.yml) 中手动运行。构建先执行类型检查和测试，再生成 ARM64 Release APK。从 Artifacts 下载 `DazoGallery-运行编号`，包含 `DazoGallery.apk`、兼容旧更新器的同内容 `DazoMobile.apk`、两份校验文件及 `update.json`，保留 30 天。R8 映射文件单独保存在 `DazoGallery-symbols-运行编号` 中供崩溃诊断。
 
-主分支和手动构建使用仓库 Secret `ANDROID_DEBUG_KEYSTORE_BASE64` 中的固定调试密钥，支持覆盖更新当前安装包。密钥通过 GitHub 的公钥加密上传，不进入代码仓库、构建日志或 APK 附件。PR 构建使用临时调试签名，供验证使用。若迁移仓库，需要重新配置此 Secret；它是调试 keystore 文件内容的 Base64，标准调试别名 / 密码为 AndroidDebugKey / android。正式分发签名仍未配置。
+主分支和手动构建继续使用仓库 Secret `ANDROID_DEBUG_KEYSTORE_BASE64` 中的既有密钥。Secret 名称沿用历史配置，Release 构建使用相同证书以保持覆盖安装兼容。密钥通过 GitHub 的公钥加密上传，不进入代码仓库、构建日志或 APK 附件。发布脚本检查实际 APK：必须是非调试 DazoGallery、仅包含 ARM64，并且签名指纹与既有版本一致，否则终止发布。PR 使用临时签名供构建验证，不发布更新。若迁移仓库，需要重新配置相同密钥；本地可通过 `DAZO_DEBUG_KEYSTORE` 指定其路径。
 
-主分支的成功构建还会发布独立的 `android-build-运行编号` Release，包含 APK、SHA-256 和 `update.json`。只有三份文件上传完整后才公开该版本；已公开版本不会覆盖，重新运行成功构建也保持已有下载地址与内容。版本号为 `100000 + 运行编号`，防止旧包被误判为新版本。Android 更新版本不会替换服务端的 GitHub Latest Release。
+主分支的成功构建还会发布独立的 `android-build-运行编号` Release。只有五份文件上传完整后才公开该版本；已公开版本不会覆盖，重新运行成功构建也保持已有下载地址与内容。旧版更新器继续使用 `DazoMobile.apk` 地址，手动下载使用 `DazoGallery.apk`，两者字节相同。版本号为 `100000 + 运行编号`，防止旧包被误判为新版本。Android 更新版本不会替换服务端的 GitHub Latest Release。
 
 ## 应用内更新
 
@@ -48,7 +48,7 @@ APK 位于 `app/build/outputs/apk/debug/app-debug.apk`，包含 JS / Hermes bund
 - 缩略图比例加载后，由原生列表保持可见内容的位置和滚动惯性，避免连续视频行高变化时强制跳转。标题与控制栏仍随滑动方向收起、展开。
 - 点击图片后从原位置放大进入大图，关闭时缩回当前图片。原图模式直接复用列表已加载的本地原图及解码缓存，不重复下载；缩略图模式保留现有预览，同时加载原图。未切换图片时关闭大图，精确恢复打开前的位置。
 - 视频使用 Media3 ExoPlayer，加载时保持黑色背景和缓冲提示，首次起播与重新缓冲目标为约 2 秒媒体数据，按时间而非固定字节判断；实际还需取得文件索引并完成解码。默认隐藏播放器控制栏，点击画面显示，闲置 2.5 秒自动收起。支持 Range 流式读取和拖动进度；长按画面临时切换到所选倍率的 2 倍，松开恢复，右上角默认倍率会记住。
-- 下载由应用的前台服务执行，保留必要的后台进度通知；开始、完成和失败使用轻量 Toast 提示，不弹对话框或发送额外完成通知。文件保存到系统公共“下载 / Dazo”，大图右上角可打开已下载文件；设置不再展示下载目录和历史，文件不随图片缓存清理。
+- 下载由应用的前台服务执行，保留必要的后台进度通知；开始、完成和失败使用轻量 Toast 提示，不弹对话框或发送额外完成通知。新文件保存到系统公共“下载 / DazoGallery”，大图右上角可打开已下载文件；设置不再展示下载目录和历史，文件不随图片缓存清理。旧“下载 / Dazo”中的文件、已有下载记录和 Android 8–9 的 FileProvider 地址继续可用。
 - 大图浏览向后预缓存最多 10 张原图，跳过视频和文件夹；原图列表模式也会提前加载。预缓存每次只进行一个后台读取，移动位置后替换待加载队列，关闭页面后停止后续预取，与图片缓存共用容量限制。
 - GIF / 动态 WebP 只在可见时播放；大图模式仅播放当前页，相邻页保留静态预览，底层图库暂停动图。切换 Tab 或应用进入后台时暂停，返回后恢复；后续十张预缓存只保存文件，不提前播放动画。
 - 画师创建和抓取 / 压缩开关、自由画廊增删改、历史筛选与翻页、任务手动运行、用户权限和会话管理、头像裁剪和账户修改均调用现有接口。
@@ -64,13 +64,13 @@ APK 位于 `app/build/outputs/apk/debug/app-debug.apk`，包含 JS / Hermes bund
 
 `src/` 为 React Native 界面、导航与状态；`app/src/main/java/com/dazo66/android/` 为 Android 入口和网络、加密、缓存、上传、图标 / 视频组件。没有 WebView，也没有保留另一套 Java 页面。
 
-应用显示名称为 DazoGallery。启动器图标直接使用提供的 789 × 789 原始图片，放在 `drawable-nodpi` 中，不缩小或重新压缩，并提供 Android 自适应图标。包名和 APK 文件名保持兼容，现有版本可以覆盖升级。
+应用显示名称和通知统一为 DazoGallery，登录页使用同一图标。启动器图标直接使用提供的 789 × 789 原始图片，放在 `drawable-nodpi` 中，不缩小或重新压缩，并提供 Android 自适应图标。包名与旧版更新地址保持兼容，现有版本可以覆盖升级。
 
 ## 验证
 
-自动测试共 57 项：37 项 TypeScript / Node 测试，包含权限、URL、图片预取、阅读锚点、加载占位期间的位置保护、独立 Tab 导航、相对更新时间、无限加载、居中视频选择、拖动与惯性滚动期间的播放限制、图片过渡几何、预览元数据隔离与容量限制及发布信息；20 项 Java 测试，包含更新策略、备用地址选择、网络变化重置、过期请求隔离、凭据边界、写请求避免重复执行及原图缓存版本保持和失效。
+自动测试共 61 项：41 项 TypeScript / Node 测试，包含权限、URL、图片预取、阅读锚点、加载占位期间的位置保护、独立 Tab 导航、相对更新时间、无限加载、居中视频选择、拖动与惯性滚动期间的播放限制、图片过渡几何、预览元数据隔离与容量限制及发布信息；新增发布检查拒绝调试、多架构、错误名称及不同证书的 APK，并检查动图反射入口未被裁剪或改名。20 项 Java 测试包含更新策略、备用地址选择、网络变化重置、过期请求隔离、凭据边界、写请求避免重复执行及原图缓存版本保持和失效。
 
-本机已通过 TypeScript 检查、全部 57 项自动测试和 `assembleDebug` 构建。Android 15 模拟器通过本地模拟 API 验证了登录、导航、日期时间筛选、单列图片比例、大图左右切换、重启位置恢复、账户修改及 CSRF、三片上传、原生视频显示与倍速面板、缓存清理。缓存压力测试从约 301 MiB 自动降到约 200 MiB，最旧文件及超过 30 天的文件被淘汰。
+本机已通过 TypeScript 检查、全部 61 项自动测试和 `assembleRelease` 构建。Android 15 模拟器通过本地模拟 API 验证了登录、导航、日期时间筛选、单列图片比例、大图左右切换、重启位置恢复、账户修改及 CSRF、三片上传、原生视频显示与倍速面板、缓存清理。缓存压力测试从约 301 MiB 自动降到约 200 MiB，最旧文件及超过 30 天的文件被淘汰。
 
 本轮另在模拟器验证了画师紧凑布局、标题 / 控制栏随图库滚动、全屏隐藏 Tab、跨 Tab 与文件夹返回的位置保持、冷启动独立阅读位置恢复、三种主题模式，以及主地址 503 时备用地址登录、登录后断开当前服务时共用会话切换到另一个备用地址。
 
@@ -80,4 +80,6 @@ APK 位于 `app/build/outputs/apk/debug/app-debug.apk`，包含 JS / Hermes bund
 
 连续视频回归使用 30 个横竖比例交替的条目和每张 1.2 秒的缩略图延迟：旧补偿逻辑在持续上滑时可出现反向跳跃，修复后同场景未再记录反向跳跃；拖动和惯性期间不启动新播放器。延迟视频读取时首帧前保留封面，首次加载与排序后的首行保持顶部；点开大图、静音、列表长按菜单及全屏 1.5× 长按临时 3× 均已验证。
 
-正式服务器尚未联调；真实媒体格式、视频播放、头像上传、归档下载和管理写操作仍需连接实际 Host 验证。APK 使用调试签名。
+ARM64 Release 回归：使用公开的 1.4.0.19 安装包覆盖升级到 1.4.0.20，确认登录态、深色主题、原图 / 自动播放设置、播放倍率和图库阅读位置保留；旧目录文件仍可打开，新文件写入 Download/DazoGallery 并显示完成 Toast。列表与全屏 GIF 动画均已验证。由于本机模拟器为 x86_64，运行验证采用仅调整原生库解压方式的 ARM64 测试包；其 15 个原生库、DEX 和 JS 条目与正常发布包逐字节一致。发布包约 17.6 MB，相比上一版约 78.7 MB 减少约 78%，原始图标数据保持不变。
+
+正式服务器尚未联调；真实媒体格式、视频播放、头像上传、归档下载和管理写操作仍需连接实际 Host 验证。Release 构建沿用既有版本的固定签名证书。

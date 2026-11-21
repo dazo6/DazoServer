@@ -82,13 +82,13 @@ jobs:
           printf '%s' "$ANDROID_DEBUG_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/dazo-debug.keystore"
           echo "DAZO_DEBUG_KEYSTORE=$RUNNER_TEMP/dazo-debug.keystore" >> "$GITHUB_ENV"
 
-      - name: Build standalone APK
+      - name: Build optimized ARM64 release APK
         run: |
           curl --fail --location --retry 3 --connect-timeout 20 --output "$RUNNER_TEMP/foojay-plugin.pom" 'https://plugins.gradle.org/m2/org/gradle/toolchains/foojay-resolver-convention/org.gradle.toolchains.foojay-resolver-convention.gradle.plugin/1.0.0/org.gradle.toolchains.foojay-resolver-convention.gradle.plugin-1.0.0.pom'
           export APP_VERSION_CODE=$((100000 + GITHUB_RUN_NUMBER))
           export APP_VERSION_NAME="1.4.0.${GITHUB_RUN_NUMBER}"
           echo "APP_VERSION_NAME=$APP_VERSION_NAME" >> "$GITHUB_ENV"
-          ./gradlew testDebugUnitTest assembleDebug --no-daemon --max-workers=4 --stacktrace --info -PappVersionCode="$APP_VERSION_CODE" -PappVersionName="$APP_VERSION_NAME"
+          ./gradlew testReleaseUnitTest assembleRelease --no-daemon --max-workers=4 --stacktrace --info -PreactNativeArchitectures=arm64-v8a -PappVersionCode="$APP_VERSION_CODE" -PappVersionName="$APP_VERSION_NAME"
 
       - name: Prepare APK and checksum
         run: |
@@ -98,11 +98,19 @@ jobs:
         id: upload
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: DazoMobile-${{ github.run_number }}
+          name: DazoGallery-${{ github.run_number }}
           path: android-app/dist/*
           if-no-files-found: error
           retention-days: 30
           compression-level: 0
+
+      - name: Keep R8 mappings for crash diagnosis
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: DazoGallery-symbols-${{ github.run_number }}
+          path: android-app/app/build/outputs/mapping/release/
+          if-no-files-found: error
+          retention-days: 30
 
       - name: Link APK in build summary
         env:
@@ -134,7 +142,7 @@ jobs:
       - name: Download this build's verified APK
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "DazoMobile-$GITHUB_RUN_NUMBER" --dir android-app/dist
+        run: gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "DazoGallery-$GITHUB_RUN_NUMBER" --dir android-app/dist
       - name: Publish complete update release
         working-directory: android-app
         env:

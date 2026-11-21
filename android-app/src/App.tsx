@@ -11,6 +11,7 @@ import {
   AppState,
   BackHandler,
   DeviceEventEmitter,
+  Image,
   Keyboard,
   KeyboardAvoidingView,
   Pressable,
@@ -185,26 +186,16 @@ function Login({
         }}
       >
         <View style={[S.row, { gap: 12, marginBottom: 32 }]}>
-          <View
-            style={{
-              width: 48,
-              height: 48,
-              borderRadius: 14,
-              backgroundColor: C.blue,
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-          >
-            <Txt size={27} bold style={{ color: "white" }}>
-              F
-            </Txt>
-          </View>
+          <Image
+            source={{ uri: "launcher_art" }}
+            style={{ width: 48, height: 48, borderRadius: 14 }}
+          />
           <View>
             <Txt size={20} bold>
               DazoGallery
             </Txt>
             <Txt size={12} muted>
-              Crawler Console
+              图片与视频收藏
             </Txt>
           </View>
         </View>

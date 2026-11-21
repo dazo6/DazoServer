@@ -313,7 +313,7 @@ final class UpdateManager {
                         Uri uri = FileProvider.getUriForFile(context, context.getPackageName() + ".updates", apkFile());
                         Intent intent = new Intent(Intent.ACTION_VIEW).setDataAndType(uri, "application/vnd.android.package-archive")
                                 .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-                        intent.setClipData(ClipData.newRawUri("Dazo update", uri));
+                        intent.setClipData(ClipData.newRawUri("DazoGallery update", uri));
                         activity.startActivity(intent);
                     } catch (Exception e) { error = "无法打开系统安装程序：" + e.getMessage(); emit(); }
                 });

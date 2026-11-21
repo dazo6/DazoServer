@@ -91,14 +91,20 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
     }
     const saved = finished.filter((job) => job.phase === "complete").length,
       failed = finished.length - saved;
+    const locations = new Set(
+      finished
+        .filter((job) => job.phase === "complete")
+        .map((job) => job.location),
+    );
+    const location = locations.size === 1 ? [...locations][0] : "";
     const message =
       saved && failed
         ? `${saved} 个文件已保存，${failed} 个下载失败`
         : failed
           ? "下载失败，请检查网络后重试"
           : saved > 1
-            ? `${saved} 个文件已保存到下载 / Dazo`
-            : "已保存到下载 / Dazo";
+            ? `${saved} 个文件已保存${location ? "到" + location : ""}`
+            : `已保存到${location || "下载 / DazoGallery"}`;
     ToastAndroid.show(message, ToastAndroid.SHORT);
   }, [jobs, pulse]);
   return (

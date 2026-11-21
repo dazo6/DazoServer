@@ -31,7 +31,7 @@ public final class UpdateDownloadService extends Service {
         PendingIntent open = PendingIntent.getActivity(this, 0, new Intent(this, MainActivity.class), flags);
         PendingIntent cancel = PendingIntent.getService(this, 1, new Intent(this, UpdateDownloadService.class).setAction(CANCEL), flags);
         return new Notification.Builder(this, CHANNEL).setSmallIcon(android.R.drawable.stat_sys_download)
-                .setContentTitle("DazoGallery 应用更新").setContentText(total > 0 ? "正在下载 " + downloaded * 100 / total + "%" : "正在连接更新服务…")
+                .setContentTitle(getString(R.string.app_name) + " 应用更新").setContentText(total > 0 ? "正在下载 " + downloaded * 100 / total + "%" : "正在连接更新服务…")
                 .setContentIntent(open).setOnlyAlertOnce(true).setOngoing(true)
                 .setProgress(100, total > 0 ? (int) (downloaded * 100 / total) : 0, total <= 0)
                 .addAction(new Notification.Action.Builder(null, "取消", cancel).build()).build();

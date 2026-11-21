@@ -16,6 +16,7 @@ android {
     compileSdk rootProject.ext.compileSdkVersion
     buildToolsVersion rootProject.ext.buildToolsVersion
     ndkVersion rootProject.ext.ndkVersion
+    testBuildType 'release'
     signingConfigs {
         debug {
             if (System.getenv('DAZO_DEBUG_KEYSTORE')) {
@@ -32,6 +33,15 @@ android {
         targetSdk rootProject.ext.targetSdkVersion
         versionCode providers.gradleProperty('appVersionCode').getOrElse('5').toInteger()
         versionName providers.gradleProperty('appVersionName').getOrElse('1.4.0')
+    }
+    buildTypes {
+        release {
+            // Reuse the installed app's certificate so existing installations can upgrade.
+            signingConfig signingConfigs.debug
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
     }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17

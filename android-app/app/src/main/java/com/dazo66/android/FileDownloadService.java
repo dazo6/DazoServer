@@ -28,13 +28,13 @@ public final class FileDownloadService extends Service {
     private Notification notification(String name, long done, long total) {
         PendingIntent open = PendingIntent.getActivity(this, 74, new Intent(this, MainActivity.class), PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         return new Notification.Builder(this, CHANNEL).setSmallIcon(android.R.drawable.stat_sys_download).setContentTitle(name)
-                .setContentText(total > 0 ? "下载中 " + done * 100 / total + "%" : "正在下载到 下载 / Dazo")
+                .setContentText(total > 0 ? "下载中 " + done * 100 / total + "%" : "正在下载到 " + FileDownloads.LOCATION)
                 .setProgress(100, total > 0 ? (int)(done * 100 / total) : 0, total <= 0).setOngoing(true).setOnlyAlertOnce(true).setContentIntent(open).build();
     }
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
         latestStartId = startId;
-        if (Build.VERSION.SDK_INT >= 29) startForeground(ID, notification("DazoGallery 文件下载", 0, -1), ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
-        else startForeground(ID, notification("DazoGallery 文件下载", 0, -1));
+        if (Build.VERSION.SDK_INT >= 29) startForeground(ID, notification(getString(R.string.app_name) + " 文件下载", 0, -1), ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
+        else startForeground(ID, notification(getString(R.string.app_name) + " 文件下载", 0, -1));
         if (running.compareAndSet(false, true)) worker.execute(() -> {
             try { downloads.runQueue((name, bytes, total) -> getSystemService(NotificationManager.class).notify(ID, notification(name, bytes, total))); }
             finally {

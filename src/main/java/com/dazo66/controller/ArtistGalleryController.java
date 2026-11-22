@@ -133,6 +133,54 @@ public class ArtistGalleryController {
     }
 
     private static final long UPLOAD_LIMIT=2L*1024*1024*1024;
+    /** Preflight the entire selection before deleting anything; never follow links. */
+    @org.springframework.web.bind.annotation.PostMapping("gallery/delete-batch")
+    @ACL(type=AclType.DELETE,point="$arg1")
+    public ResultEntity<Map<String,Object>> deleteGalleryFiles(@RequestParam String folderPath,
+            @org.springframework.web.bind.annotation.RequestBody List<String> names) throws IOException {
+        Path directory=galleryDirectory(folderPath);
+        if(directory==null) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.NOT_FOUND,"画廊目录不存在");
+        AclAccess.checkPath(AclType.DELETE,directory.toString());
+        if(names==null || names.isEmpty() || names.size()>1000) throw new IllegalArgumentException("每次请选择1到1000项");
+        Map<String,List<Path>> plans=new LinkedHashMap<>();
+        final int[] count={0};
+        for(String name:new LinkedHashSet<>(names)) {
+            if(name==null || name.isEmpty() || name.equals(".") || name.equals("..") || name.contains("/") || name.contains("\\") || name.contains(":") || name.endsWith(".") || name.endsWith(" ") || name.chars().anyMatch(c->c<32)) throw new IllegalArgumentException("文件名无效");
+            Path target=directory.resolve(name).normalize();
+            if(!directory.equals(target.getParent())) throw new IllegalArgumentException("文件路径无效");
+            List<Path> plan=new ArrayList<>();
+            Files.walkFileTree(target,new SimpleFileVisitor<Path>() {
+                private void validate(Path entry) throws IOException {
+                    if(++count[0]>100000) throw new IllegalArgumentException("所选目录文件过多，请分批删除");
+                    if(Files.isSymbolicLink(entry) || !entry.toRealPath().equals(entry.toAbsolutePath().normalize())) throw new IllegalArgumentException("不能删除包含链接的目录");
+                    if(!entry.toRealPath().startsWith(directory)) throw new IllegalArgumentException("文件路径超出图库范围");
+                    AclAccess.checkPath(AclType.DELETE,entry.toString());
+                }
+                @Override public FileVisitResult preVisitDirectory(Path dir,java.nio.file.attribute.BasicFileAttributes attrs) throws IOException {validate(dir);return FileVisitResult.CONTINUE;}
+                @Override public FileVisitResult visitFile(Path file,java.nio.file.attribute.BasicFileAttributes attrs) throws IOException {validate(file);plan.add(file);return FileVisitResult.CONTINUE;}
+                @Override public FileVisitResult postVisitDirectory(Path dir,IOException error) throws IOException {if(error!=null)throw error;plan.add(dir);return FileVisitResult.CONTINUE;}
+            });
+            plans.put(name,plan);
+        }
+        List<String> deleted=new ArrayList<>(); Map<String,String> failed=new LinkedHashMap<>();
+        try {
+            for(Map.Entry<String,List<Path>> selection:plans.entrySet()) {
+                try {
+                    for(Path entry:selection.getValue()) {
+                        // Recheck ancestors in case a directory was replaced with a link since preflight.
+                        if(Files.exists(entry,LinkOption.NOFOLLOW_LINKS)) {
+                            if(!entry.toRealPath().equals(entry.toAbsolutePath().normalize()) || !entry.toRealPath().startsWith(directory)) throw new IOException("文件路径已变化");
+                            AclAccess.checkPath(AclType.DELETE,entry.toString());
+                            Files.delete(entry);
+                        }
+                    }
+                    deleted.add(selection.getKey());
+                } catch(IOException error) {failed.put(selection.getKey(),"删除未完成，请刷新后重试");LOGGER.warn("Unable to delete gallery entry {}",selection.getKey(),error);}
+            }
+        } finally {galleryCache.rebuildAuthorized(directory.toString());}
+        Map<String,Object> result=new LinkedHashMap<>();result.put("deleted",deleted);result.put("failed",failed);
+        return ResultEntity.successWithData(result);
+    }
     private static final int CHUNK_SIZE=512*1024;
     private static final long UPLOAD_IDLE_MS=15L*60*1000;
     private final java.util.concurrent.ConcurrentHashMap<String,ChunkUpload> chunkUploads=new java.util.concurrent.ConcurrentHashMap<>();

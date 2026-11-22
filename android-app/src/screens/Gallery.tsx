@@ -6,6 +6,7 @@ import { useUI } from "../theme";
 import React, { useContext, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  BackHandler,
   Alert,
   Animated,
   AppState,
@@ -96,6 +97,40 @@ export function Gallery({
     [menu, setMenu] = useState(false),
     [fileMenu, setFileMenu] = useState<Row | null>(null),
     [viewer, setViewer] = useState<number | null>(null);
+  const [selecting, setSelecting] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [deleting, setDeleting] = useState(false);
+  useEffect(() => {
+    setSelecting(false);
+    setSelected(new Set());
+  }, [path]);
+  const exitSelection = () => {
+    if (!deleting) {
+      setSelecting(false);
+      setSelected(new Set());
+    }
+  };
+  const toggleSelection = (item: Row) => {
+    if (deleting || !allowed(me, "delete", path + "/" + item.name)) return;
+    setSelected((previous) => {
+      const next = new Set(previous);
+      if (next.has(item.name)) next.delete(item.name);
+      else if (next.size < 1000) next.add(item.name);
+      else toast("每次最多选择1000项");
+      return next;
+    });
+  };
+  useEffect(() => {
+    if (!selecting || !active) return;
+    const subscription = BackHandler.addEventListener(
+      "hardwareBackPress",
+      () => {
+        exitSelection();
+        return true;
+      },
+    );
+    return () => subscription.remove();
+  }, [selecting, deleting, active]);
   const [origin, setOrigin] = useState<ImageTransition | null>(null);
   const rowRefs = useRef(new Map<string, React.ComponentRef<typeof View>>());
   const opened = useRef<{ index: number; position: Position } | null>(null);
@@ -204,6 +239,7 @@ export function Gallery({
     return () => clearTimeout(timer);
   }, [autoplayVideos, active, foreground, viewer, centered, scrollIdle]);
   const inlineIndex =
+    !selecting &&
     autoplayVideos &&
     active &&
     foreground &&
@@ -321,6 +357,10 @@ export function Gallery({
       );
     });
   const open = async (item: Row, index: number, pressed?: ImageTransition) => {
+    if (selecting) {
+      toggleSelection(item);
+      return;
+    }
     memory.set(positionKey, { ...live.current });
     if (item.type === "folder") {
       navigate({ name: "gallery", path: item.folderPath, artistId });
@@ -331,6 +371,80 @@ export function Gallery({
       setViewer(index);
     }
   };
+  const deleteSelection = () => {
+    const names = items
+      .filter((item) => selected.has(item.name))
+      .map((item) => item.name);
+    if (!names.length || deleting) return;
+    const folders = items.filter(
+      (item) => selected.has(item.name) && item.type === "folder",
+    ).length;
+    Alert.alert(
+      "删除所选内容？",
+      `将永久删除 ${names.length} 项${folders ? `，其中 ${folders} 个文件夹及其内部所有文件` : ""}，无法撤销。`,
+      [
+        { text: "取消", style: "cancel" },
+        {
+          text: "删除",
+          style: "destructive",
+          onPress: () =>
+            void (async () => {
+              setDeleting(true);
+              try {
+                const result = await request<{
+                  deleted: string[];
+                  failed: Record<string, string>;
+                }>(
+                  "POST",
+                  query("/api/fanbox/gallery/delete-batch", {
+                    folderPath: path,
+                  }),
+                  names,
+                );
+                const failed = Object.keys(result.failed || {});
+                setSelected(new Set(failed));
+                setSelecting(failed.length > 0);
+                toast(
+                  failed.length
+                    ? `已删除 ${result.deleted.length} 项，${failed.length} 项未完成`
+                    : `已删除 ${result.deleted.length} 项`,
+                );
+              } catch (error) {
+                report(error);
+              } finally {
+                saved.current = { ...live.current };
+                restored.current = false;
+                restoreTarget.current = null;
+                await remote.reloadSilent();
+                setDeleting(false);
+              }
+            })(),
+        },
+      ],
+    );
+  };
+  const selectionBadge = (item: Row) => (
+    <View
+      pointerEvents="none"
+      style={{
+        position: "absolute",
+        top: 10,
+        right: 10,
+        width: 28,
+        height: 28,
+        borderRadius: 14,
+        borderWidth: 2,
+        borderColor: "white",
+        backgroundColor: selected.has(item.name) ? C.blue : "#17203388",
+        alignItems: "center",
+        justifyContent: "center",
+        elevation: 2,
+        opacity: allowed(me, "delete", path + "/" + item.name) ? 1 : 0.3,
+      }}
+    >
+      {selected.has(item.name) && <Icon name="check" size={20} color="white" />}
+    </View>
+  );
   const ratioChanged = (item: Row, ratio: number) => {
     setRatios((old) =>
       old[item.name] === ratio ? old : { ...old, [item.name]: ratio },
@@ -357,7 +471,7 @@ export function Gallery({
         <FlatList
           ref={ref}
           stickyHeaderIndices={[0]}
-          stickyHeaderHiddenOnScroll
+          stickyHeaderHiddenOnScroll={!selecting}
           maintainVisibleContentPosition={
             remote.data &&
             anchoredData === remote.data &&
@@ -384,48 +498,105 @@ export function Gallery({
                 ]}
               >
                 <Txt size={12} muted style={{ flex: 1 }}>
-                  {items.length} 项
+                  {selecting
+                    ? `已选 ${selected.size} 项`
+                    : `${items.length} 项`}
                 </Txt>
-                {!!reader && items.some((a) => a.name === reader) && (
-                  <Pressable
-                    onPress={() => {
-                      const current = items.findIndex((a) => a.name === reader);
-                      locate(current);
-                      requestAnimationFrame(
-                        () => void open(items[current], current),
-                      );
-                    }}
-                    style={{ paddingVertical: 6, paddingHorizontal: 8 }}
-                  >
-                    <Txt size={12} bold style={{ color: C.blue }}>
-                      继续浏览
-                    </Txt>
-                  </Pressable>
+                {selecting && (
+                  <>
+                    <Pressable
+                      disabled={deleting}
+                      onPress={() =>
+                        setSelected(
+                          selected.size
+                            ? new Set()
+                            : new Set(
+                                items
+                                  .filter((item) =>
+                                    allowed(
+                                      me,
+                                      "delete",
+                                      path + "/" + item.name,
+                                    ),
+                                  )
+                                  .slice(0, 1000)
+                                  .map((item) => item.name),
+                              ),
+                        )
+                      }
+                      style={{ padding: 10 }}
+                    >
+                      <Txt size={13}>{selected.size ? "清空" : "全选"}</Txt>
+                    </Pressable>
+                    {deleting ? (
+                      <ActivityIndicator color={C.blue} />
+                    ) : (
+                      <Pressable
+                        disabled={!selected.size}
+                        accessibilityLabel="删除所选文件"
+                        onPress={deleteSelection}
+                        style={{
+                          padding: 10,
+                          opacity: selected.size ? 1 : 0.4,
+                        }}
+                      >
+                        <Icon name="trash" size={24} color={C.red} />
+                      </Pressable>
+                    )}
+                    <IconButton
+                      name="close"
+                      label="退出多选"
+                      onPress={exitSelection}
+                    />
+                  </>
                 )}
-                <IconButton
-                  name="sort"
-                  label="图库排序"
-                  onPress={() => {
-                    setDraft(sort);
-                    setSortOpen(true);
-                  }}
-                />
-                {allowed(me, "update", path) && (
-                  <IconButton
-                    name="upload"
-                    label="上传文件"
-                    onPress={() => void uploadFile()}
-                  />
+                {!selecting && (
+                  <>
+                    {!!reader && items.some((a) => a.name === reader) && (
+                      <Pressable
+                        onPress={() => {
+                          const current = items.findIndex(
+                            (a) => a.name === reader,
+                          );
+                          locate(current);
+                          requestAnimationFrame(
+                            () => void open(items[current], current),
+                          );
+                        }}
+                        style={{ paddingVertical: 6, paddingHorizontal: 8 }}
+                      >
+                        <Txt size={12} bold style={{ color: C.blue }}>
+                          继续浏览
+                        </Txt>
+                      </Pressable>
+                    )}
+                    <IconButton
+                      name="sort"
+                      label="图库排序"
+                      onPress={() => {
+                        setDraft(sort);
+                        setSortOpen(true);
+                      }}
+                    />
+                    {allowed(me, "update", path) && (
+                      <IconButton
+                        name="upload"
+                        label="上传文件"
+                        onPress={() => void uploadFile()}
+                      />
+                    )}
+                    <IconButton
+                      name="more"
+                      label="图库选项"
+                      onPress={() => setMenu(true)}
+                    />
+                  </>
                 )}
-                <IconButton
-                  name="more"
-                  label="图库选项"
-                  onPress={() => setMenu(true)}
-                />
               </View>
             </>
           }
           data={items}
+          extraData={selected}
           keyExtractor={(item) => item.name}
           contentContainerStyle={{
             paddingHorizontal: 2,
@@ -436,6 +607,7 @@ export function Gallery({
           refreshControl={
             <RefreshControl
               refreshing={remote.refreshing}
+              enabled={!deleting}
               onRefresh={remote.refresh}
               colors={[C.blue]}
             />
@@ -518,6 +690,7 @@ export function Gallery({
                   </Txt>
                   <Icon name="next" size={22} />
                 </View>
+                {selecting && selectionBadge(item)}
               </Card>
             ) : (
               <Pressable
@@ -546,7 +719,9 @@ export function Gallery({
                         },
                   )
                 }
-                onLongPress={() => setFileMenu(item)}
+                onLongPress={() => {
+                  if (!selecting) setFileMenu(item);
+                }}
                 delayLongPress={450}
                 style={{
                   backgroundColor: C.surface,
@@ -638,6 +813,7 @@ export function Gallery({
                     </View>
                   )}
                 </View>
+                {selecting && selectionBadge(item)}
                 {item.type === "folder" && (
                   <View
                     style={[
@@ -652,7 +828,9 @@ export function Gallery({
                     <Pressable
                       accessibilityLabel="文件选项"
                       hitSlop={8}
-                      onPress={() => setFileMenu(item)}
+                      onPress={() =>
+                        selecting ? toggleSelection(item) : setFileMenu(item)
+                      }
                     >
                       <Icon name="more" size={24} color={C.muted} />
                     </Pressable>
@@ -708,6 +886,20 @@ export function Gallery({
           title="图库"
           onClose={() => setMenu(false)}
           items={[
+            ...(allowed(me, "delete", path)
+              ? [
+                  {
+                    label: "删除",
+                    icon: "trash",
+                    danger: true,
+                    action: () => {
+                      setMenu(false);
+                      setSelected(new Set());
+                      setSelecting(true);
+                    },
+                  },
+                ]
+              : []),
             {
               label: "打包下载",
               icon: "download",

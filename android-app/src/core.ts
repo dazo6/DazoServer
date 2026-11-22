@@ -49,6 +49,10 @@ export const Native = NativeModules.DazoBridge as {
   clearCache(): Promise<void>;
   pickUpload(folder: string): Promise<string>;
   cancelUpload(): void;
+  uploadsState(): Promise<string>;
+  cancelUploadFile(id: string): void;
+  retryUpload(id: string): Promise<void>;
+  dismissUploads(): void;
   pickAvatar(): Promise<void>;
   download(path: string, filename: string): Promise<string>;
   downloadsState(): Promise<string>;

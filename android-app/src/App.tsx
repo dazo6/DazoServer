@@ -55,6 +55,7 @@ import {
 } from "./screens/Management";
 import { ServerFields } from "./servers";
 import { DownloadProvider } from "./downloads";
+import { UploadProvider, UploadDock } from "./uploads";
 
 export default function App() {
   return (
@@ -498,131 +499,137 @@ function Authenticated({
   );
   return (
     <AppContext.Provider value={context}>
-      <DownloadProvider>
-        <View style={{ flex: 1, backgroundColor: C.bg, paddingTop: inset.top }}>
-          <View style={{ flex: 1, overflow: "hidden" }}>
-            {tabs
-              .filter(
-                (tab) =>
-                  navigation.stacks[tab.name] !== undefined ||
-                  tab.name === navigation.tab,
-              )
-              .flatMap((tab) => {
-                const routes: Screen[] = [
-                  { name: tab.name },
-                  ...(navigation.stacks[tab.name] || []),
-                ];
-                return routes.map((screen, depth) => {
-                  const active =
-                    tab.name === navigation.tab && depth === routes.length - 1;
-                  return (
-                    <ScreenActive.Provider
-                      key={`${tab.name}:${depth}:${screen.name}:${screen.path || ""}`}
-                      value={active}
-                    >
-                      <NavigationTab.Provider value={tab.name}>
-                        <View
-                          pointerEvents={active ? "auto" : "none"}
-                          accessibilityElementsHidden={!active}
-                          importantForAccessibility={
-                            active ? "auto" : "no-hide-descendants"
-                          }
-                          style={[
-                            StyleSheet.absoluteFill,
-                            {
-                              backgroundColor: C.bg,
-                              opacity: active ? 1 : 0,
-                              zIndex: active ? 1 : 0,
-                            },
-                          ]}
-                        >
-                          <Route screen={screen} hasBack={depth > 0} />
-                        </View>
-                      </NavigationTab.Provider>
-                    </ScreenActive.Provider>
-                  );
-                });
-              })}
-          </View>
+      <UploadProvider>
+        <DownloadProvider>
           <View
-            style={[
-              S.row,
-              {
-                backgroundColor: C.surface,
-                paddingBottom: inset.bottom,
-                borderTopWidth: 1,
-                borderColor: C.line,
-                paddingHorizontal: 4,
-              },
-            ]}
+            style={{ flex: 1, backgroundColor: C.bg, paddingTop: inset.top }}
           >
-            {tabs.map((tab) => (
+            <View style={{ flex: 1, overflow: "hidden" }}>
+              {tabs
+                .filter(
+                  (tab) =>
+                    navigation.stacks[tab.name] !== undefined ||
+                    tab.name === navigation.tab,
+                )
+                .flatMap((tab) => {
+                  const routes: Screen[] = [
+                    { name: tab.name },
+                    ...(navigation.stacks[tab.name] || []),
+                  ];
+                  return routes.map((screen, depth) => {
+                    const active =
+                      tab.name === navigation.tab &&
+                      depth === routes.length - 1;
+                    return (
+                      <ScreenActive.Provider
+                        key={`${tab.name}:${depth}:${screen.name}:${screen.path || ""}`}
+                        value={active}
+                      >
+                        <NavigationTab.Provider value={tab.name}>
+                          <View
+                            pointerEvents={active ? "auto" : "none"}
+                            accessibilityElementsHidden={!active}
+                            importantForAccessibility={
+                              active ? "auto" : "no-hide-descendants"
+                            }
+                            style={[
+                              StyleSheet.absoluteFill,
+                              {
+                                backgroundColor: C.bg,
+                                opacity: active ? 1 : 0,
+                                zIndex: active ? 1 : 0,
+                              },
+                            ]}
+                          >
+                            <Route screen={screen} hasBack={depth > 0} />
+                          </View>
+                        </NavigationTab.Provider>
+                      </ScreenActive.Provider>
+                    );
+                  });
+                })}
+            </View>
+            <View
+              style={[
+                S.row,
+                {
+                  backgroundColor: C.surface,
+                  paddingBottom: inset.bottom,
+                  borderTopWidth: 1,
+                  borderColor: C.line,
+                  paddingHorizontal: 4,
+                },
+              ]}
+            >
+              {tabs.map((tab) => (
+                <Pressable
+                  key={tab.name}
+                  accessibilityRole="tab"
+                  accessibilityState={{ selected: navigation.tab === tab.name }}
+                  onPress={() => {
+                    Keyboard.dismiss();
+                    setNavigation(selectTab(navigation, tab.name));
+                  }}
+                  style={{
+                    flex: 1,
+                    alignItems: "center",
+                    paddingVertical: 3,
+                    marginHorizontal: 3,
+                    backgroundColor:
+                      navigation.tab === tab.name ? C.pale : "transparent",
+                    borderRadius: 16,
+                  }}
+                >
+                  <View
+                    style={{
+                      width: 54,
+                      height: 30,
+                      alignItems: "center",
+                      justifyContent: "center",
+                      borderRadius: 14,
+                    }}
+                  >
+                    <Icon
+                      name={tab.icon}
+                      size={27}
+                      color={navigation.tab === tab.name ? C.blue : C.muted}
+                    />
+                  </View>
+                  <Txt
+                    size={11}
+                    bold={navigation.tab === tab.name}
+                    style={{
+                      color: navigation.tab === tab.name ? C.blue : C.muted,
+                    }}
+                  >
+                    {tab.title}
+                  </Txt>
+                </Pressable>
+              ))}
+            </View>
+            {!!toast && (
               <Pressable
-                key={tab.name}
-                accessibilityRole="tab"
-                accessibilityState={{ selected: navigation.tab === tab.name }}
-                onPress={() => {
-                  Keyboard.dismiss();
-                  setNavigation(selectTab(navigation, tab.name));
-                }}
+                onPress={() => setToast("")}
                 style={{
-                  flex: 1,
-                  alignItems: "center",
-                  paddingVertical: 3,
-                  marginHorizontal: 3,
-                  backgroundColor:
-                    navigation.tab === tab.name ? C.pale : "transparent",
-                  borderRadius: 16,
+                  position: "absolute",
+                  bottom: inset.bottom + 72,
+                  left: 24,
+                  right: 24,
+                  backgroundColor: "#172033ed",
+                  padding: 14,
+                  borderRadius: 12,
+                  elevation: 8,
                 }}
               >
-                <View
-                  style={{
-                    width: 54,
-                    height: 30,
-                    alignItems: "center",
-                    justifyContent: "center",
-                    borderRadius: 14,
-                  }}
-                >
-                  <Icon
-                    name={tab.icon}
-                    size={27}
-                    color={navigation.tab === tab.name ? C.blue : C.muted}
-                  />
-                </View>
-                <Txt
-                  size={11}
-                  bold={navigation.tab === tab.name}
-                  style={{
-                    color: navigation.tab === tab.name ? C.blue : C.muted,
-                  }}
-                >
-                  {tab.title}
+                <Txt size={13} style={{ color: "white" }}>
+                  {toast}
                 </Txt>
               </Pressable>
-            ))}
+            )}
+            <UploadDock bottom={inset.bottom + 61} />
           </View>
-          {!!toast && (
-            <Pressable
-              onPress={() => setToast("")}
-              style={{
-                position: "absolute",
-                bottom: inset.bottom + 72,
-                left: 24,
-                right: 24,
-                backgroundColor: "#172033ed",
-                padding: 14,
-                borderRadius: 12,
-                elevation: 8,
-              }}
-            >
-              <Txt size={13} style={{ color: "white" }}>
-                {toast}
-              </Txt>
-            </Pressable>
-          )}
-        </View>
-      </DownloadProvider>
+        </DownloadProvider>
+      </UploadProvider>
     </AppContext.Provider>
   );
 }

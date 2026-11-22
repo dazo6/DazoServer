@@ -241,38 +241,72 @@ final class ApiClient {
         });
     }
 
-    AtomicBoolean upload(Context context, Uri uri, String filename, long size, String folderPath, Progress progress, Done<Object> done) {
-        AtomicBoolean cancelled = new AtomicBoolean();
-        pool.execute(() -> {
-            try (InputStream input = context.getContentResolver().openInputStream(uri)) {
-                if (input == null) throw new IllegalArgumentException("无法读取文件");
-                if (size < 1 || size > 2L * 1024 * 1024 * 1024) throw new IllegalArgumentException("文件大小必须在 1 字节到 2GB 之间");
-                final int chunkSize = 512 * 1024;
-                int count = (int) ((size + chunkSize - 1) / chunkSize);
-                String uploadId = "";
-                for (int i = 0; i < count; i++) {
-                    if (cancelled.get()) throw new IllegalStateException("上传已取消");
-                    int wanted = (int) Math.min(chunkSize, size - (long) i * chunkSize);
-                    byte[] part = new byte[wanted]; int offset = 0;
-                    while (offset < wanted) {
-                        int n = input.read(part, offset, wanted - offset);
-                        if (n < 0) throw new IllegalStateException("文件读取中断");
-                        offset += n;
-                    }
-                    String path;
-                    if (count == 1) path = "/api/fanbox/gallery/upload?folderPath=" + encode(folderPath);
-                    else path = "/api/fanbox/gallery/upload-chunk?folderPath=" + encode(folderPath)
-                            + "&filename=" + encode(filename) + "&totalSize=" + size + "&partIndex=" + i
-                            + "&partCount=" + count + (uploadId.isEmpty() ? "" : "&uploadId=" + encode(uploadId));
-                    JSONObject result = multipart(path, filename, part);
-                    uploadId = result.optJSONObject("data") == null ? uploadId : result.getJSONObject("data").optString("uploadId", uploadId);
-                    int percent = (int) Math.round((i + 1) * 100.0 / count);
-                    main.post(() -> progress.accept(percent));
-                }
-                post(done, true, null);
-            } catch (Exception e) { post(done, null, e); }
-        });
-        return cancelled;
+    boolean uploadReady(String ownerScope) { return signedIn() && !csrf.isEmpty() && scope().equals(ownerScope); }
+    void uploadFile(Context context, Uri uri, String filename, long size, String folderPath, String ownerScope,
+                    UploadControl control, UploadTransfer.Progress progress) throws Exception {
+        ServerRoutes selected = routes;
+        final String session = cookie, csrfToken = csrf;
+        UploadTransfer.Cancellation guard = () -> {
+            control.check();
+            if (!uploadReady(ownerScope) || routes != selected || !session.equals(cookie) || !csrfToken.equals(csrf))
+                throw new IllegalStateException("登录或连接设置已变化，请重试上传");
+        };
+        guard.check();
+        try (InputStream input = context.getContentResolver().openInputStream(uri)) {
+            if (input == null) throw new IllegalArgumentException("无法读取所选文件");
+            control.source = input;
+            UploadTransfer.send(input, size, guard, (part, index, count, uploadId, partProgress) -> {
+                String path = count == 1 ? "/api/fanbox/gallery/upload?folderPath=" + encode(folderPath)
+                    : "/api/fanbox/gallery/upload-chunk?folderPath=" + encode(folderPath) + "&filename=" + encode(filename)
+                        + "&totalSize=" + size + "&partIndex=" + index + "&partCount=" + count
+                        + (uploadId.isEmpty() ? "" : "&uploadId=" + encode(uploadId));
+                String boundary = "DazoUpload" + System.nanoTime();
+                String safe = filename.replace("\"", "_").replace("\\", "_").replace("\r", "_").replace("\n", "_");
+                byte[] prefix = ("--" + boundary + "\r\nContent-Disposition: form-data; name=\"file\"; filename=\"" + safe + "\"\r\nContent-Type: application/octet-stream\r\n\r\n").getBytes(StandardCharsets.UTF_8);
+                byte[] suffix = ("\r\n--" + boundary + "--\r\n").getBytes(StandardCharsets.UTF_8);
+                JSONObject response = selected.execute(path, (address, trusted) -> {
+                    guard.check();
+                    if (!trusted || !selected.trusted(address)) throw new IllegalArgumentException("上传地址无效");
+                    HttpURLConnection connection = (HttpURLConnection)new URL(address).openConnection();
+                    control.connection = connection;
+                    connection.setConnectTimeout(6000); connection.setReadTimeout(30000); connection.setInstanceFollowRedirects(false);
+                    connection.setRequestMethod("POST"); connection.setDoOutput(true);
+                    connection.setRequestProperty("Cookie", session); connection.setRequestProperty("X-CSRF-Token", csrfToken);
+                    connection.setRequestProperty("Content-Type", "multipart/form-data; boundary=" + boundary);
+                    connection.setFixedLengthStreamingMode(prefix.length + part.length + suffix.length);
+                    boolean sent = false;
+                    try {
+                        connection.connect(); guard.check();
+                        try (java.io.OutputStream output = connection.getOutputStream()) {
+                            sent = true; output.write(prefix);
+                            for (int offset = 0; offset < part.length; offset += 16384) {
+                                guard.check(); int length = Math.min(16384, part.length - offset);
+                                output.write(part, offset, length); partProgress.changed(offset + length);
+                            }
+                            output.write(suffix);
+                        }
+                        int status = connection.getResponseCode();
+                        if (status == 401) {
+                            if (session.equals(cookie) && ownerScope.equals(scope())) { cookie = ""; csrf = ""; prefs.edit().remove("session").apply(); }
+                            throw new IllegalStateException("登录已失效，请重新登录后上传");
+                        }
+                        if (status == 502 || status == 503 || status == 504) throw new ServerRoutes.Failure("上传连接中断，请刷新目录确认后重试", null, false);
+                        byte[] bytes = readAll(status >= 400 ? connection.getErrorStream() : connection.getInputStream());
+                        JSONObject value;
+                        try { value = new JSONObject(new String(bytes, StandardCharsets.UTF_8)); }
+                        catch (Exception e) { throw new IllegalStateException("上传失败（HTTP " + status + "）"); }
+                        if (status >= 300 || !"SUCCESS".equals(value.optString("result")))
+                            throw new IllegalStateException(value.optString("message", "上传失败（HTTP " + status + "）"));
+                        return value;
+                    } catch (java.io.IOException e) {
+                        control.check();
+                        if (e instanceof ServerRoutes.Failure) throw e;
+                        throw new ServerRoutes.Failure(sent ? "上传连接中断，请刷新目录确认后重试" : "连接上传服务器失败", e, !sent);
+                    } finally { connection.disconnect(); if (control.connection == connection) control.connection = null; }
+                });
+                return response.optJSONObject("data") == null ? "" : response.getJSONObject("data").optString("uploadId");
+            }, progress);
+        } finally { control.source = null; }
     }
 
     void uploadAvatar(Context context, Uri uri, Done<Object> done) {

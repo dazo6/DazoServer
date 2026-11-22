@@ -5,11 +5,9 @@ import android.app.AlertDialog;
 import android.app.DownloadManager;
 import android.content.Context;
 import android.content.Intent;
-import android.database.Cursor;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.net.Uri;
-import android.provider.OpenableColumns;
 import com.facebook.react.bridge.*;
 import com.facebook.react.modules.core.DeviceEventManagerModule;
 import com.facebook.react.modules.core.PermissionAwareActivity;
@@ -17,7 +15,6 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.net.URI;
-import java.util.concurrent.atomic.AtomicBoolean;
 import org.json.JSONObject;
 import org.json.JSONArray;
 
@@ -26,13 +23,17 @@ public final class DazoBridge extends ReactContextBaseJavaModule {
     private final ApiClient api;
     private final UpdateManager updates;
     private final FileDownloads downloads;
+    private final FileUploads uploads;
     private Promise picker;
-    private String uploadFolder;
-    private AtomicBoolean upload;
+    private String uploadFolder, uploadScope;
     private static final int PICK_FILE = 101, PICK_AVATAR = 102;
 
     DazoBridge(ReactApplicationContext context, ApiClient api) {
         super(context); this.api = api;
+        uploads = FileUploads.get(context);
+        uploads.setListener(json -> {
+            if (context.hasActiveReactInstance()) context.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class).emit("DazoUploadState", json);
+        });
         downloads = FileDownloads.get(context);
         downloads.setListener(json -> {
             if (context.hasActiveReactInstance()) context.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class).emit("DazoDownloadState", json);
@@ -45,7 +46,7 @@ public final class DazoBridge extends ReactContextBaseJavaModule {
             if (context.hasActiveReactInstance()) context.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class).emit("DazoUpdateState", json);
         });
         context.addLifecycleEventListener(new LifecycleEventListener() {
-            @Override public void onHostResume() { updates.setVisible(true); updates.resumeInstallation(context.getCurrentActivity()); try { downloads.resume(); } catch (RuntimeException ignored) {} }
+            @Override public void onHostResume() { updates.setVisible(true); updates.resumeInstallation(context.getCurrentActivity()); try { downloads.resume(); uploads.resume(); } catch (RuntimeException ignored) {} }
             @Override public void onHostPause() { updates.setVisible(false); }
             @Override public void onHostDestroy() { updates.setVisible(false); }
         });
@@ -53,21 +54,19 @@ public final class DazoBridge extends ReactContextBaseJavaModule {
             @Override public void onActivityResult(Activity activity, int code, int result, Intent data) {
                 if (code != PICK_FILE && code != PICK_AVATAR) return;
                 Promise pending = picker; picker = null; if (pending == null) return;
-                if (result != Activity.RESULT_OK || data == null || data.getData() == null) { pending.reject("CANCELLED", "已取消"); return; }
-                Uri uri = data.getData();
-                if (code == PICK_AVATAR) { cropAvatar(activity, uri, pending); return; }
-                String name = "upload"; long size = -1;
-                try (Cursor cursor = context.getContentResolver().query(uri, null, null, null, null)) {
-                    if (cursor != null && cursor.moveToFirst()) {
-                        int n = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME), z = cursor.getColumnIndex(OpenableColumns.SIZE);
-                        if (n >= 0) name = cursor.getString(n); if (z >= 0) size = cursor.getLong(z);
-                    }
+                if (result != Activity.RESULT_OK || data == null) { pending.reject("CANCELLED", "已取消"); return; }
+                if (code == PICK_AVATAR) {
+                    if (data.getData() == null) pending.reject("CANCELLED", "已取消"); else cropAvatar(activity, data.getData(), pending);
+                    return;
                 }
-                if (size < 1) { pending.reject("FILE", "无法读取文件大小"); return; }
-                upload = api.upload(context, uri, name, size, uploadFolder, percent -> {
-                    WritableMap event = Arguments.createMap(); event.putInt("percent", percent);
-                    context.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class).emit("DazoUploadProgress", event);
-                }, (value, error) -> { upload = null; complete(pending, value, error); });
+                try {
+                    java.util.LinkedHashSet<Uri> selected = new java.util.LinkedHashSet<>();
+                    if (data.getClipData() != null) for (int i = 0; i < data.getClipData().getItemCount(); i++) selected.add(data.getClipData().getItemAt(i).getUri());
+                    else if (data.getData() != null) selected.add(data.getData());
+                    if (selected.isEmpty()) { pending.reject("CANCELLED", "已取消"); return; }
+                    pending.resolve(uploads.enqueue(new java.util.ArrayList<>(selected), uploadFolder, uploadScope));
+                } catch (Exception error) { pending.reject("UPLOAD", error.getMessage(), error); }
+                finally { uploadFolder = null; uploadScope = null; }
             }
         });
     }
@@ -88,7 +87,7 @@ public final class DazoBridge extends ReactContextBaseJavaModule {
         if (!api.signedIn()) { try { promise.resolve(boot(null).toString()); } catch (Exception e) { promise.reject("BOOT", e); } return; }
         api.restore((user, error) -> {
             if (error != null && api.signedIn()) { promise.reject("BOOT", error); return; }
-            try { promise.resolve(boot(error == null ? user : null).toString()); } catch (Exception e) { promise.reject("BOOT", e); }
+            try { if (error == null) uploads.resume(); promise.resolve(boot(error == null ? user : null).toString()); } catch (Exception e) { promise.reject("BOOT", e); }
         });
     }
     @ReactMethod public void connectionInfo(Promise promise) {
@@ -104,6 +103,7 @@ public final class DazoBridge extends ReactContextBaseJavaModule {
         catch (Exception e) { promise.reject("UPDATE", e.getMessage(), e); }
     }
     @ReactMethod public void login(String host, String backups, String user, String password, Promise promise) {
+        uploads.cancelAll(); uploads.dismiss();
         api.login(host, backups, user, password, (me, error) -> { if (error != null) complete(promise, null, error); else try { updates.sessionChanged(); promise.resolve(boot(me).toString()); } catch (Exception e) { promise.reject("LOGIN", e); } });
     }
     @ReactMethod public void setBackupUrls(String value, Promise promise) {
@@ -125,7 +125,7 @@ public final class DazoBridge extends ReactContextBaseJavaModule {
     }
     @ReactMethod public void media(String path, boolean force, Promise promise) { api.media(path, force, (value, error) -> complete(promise, value, error)); }
     @ReactMethod public void saveState(String scope, String value) { getReactApplicationContext().getSharedPreferences("rn-state", 0).edit().putString(scope, value).apply(); }
-    @ReactMethod public void logout(Promise promise) { api.logout((x,e) -> { updates.sessionChanged(); promise.resolve(true); }); }
+    @ReactMethod public void logout(Promise promise) { uploads.cancelAll(); uploads.dismiss(); api.logout((x,e) -> { updates.sessionChanged(); promise.resolve(true); }); }
     @ReactMethod public void cacheSize(Promise promise) { promise.resolve((double) api.cacheBytes()); }
     @ReactMethod public void pickDateTime(String initial, boolean end, Promise promise) {
         Activity activity = getReactApplicationContext().getCurrentActivity();
@@ -141,17 +141,27 @@ public final class DazoBridge extends ReactContextBaseJavaModule {
         });
     }
     @ReactMethod public void clearCache(Promise promise) { api.clearCache((x,e) -> complete(promise, x, e)); }
-    @ReactMethod public void cancelUpload() { if (upload != null) upload.set(true); }
+    @ReactMethod public void cancelUpload() { uploads.cancelAll(); uploads.dismiss(); }
+    @ReactMethod public void uploadsState(Promise promise) { promise.resolve(uploads.state()); }
+    @ReactMethod public void cancelUploadFile(String id) { uploads.cancel(id); }
+    @ReactMethod public void retryUpload(String id, Promise promise) {
+        try { uploads.retry(id); promise.resolve(true); } catch (Exception error) { promise.reject(api.signedIn() ? "UPLOAD" : "SESSION", error.getMessage(), error); }
+    }
+    @ReactMethod public void dismissUploads() { uploads.dismiss(); }
     @ReactMethod public void addListener(String eventName) {}
     @ReactMethod public void removeListeners(double count) {}
-    @ReactMethod public void pickUpload(String folder, Promise promise) { uploadFolder = folder; pick("*/*", PICK_FILE, promise); }
-    @ReactMethod public void pickAvatar(Promise promise) { pick("image/*", PICK_AVATAR, promise); }
-    private void pick(String type, int request, Promise promise) {
+    @ReactMethod public void pickUpload(String folder, Promise promise) { if (!api.uploadReady(api.scope())) { promise.reject("SESSION", "请先登录服务器"); return; } pick("*/*", PICK_FILE, folder, promise); }
+    @ReactMethod public void pickAvatar(Promise promise) { pick("image/*", PICK_AVATAR, null, promise); }
+    private void pick(String type, int request, String folder, Promise promise) {
         Activity activity = getReactApplicationContext().getCurrentActivity();
-        if (activity == null || picker != null || upload != null) { promise.reject("BUSY", "请先完成当前操作"); return; }
+        if (activity == null || picker != null) { promise.reject("BUSY", "请先完成当前操作"); return; }
         picker = promise;
+        if (request == PICK_FILE) { uploadFolder = folder; uploadScope = api.scope(); }
         activity.runOnUiThread(() -> {
-            try { Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT).setType(type).addCategory(Intent.CATEGORY_OPENABLE); activity.startActivityForResult(intent, request); }
+            try { Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT).setType(type).addCategory(Intent.CATEGORY_OPENABLE)
+                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+                if (request == PICK_FILE) intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+                activity.startActivityForResult(intent, request); }
             catch (Exception e) { picker = null; promise.reject("PICKER", e); }
         });
     }

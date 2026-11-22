@@ -111,10 +111,10 @@ export function useRemote<T>(loader: () => Promise<T>, deps: unknown[]) {
     [loading, setLoading] = useState(true),
     [refreshing, setRefreshing] = useState(false),
     [revision, setRevision] = useState(0);
-  const load = useCallback(async (pull = false) => {
+  const load = useCallback(async (pull = false, silent = false) => {
     const current = ++token.current;
     if (pull) setRefreshing(true);
-    else setLoading(true);
+    else if (!silent) setLoading(true);
     try {
       const value = await loader();
       if (current === token.current) {
@@ -142,6 +142,7 @@ export function useRemote<T>(loader: () => Promise<T>, deps: unknown[]) {
     refreshing,
     revision,
     reload: () => load(false),
+    reloadSilent: () => load(false, true),
     refresh: () => load(true),
   };
 }

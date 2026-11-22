@@ -1,5 +1,7 @@
 import { Viewer } from "../viewer";
 import { useDownloads } from "../downloads";
+import { useUploadActivity } from "../uploads";
+import { completedUploadStamp, uploadPending } from "../upload-state";
 import { useUI } from "../theme";
 import React, { useContext, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -7,7 +9,6 @@ import {
   Alert,
   Animated,
   AppState,
-  DeviceEventEmitter,
   FlatList,
   Modal,
   PanResponder,
@@ -70,6 +71,7 @@ export function Gallery({
 }) {
   const { C, S } = useUI();
   const { download: saveFile } = useDownloads();
+  const { choose: chooseUploads, jobs: uploadJobs } = useUploadActivity();
   const active = useScreenActive();
   const tab = useContext(NavigationTab);
   const activeRef = useRef(active);
@@ -93,8 +95,7 @@ export function Gallery({
     [draft, setDraft] = useState(sort),
     [menu, setMenu] = useState(false),
     [fileMenu, setFileMenu] = useState<Row | null>(null),
-    [viewer, setViewer] = useState<number | null>(null),
-    [upload, setUpload] = useState<number | null>(null);
+    [viewer, setViewer] = useState<number | null>(null);
   const [origin, setOrigin] = useState<ImageTransition | null>(null);
   const rowRefs = useRef(new Map<string, React.ComponentRef<typeof View>>());
   const opened = useRef<{ index: number; position: Position } | null>(null);
@@ -244,25 +245,28 @@ export function Gallery({
       if (timer) clearTimeout(timer);
     };
   }, [active, layouts, viewportHeight, contentHeight]);
+  const uploadedStamp = completedUploadStamp(uploadJobs, path);
+  const appliedUploads = useRef(uploadedStamp);
+  const pendingUploads = uploadJobs.some(
+    (job) => job.folder === path && uploadPending(job),
+  );
   useEffect(() => {
-    const subscription = DeviceEventEmitter.addListener(
-      "DazoUploadProgress",
-      (event) => setUpload(event.percent),
-    );
-    return () => subscription.remove();
-  }, []);
-  const uploadFile = async () => {
-    setUpload(0);
-    try {
-      await Native.pickUpload(path);
-      toast("上传完成");
-      await remote.reload();
-    } catch (e) {
-      report(e);
-    } finally {
-      setUpload(null);
-    }
-  };
+    if (
+      !active ||
+      viewer !== null ||
+      !scrollIdle ||
+      pendingUploads ||
+      appliedUploads.current === uploadedStamp
+    )
+      return;
+    appliedUploads.current = uploadedStamp;
+    if (!uploadedStamp) return;
+    saved.current = { ...live.current };
+    restored.current = false;
+    restoreTarget.current = null;
+    void remote.reloadSilent();
+  }, [uploadedStamp, active, viewer, scrollIdle, pendingUploads]);
+  const uploadFile = () => chooseUploads(path);
   const download = async (item?: Row) => {
     try {
       if (item) {
@@ -752,43 +756,6 @@ export function Gallery({
           ]}
         />
       )}
-      <Sheet
-        visible={upload !== null}
-        title="上传文件"
-        onClose={() => {
-          Native.cancelUpload();
-          setUpload(null);
-        }}
-      >
-        <Txt size={13} muted style={{ marginBottom: 16 }}>
-          {upload === 0 ? "正在准备文件…" : `已上传 ${upload}%`}
-        </Txt>
-        <View
-          style={{
-            height: 6,
-            backgroundColor: C.bg,
-            borderRadius: 3,
-            marginBottom: 24,
-          }}
-        >
-          <View
-            style={{
-              height: 6,
-              width: `${upload || 0}%`,
-              backgroundColor: C.blue,
-              borderRadius: 3,
-            }}
-          />
-        </View>
-        <Button
-          quiet
-          title="取消上传"
-          onPress={() => {
-            Native.cancelUpload();
-            setUpload(null);
-          }}
-        />
-      </Sheet>
       {viewer !== null && items[viewer] && (
         <Viewer
           items={items}

@@ -70,6 +70,11 @@ final class ActionIcon extends View {
                 canvas.drawCircle(21, 21, 9, p); line(canvas, 28, 28, 36, 36); break;
             case "close":
                 line(canvas, 17, 17, 31, 31); line(canvas, 31, 17, 17, 31); break;
+            case "check":
+                line(canvas, 13, 24, 21, 32); line(canvas, 21, 32, 35, 16); break;
+            case "info":
+                canvas.drawCircle(24, 24, 13, p); line(canvas, 24, 23, 24, 32);
+                p.setStyle(Paint.Style.FILL); canvas.drawCircle(24, 16, 1.5f, p); break;
             case "filter":
                 line(canvas, 12, 16, 36, 16); line(canvas, 12, 24, 36, 24); line(canvas, 12, 32, 36, 32);
                 canvas.drawCircle(20, 16, 3, p); canvas.drawCircle(29, 24, 3, p); canvas.drawCircle(19, 32, 3, p); break;

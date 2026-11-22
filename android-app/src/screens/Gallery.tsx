@@ -1,3 +1,4 @@
+import { dragSelection, selectionScrollStep } from "../gallery-selection";
 import { Viewer } from "../viewer";
 import { useDownloads } from "../downloads";
 import { useUploadActivity } from "../uploads";
@@ -100,12 +101,38 @@ export function Gallery({
   const [selecting, setSelecting] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [deleting, setDeleting] = useState(false);
+  const [dragging, setDragging] = useState(false);
+  const containerRef = useRef<React.ComponentRef<typeof View>>(null);
+  const frame = useRef({ top: 0, height: 0, header: 94 });
+  const drag = useRef<{
+    start: number;
+    end: number;
+    base: Set<string>;
+    select: boolean;
+    y: number;
+  } | null>(null);
+  const suppressTap = useRef(false);
+  const selectionOffset = useRef(0);
+  const selectionTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const stopDrag = () => {
+    drag.current = null;
+    if (selectionTimer.current) clearInterval(selectionTimer.current);
+    selectionTimer.current = null;
+    setDragging(false);
+  };
+  useEffect(
+    () => () => {
+      if (selectionTimer.current) clearInterval(selectionTimer.current);
+    },
+    [],
+  );
   useEffect(() => {
     setSelecting(false);
     setSelected(new Set());
   }, [path]);
   const exitSelection = () => {
     if (!deleting) {
+      stopDrag();
       setSelecting(false);
       setSelected(new Set());
     }
@@ -290,6 +317,7 @@ export function Gallery({
     if (
       !active ||
       viewer !== null ||
+      selecting ||
       !scrollIdle ||
       pendingUploads ||
       appliedUploads.current === uploadedStamp
@@ -301,7 +329,7 @@ export function Gallery({
     restored.current = false;
     restoreTarget.current = null;
     void remote.reloadSilent();
-  }, [uploadedStamp, active, viewer, scrollIdle, pendingUploads]);
+  }, [uploadedStamp, active, viewer, selecting, scrollIdle, pendingUploads]);
   const uploadFile = () => chooseUploads(path);
   const download = async (item?: Row) => {
     try {
@@ -357,6 +385,7 @@ export function Gallery({
       );
     });
   const open = async (item: Row, index: number, pressed?: ImageTransition) => {
+    if (suppressTap.current) return;
     if (selecting) {
       toggleSelection(item);
       return;
@@ -371,13 +400,14 @@ export function Gallery({
       setViewer(index);
     }
   };
-  const deleteSelection = () => {
+  const deleteSelection = (single?: Row) => {
+    const chosen = single ? new Set<string>([single.name]) : selected;
     const names = items
-      .filter((item) => selected.has(item.name))
+      .filter((item) => chosen.has(item.name))
       .map((item) => item.name);
     if (!names.length || deleting) return;
     const folders = items.filter(
-      (item) => selected.has(item.name) && item.type === "folder",
+      (item) => chosen.has(item.name) && item.type === "folder",
     ).length;
     Alert.alert(
       "删除所选内容？",
@@ -423,6 +453,102 @@ export function Gallery({
       ],
     );
   };
+  const updateDrag = () => {
+    const gesture = drag.current;
+    if (!gesture) return;
+    const y = gesture.y - frame.current.top + selectionOffset.current;
+    const index = layouts.findIndex(
+      (layout) => layout.offset - 94 + frame.current.header + layout.length > y,
+    );
+    const end = index < 0 ? items.length - 1 : index;
+    if (end === gesture.end) return;
+    gesture.end = end;
+    setSelected(
+      dragSelection(
+        gesture.base,
+        items.map((item) => item.name),
+        gesture.start,
+        end,
+        gesture.select,
+        (name) => allowed(me, "delete", path + "/" + name),
+      ),
+    );
+  };
+  const startDrag = (item: Row, index: number, pageY: number) => {
+    if (
+      !selecting ||
+      deleting ||
+      !allowed(me, "delete", path + "/" + item.name)
+    )
+      return;
+    suppressTap.current = true;
+    selectionOffset.current = live.current.offset;
+    drag.current = {
+      start: index,
+      end: index,
+      base: new Set(selected),
+      select: !selected.has(item.name),
+      y: pageY,
+    };
+    setSelected(
+      dragSelection(
+        selected,
+        items.map((item) => item.name),
+        index,
+        index,
+        !selected.has(item.name),
+        (name) => allowed(me, "delete", path + "/" + name),
+      ),
+    );
+    setDragging(true);
+    containerRef.current?.measureInWindow((_x, y, _width, height) => {
+      frame.current.top = y;
+      frame.current.height = height;
+    });
+    selectionTimer.current = setInterval(() => {
+      const gesture = drag.current;
+      if (!gesture) return;
+      const step = selectionScrollStep(
+        gesture.y,
+        frame.current.top + frame.current.header,
+        frame.current.top + frame.current.height,
+      );
+      if (!step) return;
+      const next = Math.max(
+        0,
+        Math.min(
+          Math.max(0, contentHeight - viewportHeight),
+          selectionOffset.current + step,
+        ),
+      );
+      selectionOffset.current = next;
+      ref.current?.scrollToOffset({ offset: next, animated: false });
+      updateDrag();
+    }, 33);
+  };
+  useEffect(() => {
+    if (!active || !selecting || deleting) stopDrag();
+  }, [active, selecting, deleting]);
+  const gestureActions = useRef({ updateDrag, stopDrag });
+  gestureActions.current = { updateDrag, stopDrag };
+  const dragResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => false,
+        onMoveShouldSetPanResponderCapture: () => drag.current !== null,
+        onPanResponderMove: (_event, gesture) => {
+          if (drag.current) {
+            drag.current.y = gesture.moveY;
+            gestureActions.current.updateDrag();
+          }
+        },
+        onPanResponderRelease: () => gestureActions.current.stopDrag(),
+        onPanResponderTerminate: () => gestureActions.current.stopDrag(),
+        onPanResponderTerminationRequest: () => false,
+        onShouldBlockNativeResponder: () => true,
+      }),
+    [],
+  );
   const selectionBadge = (item: Row) => (
     <View
       pointerEvents="none"
@@ -466,10 +592,22 @@ export function Gallery({
     }
   }).current;
   return (
-    <View style={{ flex: 1 }}>
+    <View
+      ref={containerRef}
+      style={{ flex: 1 }}
+      {...dragResponder.panHandlers}
+      onTouchStart={() => {
+        if (!drag.current) suppressTap.current = false;
+      }}
+      onTouchEnd={() => {
+        if (drag.current) stopDrag();
+      }}
+      onTouchCancel={stopDrag}
+    >
       <ScreenActive.Provider value={active && viewer === null}>
         <FlatList
           ref={ref}
+          scrollEnabled={!dragging}
           stickyHeaderIndices={[0]}
           stickyHeaderHiddenOnScroll={!selecting}
           maintainVisibleContentPosition={
@@ -482,7 +620,11 @@ export function Gallery({
               : undefined
           }
           ListHeaderComponent={
-            <>
+            <View
+              onLayout={(event) => {
+                frame.current.header = event.nativeEvent.layout.height;
+              }}
+            >
               {header}
               <View
                 style={[
@@ -534,7 +676,7 @@ export function Gallery({
                       <Pressable
                         disabled={!selected.size}
                         accessibilityLabel="删除所选文件"
-                        onPress={deleteSelection}
+                        onPress={() => deleteSelection()}
                         style={{
                           padding: 10,
                           opacity: selected.size ? 1 : 0.4,
@@ -593,7 +735,7 @@ export function Gallery({
                   </>
                 )}
               </View>
-            </>
+            </View>
           }
           data={items}
           extraData={selected}
@@ -640,6 +782,7 @@ export function Gallery({
             if (!active) return;
             scrollActivity.scroll();
             const offset = event.nativeEvent.contentOffset.y;
+            if (!drag.current) selectionOffset.current = offset;
             setCentered(
               centeredVideoIndex(
                 items,
@@ -674,9 +817,17 @@ export function Gallery({
           }
           renderItem={({ item, index }) =>
             item.type === "folder" && !item.posterUrl ? (
-              <Card
+              <Pressable
+                accessibilityLabel={item.name}
                 onPress={() => open(item, index)}
+                onLongPress={(event) =>
+                  selecting
+                    ? startDrag(item, index, event.nativeEvent.pageY)
+                    : setFileMenu(item)
+                }
+                delayLongPress={350}
                 style={{
+                  backgroundColor: C.surface,
                   height: 62,
                   borderRadius: 0,
                   marginBottom: 2,
@@ -691,7 +842,7 @@ export function Gallery({
                   <Icon name="next" size={22} />
                 </View>
                 {selecting && selectionBadge(item)}
-              </Card>
+              </Pressable>
             ) : (
               <Pressable
                 accessibilityLabel={item.name}
@@ -719,9 +870,11 @@ export function Gallery({
                         },
                   )
                 }
-                onLongPress={() => {
-                  if (!selecting) setFileMenu(item);
-                }}
+                onLongPress={(event) =>
+                  selecting
+                    ? startDrag(item, index, event.nativeEvent.pageY)
+                    : setFileMenu(item)
+                }
                 delayLongPress={450}
                 style={{
                   backgroundColor: C.surface,
@@ -918,6 +1071,17 @@ export function Gallery({
           title={fileMenu.name}
           onClose={() => setFileMenu(null)}
           items={[
+            ...(allowed(me, "delete", path) &&
+            allowed(me, "delete", path + "/" + fileMenu.name)
+              ? [
+                  {
+                    label: "删除",
+                    icon: "trash",
+                    danger: true,
+                    action: () => deleteSelection(fileMenu),
+                  },
+                ]
+              : []),
             {
               label: fileMenu.type === "folder" ? "打开文件夹" : "打开文件",
               icon: fileMenu.type === "folder" ? "folder" : "gallery",

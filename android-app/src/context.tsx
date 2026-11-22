@@ -27,7 +27,7 @@ export type AppContextValue = {
   back(): void;
   setMe(me: Row): void;
   avatarChanged(): void;
-  request<T = any>(method: string, path: string, body?: Row): Promise<T>;
+  request<T = any>(method: string, path: string, body?: unknown): Promise<T>;
   report(error: any): void;
   toast(message: string): void;
   logout(): Promise<void>;

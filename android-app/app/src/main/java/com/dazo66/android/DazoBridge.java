@@ -120,7 +120,7 @@ public final class DazoBridge extends ReactContextBaseJavaModule {
     }
     @ReactMethod public void request(String method, String path, String body, Promise promise) {
         if (!path.startsWith("/api/")) { promise.reject("URL", "接口路径无效"); return; }
-        try { api.request(method, path, body.isEmpty() ? null : new JSONObject(body), (value, error) -> complete(promise, value, error)); }
+        try { api.request(method, path, body, (value, error) -> complete(promise, value, error)); }
         catch (Exception e) { promise.reject("JSON", e); }
     }
     @ReactMethod public void media(String path, boolean force, Promise promise) { api.media(path, force, (value, error) -> complete(promise, value, error)); }

@@ -394,7 +394,7 @@ function Authenticated({
     [signedOut, notify],
   );
   const request = useCallback(
-    async <T,>(method: string, path: string, body?: Row): Promise<T> => {
+    async <T,>(method: string, path: string, body?: unknown): Promise<T> => {
       try {
         return JSON.parse(
           await Native.request(method, path, body ? JSON.stringify(body) : ""),

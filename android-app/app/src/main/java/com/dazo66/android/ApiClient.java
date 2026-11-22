@@ -234,7 +234,7 @@ final class ApiClient {
         });
     }
 
-    void request(String method, String path, JSONObject body, Done<Object> done) {
+    void request(String method, String path, String body, Done<Object> done) {
         pool.execute(() -> {
             try { post(done, send(method, path, body).opt("data"), null); }
             catch (Exception e) { android.util.Log.w("DazoApi", "API request failed", e); post(done, null, e); }
@@ -404,8 +404,8 @@ final class ApiClient {
         });
     }
 
-    private JSONObject send(String method, String path, JSONObject body) throws Exception {
-        byte[] bytes = raw(method, host + path, body == null ? null : body.toString().getBytes(StandardCharsets.UTF_8), "application/json; charset=UTF-8");
+    private JSONObject send(String method, String path, Object body) throws Exception {
+        byte[] bytes = raw(method, host + path, JsonRequestBody.encode(body == null ? null : body.toString()), "application/json; charset=UTF-8");
         JSONObject response = new JSONObject(new String(bytes, StandardCharsets.UTF_8));
         if (!"SUCCESS".equals(response.optString("result")))
             throw new IllegalStateException(response.optString("message", "请求失败"));
